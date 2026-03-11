@@ -37,7 +37,7 @@ export default function StudentLogin() {
       if (data.attemptStatus === "submitted") {
         setLocation("/student/results");
       } else {
-        setLocation("/student/exam");
+        setLocation("/student/instructions");
       }
     } catch (error: any) {
       toast({ title: "Login Failed", description: "Invalid credentials or exam selection", variant: "destructive" });
