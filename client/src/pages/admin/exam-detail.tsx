@@ -17,7 +17,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft, Users, FileText, Trophy, BarChart3, MessageSquare, Brain,
-  Settings, Plus, Trash2, Send, RotateCcw, UserPlus, Eye,
+  Settings, Plus, Trash2, Send, RotateCcw, UserPlus, Eye, BookOpen,
   CheckCircle, Clock, AlertCircle, Mail, Upload, Image as ImageIcon,
   Loader2, XCircle, Star, Pencil, AlertTriangle
 } from "lucide-react";
@@ -135,6 +135,9 @@ export default function AdminExamDetail() {
             <TabsTrigger value="emails" className="text-xs gap-1" data-testid="tab-emails">
               <Mail className="w-3 h-3" />Emails
             </TabsTrigger>
+            <TabsTrigger value="instructions" className="text-xs gap-1" data-testid="tab-instructions">
+              <BookOpen className="w-3 h-3" />Instructions
+            </TabsTrigger>
             <TabsTrigger value="settings" className="text-xs gap-1" data-testid="tab-settings">
               <Settings className="w-3 h-3" />Settings
             </TabsTrigger>
@@ -163,6 +166,9 @@ export default function AdminExamDetail() {
           </TabsContent>
           <TabsContent value="emails">
             <EmailsTab examId={examId} examStudents={examStudents || []} templates={emailTemplates || []} />
+          </TabsContent>
+          <TabsContent value="instructions">
+            <InstructionsTab exam={exam} examId={examId} />
           </TabsContent>
           <TabsContent value="settings">
             <SettingsTab exam={exam} examId={examId} />
@@ -1682,6 +1688,88 @@ function SettingsTab({ exam, examId }: { exam: any; examId: number }) {
           <Button onClick={() => updateSettings.mutate()} disabled={updateSettings.isPending} className="shadow-sm" data-testid="button-save-settings">
             {updateSettings.isPending ? "Saving..." : "Save Settings"}
           </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function InstructionsTab({ exam, examId }: { exam: any; examId: number }) {
+  const { toast } = useToast();
+  const [instructions, setInstructions] = useState<string>(exam.instructions ?? "");
+
+  const saveInstructions = useMutation({
+    mutationFn: async () => {
+      await apiRequest("PATCH", `/api/exams/${examId}/instructions`, { instructions: instructions.trim() || null });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/exams", examId] });
+      toast({ title: "Instructions saved" });
+    },
+    onError: () => {
+      toast({ title: "Failed to save instructions", variant: "destructive" });
+    },
+  });
+
+  const hasInstructions = instructions.trim().length > 0;
+
+  return (
+    <div className="max-w-2xl space-y-4">
+      <Card className="shadow-sm border-primary/10">
+        <CardHeader className="pb-3">
+          <h3 className="font-semibold flex items-center gap-2">
+            <BookOpen className="w-4 h-4 text-primary" />
+            Exam Instructions
+          </h3>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Write custom instructions shown to students before they begin the exam. Leave empty to use the auto-generated instructions based on timer settings.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Instructions text</Label>
+            <Textarea
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              placeholder={`Example:\n- This exam consists of 30 multiple choice questions.\n- Each question has only one correct answer.\n- You have 2 minutes per question. When time runs out, the question auto-progresses.\n- You cannot go back to a previous question.\n- Do not communicate with other students during the exam.`}
+              className="min-h-[240px] bg-background font-normal text-sm leading-relaxed"
+              data-testid="textarea-instructions"
+            />
+            <p className="text-xs text-muted-foreground">
+              {instructions.trim().length} characters · supports line breaks
+            </p>
+          </div>
+
+          {hasInstructions && (
+            <Card className="bg-muted/30 border-dashed">
+              <CardContent className="p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Preview (what students will see)</p>
+                <p className="text-sm whitespace-pre-wrap leading-relaxed">{instructions}</p>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => saveInstructions.mutate()}
+              disabled={saveInstructions.isPending}
+              className="shadow-sm"
+              data-testid="button-save-instructions"
+            >
+              {saveInstructions.isPending ? "Saving..." : "Save Instructions"}
+            </Button>
+            {hasInstructions && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground"
+                onClick={() => setInstructions("")}
+                data-testid="button-clear-instructions"
+              >
+                Clear (use auto-generated)
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>

@@ -23,6 +23,7 @@ export const exams = pgTable("exams", {
   createdBy: integer("created_by").references(() => admins.id),
   resultsReleased: boolean("results_released").notNull().default(false),
   autoMarkEnabled: boolean("auto_mark_enabled").notNull().default(false),
+  instructions: text("instructions"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
@@ -90,6 +91,7 @@ export const attempts = pgTable("attempts", {
   currentQuestionIndex: integer("current_question_index").notNull().default(0),
   remainingTime: integer("remaining_time"),
   startedAt: timestamp("started_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  questionStartedAt: timestamp("question_started_at"),
   submittedAt: timestamp("submitted_at"),
 }, (table) => [
   index("idx_attempts_exam_student_id").on(table.examStudentId),

@@ -534,7 +534,15 @@ export async function registerRoutes(
       mcqCount,
       saqCount,
       attemptStatus: es.attemptStatus,
+      instructions: exam.instructions ?? null,
     });
+  });
+
+  app.patch("/api/exams/:id/instructions", requireAdmin, async (req, res) => {
+    const examId = parseInt(req.params.id);
+    const { instructions } = req.body;
+    await storage.updateExam(examId, { instructions: instructions ?? null } as any);
+    res.json({ ok: true });
   });
 
   app.post("/api/student/start-exam", async (req, res) => {
@@ -548,22 +556,22 @@ export async function registerRoutes(
     }
 
     let attempt = await storage.getAttemptByExamStudent(esId);
+    const exam = await storage.getExam(es.examId);
     if (!attempt) {
-      const exam = await storage.getExam(es.examId);
-      const remainingTime = exam?.timerMode === "full_exam" ? exam.fullExamSeconds
-        : exam?.timerMode === "per_question" ? exam.perQuestionSeconds
-        : null;
-
+      const now = new Date();
       attempt = await storage.createAttempt({
         examStudentId: esId,
         status: "in_progress",
         currentQuestionIndex: 0,
-        remainingTime,
+        remainingTime: null,
+        questionStartedAt: now,
       });
       await storage.updateExamStudent(esId, { attemptStatus: "in_progress" });
+    } else if (!attempt.questionStartedAt) {
+      const now = new Date();
+      await storage.updateAttempt(attempt.id, { questionStartedAt: now });
+      attempt = { ...attempt, questionStartedAt: now };
     }
-
-    const exam = await storage.getExam(es.examId);
     const qs = await storage.getQuestionsByExam(es.examId);
     const currentQ = qs[attempt.currentQuestionIndex];
     let questionData: any = null;
@@ -593,9 +601,11 @@ export async function registerRoutes(
       attemptId: attempt.id,
       currentQuestionIndex: attempt.currentQuestionIndex,
       totalQuestions: qs.length,
-      remainingTime: attempt.remainingTime,
       timerMode: exam?.timerMode,
       perQuestionSeconds: exam?.perQuestionSeconds,
+      fullExamSeconds: exam?.fullExamSeconds,
+      questionStartedAt: attempt.questionStartedAt?.toISOString() ?? null,
+      startedAt: attempt.startedAt?.toISOString() ?? null,
       question: questionData,
     });
   });
@@ -652,8 +662,10 @@ export async function registerRoutes(
       return res.status(400).json({ message: "No more questions", isLastQuestion: true });
     }
 
-    const remainingTime = exam?.timerMode === "per_question" ? exam.perQuestionSeconds : attempt.remainingTime;
-    await storage.updateAttempt(attemptId, { currentQuestionIndex: nextIndex, remainingTime });
+    const questionStartedAt = exam?.timerMode === "per_question" ? new Date() : null;
+    const updateData: any = { currentQuestionIndex: nextIndex };
+    if (questionStartedAt) updateData.questionStartedAt = questionStartedAt;
+    await storage.updateAttempt(attemptId, updateData);
 
     const nextQ = qs[nextIndex];
     const options = nextQ.type === "mcq" ? await storage.getQuestionOptions(nextQ.id) : [];
@@ -680,7 +692,7 @@ export async function registerRoutes(
     res.json({
       currentQuestionIndex: nextIndex,
       totalQuestions: qs.length,
-      remainingTime,
+      questionStartedAt: questionStartedAt?.toISOString() ?? null,
       question: questionData,
     });
   });

@@ -35,6 +35,7 @@ export default function StudentInstructions() {
     totalQuestions: number;
     mcqCount: number;
     saqCount: number;
+    instructions: string | null;
   }>({
     queryKey: ["/api/student/exam-info"],
   });
@@ -69,6 +70,7 @@ export default function StudentInstructions() {
     );
   }
 
+  const hasCustomInstructions = !!info.instructions?.trim();
   const isPerQuestion = info.timerMode === "per_question";
   const isFullExam = info.timerMode === "full_exam";
   const isTimed = isPerQuestion || isFullExam;
@@ -159,14 +161,10 @@ export default function StudentInstructions() {
                   <span className="text-sm font-medium">{info.totalQuestions} Questions</span>
                 </div>
                 {info.mcqCount > 0 && (
-                  <Badge variant="secondary" className="text-xs">
-                    {info.mcqCount} MCQ
-                  </Badge>
+                  <Badge variant="secondary" className="text-xs">{info.mcqCount} MCQ</Badge>
                 )}
                 {info.saqCount > 0 && (
-                  <Badge variant="secondary" className="text-xs">
-                    {info.saqCount} SAQ
-                  </Badge>
+                  <Badge variant="secondary" className="text-xs">{info.saqCount} SAQ</Badge>
                 )}
                 {isPerQuestion && (
                   <Badge className="text-xs bg-amber-500/10 text-amber-700 border-amber-500/20 hover:bg-amber-500/10">
@@ -181,41 +179,46 @@ export default function StudentInstructions() {
                   </Badge>
                 )}
                 {!isTimed && (
-                  <Badge variant="outline" className="text-xs">
-                    No time limit
-                  </Badge>
+                  <Badge variant="outline" className="text-xs">No time limit</Badge>
                 )}
               </div>
 
-              {timerRules.length > 0 && (
+              <Separator />
+
+              {hasCustomInstructions ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Instructions</p>
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">{info.instructions}</p>
+                </div>
+              ) : (
                 <>
-                  <Separator />
+                  {timerRules.length > 0 && (
+                    <div className="space-y-2.5">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Timer Rules</p>
+                      {timerRules.map((rule, i) => (
+                        <div
+                          key={i}
+                          className={`flex items-start gap-2.5 p-2.5 rounded-lg ${rule.highlight ? "bg-amber-500/5 border border-amber-500/15" : ""}`}
+                        >
+                          <div className="mt-0.5 shrink-0">{rule.icon}</div>
+                          <p className="text-sm leading-relaxed">{rule.text}</p>
+                        </div>
+                      ))}
+                      <Separator />
+                    </div>
+                  )}
+
                   <div className="space-y-2.5">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Timer Rules</p>
-                    {timerRules.map((rule, i) => (
-                      <div
-                        key={i}
-                        className={`flex items-start gap-2.5 p-2.5 rounded-lg ${rule.highlight ? "bg-amber-500/5 border border-amber-500/15" : ""}`}
-                      >
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">General Rules</p>
+                    {generalRules.map((rule, i) => (
+                      <div key={i} className="flex items-start gap-2.5">
                         <div className="mt-0.5 shrink-0">{rule.icon}</div>
-                        <p className="text-sm leading-relaxed">{rule.text}</p>
+                        <p className="text-sm leading-relaxed text-muted-foreground">{rule.text}</p>
                       </div>
                     ))}
                   </div>
                 </>
               )}
-
-              <Separator />
-
-              <div className="space-y-2.5">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">General Rules</p>
-                {generalRules.map((rule, i) => (
-                  <div key={i} className="flex items-start gap-2.5">
-                    <div className="mt-0.5 shrink-0">{rule.icon}</div>
-                    <p className="text-sm leading-relaxed text-muted-foreground">{rule.text}</p>
-                  </div>
-                ))}
-              </div>
 
               <Separator />
 

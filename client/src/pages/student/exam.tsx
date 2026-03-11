@@ -25,8 +25,9 @@ export default function StudentExam() {
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [remainingTime, setRemainingTime] = useState<number | null>(null);
+  const [questionStartedAt, setQuestionStartedAt] = useState<string | null>(null);
+  const [attemptStartedAt, setAttemptStartedAt] = useState<string | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const timerSyncRef = useRef<NodeJS.Timeout | null>(null);
   const attemptDataRef = useRef<any>(null);
   const answerRef = useRef("");
   const subAnswersRef = useRef<Record<number, string>>({});
@@ -88,12 +89,11 @@ export default function StudentExam() {
         ...prev,
         currentQuestionIndex: nextData.currentQuestionIndex,
         totalQuestions: nextData.totalQuestions,
-        remainingTime: nextData.remainingTime,
         question: nextData.question,
       }));
       setAnswer(nextData.question?.savedAnswer || "");
       setSubAnswers(nextData.question?.savedSubAnswers || {});
-      if (nextData.remainingTime != null) setRemainingTime(nextData.remainingTime);
+      if (nextData.questionStartedAt) setQuestionStartedAt(nextData.questionStartedAt);
       return false;
     } catch (e: any) {
       const errorData = await e.json?.().catch(() => ({}));
@@ -143,7 +143,8 @@ export default function StudentExam() {
       setAttemptData(data);
       setAnswer(data.question?.savedAnswer || "");
       setSubAnswers(data.question?.savedSubAnswers || {});
-      if (data.remainingTime != null) setRemainingTime(data.remainingTime);
+      if (data.questionStartedAt) setQuestionStartedAt(data.questionStartedAt);
+      if (data.startedAt) setAttemptStartedAt(data.startedAt);
       setLoading(false);
     } catch {
       toast({ title: "Error", description: "Failed to load exam", variant: "destructive" });
@@ -153,51 +154,45 @@ export default function StudentExam() {
 
   useEffect(() => {
     loadExam();
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (timerSyncRef.current) clearInterval(timerSyncRef.current);
-    };
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [loadExam]);
 
   useEffect(() => {
-    if (remainingTime == null || !attemptData) return;
+    if (!attemptData?.timerMode || attemptData.timerMode === "none") return;
+
+    const computeRemaining = (): number | null => {
+      if (attemptData.timerMode === "per_question" && questionStartedAt) {
+        const elapsed = Math.floor((Date.now() - new Date(questionStartedAt).getTime()) / 1000);
+        return Math.max(0, (attemptData.perQuestionSeconds ?? 0) - elapsed);
+      }
+      if (attemptData.timerMode === "full_exam" && attemptStartedAt) {
+        const elapsed = Math.floor((Date.now() - new Date(attemptStartedAt).getTime()) / 1000);
+        return Math.max(0, (attemptData.fullExamSeconds ?? 0) - elapsed);
+      }
+      return null;
+    };
 
     if (timerRef.current) clearInterval(timerRef.current);
-    if (timerSyncRef.current) clearInterval(timerSyncRef.current);
 
-    timerRef.current = setInterval(() => {
-      setRemainingTime(prev => {
-        if (prev == null || prev <= 0) {
-          if (timerRef.current) clearInterval(timerRef.current);
-          if (timerSyncRef.current) clearInterval(timerSyncRef.current);
-          handleTimerExpiry();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    if (attemptData.timerMode === "full_exam" || attemptData.timerMode === "per_question") {
-      timerSyncRef.current = setInterval(() => {
-        setRemainingTime(prev => {
-          if (prev != null && prev > 0 && attemptData?.attemptId) {
-            fetch("/api/student/update-timer", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ attemptId: attemptData.attemptId, remainingTime: prev }),
-              credentials: "include",
-            }).catch(() => {});
-          }
-          return prev;
-        });
-      }, 5000);
+    const initial = computeRemaining();
+    if (initial !== null) {
+      setRemainingTime(initial);
+      if (initial <= 0) { handleTimerExpiry(); return; }
     }
 
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (timerSyncRef.current) clearInterval(timerSyncRef.current);
-    };
-  }, [attemptData?.attemptId, attemptData?.timerMode, attemptData?.currentQuestionIndex, handleTimerExpiry]);
+    timerRef.current = setInterval(() => {
+      const remaining = computeRemaining();
+      if (remaining !== null) {
+        setRemainingTime(remaining);
+        if (remaining <= 0) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          handleTimerExpiry();
+        }
+      }
+    }, 1000);
+
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [attemptData?.timerMode, attemptData?.perQuestionSeconds, attemptData?.fullExamSeconds, questionStartedAt, attemptStartedAt, handleTimerExpiry]);
 
   const saveCurrentAnswer = async () => {
     if (!attemptData?.question) return;
@@ -242,12 +237,11 @@ export default function StudentExam() {
         ...prev,
         currentQuestionIndex: data.currentQuestionIndex,
         totalQuestions: data.totalQuestions,
-        remainingTime: data.remainingTime,
         question: data.question,
       }));
       setAnswer(data.question?.savedAnswer || "");
       setSubAnswers(data.question?.savedSubAnswers || {});
-      if (data.remainingTime != null) setRemainingTime(data.remainingTime);
+      if (data.questionStartedAt) setQuestionStartedAt(data.questionStartedAt);
     } catch (e: any) {
       const errorData = await e.json?.().catch(() => ({}));
       if (errorData?.isLastQuestion) {
