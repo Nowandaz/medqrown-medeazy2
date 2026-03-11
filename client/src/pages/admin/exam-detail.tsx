@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation, Link } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -35,9 +35,27 @@ export default function AdminExamDetail() {
   const { data: examQuestions } = useQuery<any[]>({ queryKey: ["/api/exams", examId, "questions"] });
   const { data: rankings } = useQuery<any[]>({ queryKey: ["/api/exams", examId, "rankings"], enabled: activeTab === "rankings" });
   const { data: analytics } = useQuery<any[]>({ queryKey: ["/api/exams", examId, "analytics"], enabled: activeTab === "analytics" });
-  const { data: feedback } = useQuery<any[]>({ queryKey: ["/api/exams", examId, "feedback"], enabled: activeTab === "feedback" });
+  const { data: feedback } = useQuery<any[]>({
+    queryKey: ["/api/exams", examId, "feedback"],
+    refetchInterval: 30000,
+  });
   const { data: examResponses } = useQuery<any[]>({ queryKey: ["/api/exams", examId, "responses"], enabled: activeTab === "marking" });
   const { data: emailTemplates } = useQuery<any[]>({ queryKey: ["/api/email-templates"], enabled: activeTab === "emails" });
+
+  const prevFeedbackCount = useRef<number | null>(null);
+  useEffect(() => {
+    if (!feedback) return;
+    if (prevFeedbackCount.current !== null && feedback.length > prevFeedbackCount.current) {
+      const newest = feedback[0];
+      toast({
+        title: "New feedback received",
+        description: newest?.studentName
+          ? `${newest.studentName} left feedback${newest.rating ? ` (${newest.rating}/5)` : ""}`
+          : "A student left feedback",
+      });
+    }
+    prevFeedbackCount.current = feedback.length;
+  }, [feedback?.length]);
 
   if (isLoading) {
     return (
@@ -103,8 +121,13 @@ export default function AdminExamDetail() {
             <TabsTrigger value="analytics" className="text-xs gap-1" data-testid="tab-analytics">
               <BarChart3 className="w-3 h-3" />Analytics
             </TabsTrigger>
-            <TabsTrigger value="feedback" className="text-xs gap-1" data-testid="tab-feedback">
+            <TabsTrigger value="feedback" className="text-xs gap-1 relative" data-testid="tab-feedback">
               <MessageSquare className="w-3 h-3" />Feedback
+              {(feedback?.length ?? 0) > 0 && (
+                <span className="ml-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold leading-none">
+                  {feedback!.length}
+                </span>
+              )}
             </TabsTrigger>
             <TabsTrigger value="marking" className="text-xs gap-1" data-testid="tab-marking">
               <Brain className="w-3 h-3" />AI Marking
@@ -308,6 +331,18 @@ function StudentsTab({ examId, examStudents }: { examId: number; examStudents: a
       setSending(false);
     }
   };
+
+  const resendSingle = async (esId: number, studentName: string) => {
+    try {
+      const res = await apiRequest("POST", `/api/exams/${examId}/send-emails`, { studentIds: [esId] });
+      const data = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/exams", examId, "students"] });
+      if (data.sent > 0) toast({ title: `Login resent to ${studentName}` });
+      else toast({ title: `Failed to send to ${studentName}`, variant: "destructive" });
+    } catch {
+      toast({ title: "Failed to resend login", variant: "destructive" });
+    }
+  };
   const unsentCount = examStudents.filter((es: any) => !es.emailSent).length;
 
   const statusBadge = (s: string) => {
@@ -380,6 +415,9 @@ function StudentsTab({ examId, examStudents }: { examId: number; examStudents: a
                 <div className="flex items-center gap-2 flex-wrap">
                   {statusBadge(es.attemptStatus)}
                   {es.emailSent && <Badge variant="outline" className="text-xs gap-1"><Mail className="w-3 h-3" />Sent</Badge>}
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => resendSingle(es.id, es.student?.name)} title="Resend login email" data-testid={`button-resend-${es.id}`}>
+                    <Mail className="w-3 h-3" />
+                  </Button>
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => resetAttempt.mutate(es.id)} title="Reset attempt" data-testid={`button-reset-${es.id}`}>
                     <RotateCcw className="w-3 h-3" />
                   </Button>
@@ -1029,19 +1067,25 @@ function FeedbackTab({ feedback }: { feedback: any[] }) {
       ) : (
         <div className="space-y-2">
           {feedback.map((fb: any) => (
-            <Card key={fb.id} className="shadow-sm">
-              <CardContent className="py-3 px-4">
-                <p className="text-sm leading-relaxed">{fb.content}</p>
-                <div className="flex items-center justify-between mt-2">
-                  {fb.rating && (
-                    <div className="flex items-center gap-0.5">
-                      {[1, 2, 3, 4, 5].map((s) => (
-                        <Star key={s} className={`w-3.5 h-3.5 ${s <= fb.rating ? "text-yellow-500 fill-yellow-500" : "text-muted-foreground/20"}`} />
-                      ))}
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground">{new Date(fb.createdAt).toLocaleDateString()}</p>
+            <Card key={fb.id} className="shadow-sm" data-testid={`card-feedback-${fb.id}`}>
+              <CardContent className="py-3 px-4 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium" data-testid={`text-feedback-student-${fb.id}`}>{fb.studentName || "Anonymous"}</p>
+                    {fb.studentEmail && <p className="text-xs text-muted-foreground">{fb.studentEmail}</p>}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {fb.rating && (
+                      <div className="flex items-center gap-0.5">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star key={s} className={`w-3 h-3 ${s <= fb.rating ? "text-yellow-500 fill-yellow-500" : "text-muted-foreground/20"}`} />
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground">{new Date(fb.createdAt).toLocaleDateString()}</p>
+                  </div>
                 </div>
+                <p className="text-sm leading-relaxed text-muted-foreground">{fb.content}</p>
               </CardContent>
             </Card>
           ))}
@@ -1229,6 +1273,20 @@ function MarkingTab({ examId, responses, stats }: { examId: number; responses: a
           </div>
         </CardContent>
       </Card>
+
+      {!isMarking && Object.keys(studentErrors).length > 0 && (
+        <Card className="border-destructive/40 bg-destructive/5 shadow-sm">
+          <CardContent className="py-3 px-4 flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-destructive">AI marking errors detected</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {Object.values(studentErrors).flat().length} response{Object.values(studentErrors).flat().length !== 1 ? "s" : ""} could not be marked. Use the Re-mark button on the affected students to retry.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {studentList.length > 0 && (
         <div className="space-y-3">

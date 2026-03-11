@@ -351,7 +351,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getStudentFeedback(examId: number) {
-    return db.select().from(studentFeedback).where(eq(studentFeedback.examId, examId)).orderBy(desc(studentFeedback.createdAt));
+    const rows = await db.select({
+      id: studentFeedback.id,
+      examId: studentFeedback.examId,
+      studentId: studentFeedback.studentId,
+      content: studentFeedback.content,
+      rating: studentFeedback.rating,
+      createdAt: studentFeedback.createdAt,
+      studentName: students.name,
+      studentEmail: students.email,
+    })
+    .from(studentFeedback)
+    .leftJoin(students, eq(studentFeedback.studentId, students.id))
+    .where(eq(studentFeedback.examId, examId))
+    .orderBy(desc(studentFeedback.createdAt));
+    return rows;
   }
 
   async createStudentFeedback(fb: InsertStudentFeedback) {

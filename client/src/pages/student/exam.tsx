@@ -177,7 +177,7 @@ export default function StudentExam() {
       });
     }, 1000);
 
-    if (attemptData.timerMode === "full_exam") {
+    if (attemptData.timerMode === "full_exam" || attemptData.timerMode === "per_question") {
       timerSyncRef.current = setInterval(() => {
         setRemainingTime(prev => {
           if (prev != null && prev > 0 && attemptData?.attemptId) {
@@ -190,7 +190,7 @@ export default function StudentExam() {
           }
           return prev;
         });
-      }, 10000);
+      }, 5000);
     }
 
     return () => {
