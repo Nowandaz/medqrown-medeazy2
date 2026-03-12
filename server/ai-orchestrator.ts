@@ -37,7 +37,15 @@ function getProviderKey(provider: AiProvider): string {
 }
 
 function getProviderEndpoint(provider: AiProvider): string | undefined {
-  return provider.endpoint || (provider.baseUrlEnv ? process.env[provider.baseUrlEnv] : undefined);
+  const raw = provider.endpoint || (provider.baseUrlEnv ? process.env[provider.baseUrlEnv] : undefined);
+  if (!raw) return undefined;
+  // Strip common path suffixes that users mistakenly include in the base URL.
+  // The OpenAI client appends /chat/completions itself, so the base URL must not include it.
+  return raw
+    .replace(/\/chat\/completions\/?$/, "")
+    .replace(/\/messages\/?$/, "")
+    .replace(/\/completions\/?$/, "")
+    .replace(/\/$/, "");
 }
 
 function getOpenAiClient(provider: AiProvider): OpenAI {

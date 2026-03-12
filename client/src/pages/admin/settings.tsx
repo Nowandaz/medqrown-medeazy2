@@ -143,7 +143,7 @@ function AiProvidersSection({ providers }: { providers: any[] }) {
       <div className="space-y-2">
         <Label>Endpoint URL (optional)</Label>
         <Input value={form.endpoint} onChange={(e) => setForm({ ...form, endpoint: e.target.value })} placeholder="https://openrouter.ai/api/v1" data-testid="input-provider-endpoint" />
-        <p className="text-xs text-muted-foreground">Leave empty for the provider's default endpoint. Use for OpenRouter or custom proxies.</p>
+        <p className="text-xs text-muted-foreground">Base URL only — do not include <code className="bg-muted px-1 rounded">/chat/completions</code> at the end. e.g. <code className="bg-muted px-1 rounded">https://api.together.xyz/v1</code></p>
       </div>
       <div className="space-y-2">
         <Label>Model (optional)</Label>
