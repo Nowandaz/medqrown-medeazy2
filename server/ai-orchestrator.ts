@@ -212,8 +212,9 @@ async function callProviderChunk(
 ): Promise<MarkingResult[]> {
   const model = getModelName(provider);
   const userBody = buildBatchRequestBody(chunk);
-  // Per-chunk token budget: 200 output tokens per answer + 400 overhead, capped at 4000
-  const maxTokens = Math.min(200 * chunk.length + 400, 4000);
+  // Keep max_tokens low enough to stay within tight credit budgets on free-tier providers.
+  // Formula: ~120 output tokens per answer (brief feedback) + 300 overhead, hard cap 1800.
+  const maxTokens = Math.min(120 * chunk.length + 300, 1800);
 
   console.log(
     `[Chunk ${chunkIndex + 1}/${totalChunks}] ${chunk.length} answers → provider "${provider.name}" ` +
@@ -233,13 +234,16 @@ async function callProviderChunk(
     rawContent = response.content[0]?.type === "text" ? response.content[0].text : "";
   } else {
     const client = getOpenAiClient(provider);
+    // NOTE: Do NOT use response_format: json_object here — many free-tier and open-source
+    // models (e.g. Gemma, Llama, Mistral via OpenRouter) reject it with a 400 error.
+    // The system prompt already instructs the model to return JSON; parseJsonSafe handles
+    // the response including markdown fences and minor deviations.
     const response = await client.chat.completions.create({
       model,
       messages: [
         { role: "system", content: batchPrompt },
         { role: "user", content: userBody },
       ],
-      response_format: { type: "json_object" },
       max_tokens: maxTokens,
     });
     rawContent = response.choices[0]?.message?.content || "";
