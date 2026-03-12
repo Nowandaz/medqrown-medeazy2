@@ -213,8 +213,8 @@ async function callProviderChunk(
   const model = getModelName(provider);
   const userBody = buildBatchRequestBody(chunk);
   // Keep max_tokens low enough to stay within tight credit budgets on free-tier providers.
-  // Formula: ~120 output tokens per answer (brief feedback) + 300 overhead, hard cap 1800.
-  const maxTokens = Math.min(120 * chunk.length + 300, 1800);
+  // Formula: ~80 output tokens per answer (brief feedback) + 200 overhead, hard cap 1200.
+  const maxTokens = Math.min(80 * chunk.length + 200, 1200);
 
   console.log(
     `[Chunk ${chunkIndex + 1}/${totalChunks}] ${chunk.length} answers → provider "${provider.name}" ` +
@@ -452,14 +452,26 @@ async function buildMarkingItems(
   return items;
 }
 
-function getDefaultProviders(): AiProvider[] {
-  return [{
-    id: 0, name: "OpenAI (Default)", type: "openai",
+function getReplitFallbackProvider(): AiProvider {
+  return {
+    id: 0, name: "OpenAI (Replit fallback)", type: "openai",
     apiKeyEnv: "AI_INTEGRATIONS_OPENAI_API_KEY",
     baseUrlEnv: "AI_INTEGRATIONS_OPENAI_BASE_URL",
     endpoint: null, model: null, isActive: true, weight: 1,
     apiKeyDirect: null,
-  }];
+  };
+}
+
+// Returns active DB providers with the Replit OpenAI always appended as a last resort.
+// This guarantees marking works even if every user-configured provider is out of credits.
+async function getProvidersWithFallback(): Promise<AiProvider[]> {
+  const active = (await storage.getAiProviders()).filter(p => p.isActive);
+  const fallback = getReplitFallbackProvider();
+  // Only append if not already represented by an env-key-based Replit provider
+  const alreadyHasReplit = active.some(
+    p => p.apiKeyEnv === "AI_INTEGRATIONS_OPENAI_API_KEY" && !p.apiKeyDirect
+  );
+  return alreadyHasReplit ? active : [...active, fallback];
 }
 
 // Group items by student
@@ -477,8 +489,7 @@ export async function markSAQResponses(
   customPrompt?: string,
   onProgress?: (event: MarkingProgressEvent) => void
 ): Promise<{ jobId: number; results: MarkingResult[]; errors: { responseId: number; error: string }[] }> {
-  let providers = (await storage.getAiProviders()).filter(p => p.isActive);
-  if (providers.length === 0) providers = getDefaultProviders();
+  const providers = await getProvidersWithFallback();
 
   const allItems = await buildMarkingItems(examId);
   const job = await storage.createAiMarkingJob({ examId, totalItems: allItems.length, prompt: customPrompt });
@@ -541,8 +552,7 @@ export async function markStudentSAQResponses(
   customPrompt?: string,
   onProgress?: (event: MarkingProgressEvent) => void
 ): Promise<{ results: MarkingResult[]; errors: { responseId: number; error: string }[] }> {
-  let providers = (await storage.getAiProviders()).filter(p => p.isActive);
-  if (providers.length === 0) throw new Error("No active AI providers");
+  const providers = await getProvidersWithFallback();
 
   const attempt = await storage.getAttemptByExamStudent(examStudentId);
   if (attempt) {
@@ -592,8 +602,7 @@ export async function markSingleResponse(
   responseId: number,
   customPrompt?: string
 ): Promise<MarkingResult> {
-  let providers = (await storage.getAiProviders()).filter(p => p.isActive);
-  if (providers.length === 0) throw new Error("No active AI providers");
+  const providers = await getProvidersWithFallback();
 
   const { db } = await import("./db");
   const { responses, questions, subquestions: subqTable, attempts } = await import("@shared/schema");
