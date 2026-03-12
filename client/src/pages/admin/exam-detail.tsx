@@ -1208,7 +1208,11 @@ function MarkingTab({ examId, responses, stats }: { examId: number; responses: a
         toast({ title: `Re-marked ${data.marked} responses` });
       }
     } catch (e: any) {
-      toast({ title: "Re-mark failed", description: e.message, variant: "destructive" });
+      // Parse JSON error message from the server if present
+      let description = e.message || "Unknown error";
+      const jsonMatch = description.match(/\{.*"message"\s*:\s*"([\s\S]+?)".*\}/);
+      if (jsonMatch) description = jsonMatch[1].replace(/\\n/g, "\n");
+      toast({ title: "Re-mark failed", description, variant: "destructive" });
     } finally {
       setRemarkingId(null);
     }

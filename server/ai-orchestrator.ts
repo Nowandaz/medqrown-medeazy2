@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { storage } from "./storage";
 import type { AiProvider } from "@shared/schema";
 
@@ -31,10 +32,20 @@ export interface MarkingProgressEvent {
   error?: string;
 }
 
-function getAiClient(provider: AiProvider): OpenAI {
-  const endpoint = provider.endpoint || (provider.baseUrlEnv ? process.env[provider.baseUrlEnv] : undefined);
-  const apiKey = provider.apiKeyDirect || (provider.apiKeyEnv ? process.env[provider.apiKeyEnv] : "");
-  return new OpenAI({ apiKey: apiKey || "dummy", baseURL: endpoint });
+function getProviderKey(provider: AiProvider): string {
+  return provider.apiKeyDirect || (provider.apiKeyEnv ? process.env[provider.apiKeyEnv] || "" : "");
+}
+
+function getProviderEndpoint(provider: AiProvider): string | undefined {
+  return provider.endpoint || (provider.baseUrlEnv ? process.env[provider.baseUrlEnv] : undefined);
+}
+
+function getOpenAiClient(provider: AiProvider): OpenAI {
+  return new OpenAI({ apiKey: getProviderKey(provider) || "dummy", baseURL: getProviderEndpoint(provider) });
+}
+
+function getAnthropicClient(provider: AiProvider): Anthropic {
+  return new Anthropic({ apiKey: getProviderKey(provider) || "dummy", baseURL: getProviderEndpoint(provider) });
 }
 
 function getModelName(provider: AiProvider): string {
@@ -42,7 +53,7 @@ function getModelName(provider: AiProvider): string {
   switch (provider.type) {
     case "openai": return "gpt-4o";
     case "gemini": return "gemini-2.0-flash";
-    case "anthropic": return "claude-sonnet-4-20250514";
+    case "anthropic": return "claude-sonnet-4-5";
     default: return "gpt-4o";
   }
 }
@@ -63,6 +74,7 @@ function getWeightedProviderOrder(providers: AiProvider[], index: number): AiPro
   return order;
 }
 
+// Used for single-response marking (fallback / markSingleResponse)
 const DEFAULT_PROMPT = `You are marking a medical exam short answer question. Compare the student's answer to the expected answer.
 
 Rules:
@@ -75,90 +87,198 @@ Rules:
 
 Respond in JSON format: {"isCorrect": true/false, "feedback": "your feedback"}`;
 
-async function callProvider(
+// Used for batch marking — all of one student's answers in a single API call
+const DEFAULT_BATCH_PROMPT = `You are marking a medical exam. You will receive a numbered list of student answers. Mark each one against its expected answer.
+
+Rules:
+- Be strict but fair in your evaluation.
+- Accept synonyms, abbreviations, alternative spellings, and similar phrasing that conveys the same meaning as the expected answer.
+- Minor spelling mistakes should not count against the student if the intended answer is clearly correct.
+- If the student's answer is INCORRECT, your feedback MUST explain why the expected answer is the correct one — provide a brief educational explanation.
+- If the student's answer is CORRECT, give brief positive feedback.
+- NEVER mention "image description", "image caption", "based on the image", or any reference to images/descriptions in your feedback. Write as if you inherently know the subject matter.
+
+Respond ONLY with a JSON object in this exact format (one entry per numbered answer, in the same order):
+{"results": [{"id": 1, "isCorrect": true, "feedback": "..."}, {"id": 2, "isCorrect": false, "feedback": "..."}, ...]}`;
+
+function parseJsonSafe(raw: string): any {
+  let content = raw.trim();
+  // Strip markdown code fences
+  const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenceMatch) content = fenceMatch[1].trim();
+  // Try direct parse
+  try { return JSON.parse(content); } catch {}
+  // Extract first {...} block
+  const objMatch = content.match(/\{[\s\S]*\}/);
+  if (objMatch) { try { return JSON.parse(objMatch[0]); } catch {} }
+  return null;
+}
+
+// ─── Single-item call (used as fallback and for markSingleResponse) ───────────
+
+async function callProviderSingle(
   item: MarkingItem,
   provider: AiProvider,
   prompt: string
 ): Promise<MarkingResult> {
-  const client = getAiClient(provider);
   const model = getModelName(provider);
-
   let userContent = `Question: ${item.questionContent}\nExpected Answer: ${item.expectedAnswer}\nStudent Answer: ${item.studentAnswer}`;
-  if (item.imageCaption) {
-    userContent += `\nAdditional context: ${item.imageCaption}`;
+  if (item.imageCaption) userContent += `\nAdditional context: ${item.imageCaption}`;
+
+  let rawContent: string;
+
+  if (provider.type === "anthropic") {
+    const client = getAnthropicClient(provider);
+    const response = await client.messages.create({
+      model,
+      max_tokens: 500,
+      system: prompt,
+      messages: [{ role: "user", content: userContent }],
+    });
+    rawContent = response.content[0]?.type === "text" ? response.content[0].text : "";
+  } else {
+    const client = getOpenAiClient(provider);
+    const response = await client.chat.completions.create({
+      model,
+      messages: [{ role: "system", content: prompt }, { role: "user", content: userContent }],
+      response_format: { type: "json_object" },
+      max_tokens: 500,
+    });
+    rawContent = response.choices[0]?.message?.content || "";
   }
-
-  const response = await client.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: prompt },
-      { role: "user", content: userContent },
-    ],
-    response_format: { type: "json_object" },
-    max_tokens: 500,
-  });
-
-  const rawContent = response.choices[0]?.message?.content || "";
   let parsed: { isCorrect: boolean; feedback: string };
-  try {
-    // Strip markdown code fences if present (e.g. ```json ... ``` or ``` ... ```)
-    let content = rawContent.trim();
-    const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fenceMatch) content = fenceMatch[1].trim();
-
-    // Try direct parse first
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      // Fall back: extract first {...} block from the text
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        parsed = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error("No JSON object found");
-      }
-    }
-
-    // Normalise isCorrect in case the AI returned a string like "true"/"false"
-    if (typeof (parsed as any).isCorrect === "string") {
-      (parsed as any).isCorrect = (parsed as any).isCorrect.toLowerCase() === "true";
-    }
-  } catch {
-    console.error(`Failed to parse AI response content: ${rawContent.slice(0, 200)}`);
+  const data = parseJsonSafe(rawContent);
+  if (data && typeof data.isCorrect !== "undefined") {
+    parsed = {
+      isCorrect: typeof data.isCorrect === "string"
+        ? data.isCorrect.toLowerCase() === "true"
+        : Boolean(data.isCorrect),
+      feedback: data.feedback || "",
+    };
+  } else {
+    console.error(`Failed to parse single AI response: ${rawContent.slice(0, 200)}`);
     parsed = { isCorrect: false, feedback: "Unable to parse AI response" };
   }
 
   const marksAwarded = parsed.isCorrect ? item.marks : 0;
-  await storage.updateResponse(item.responseId, {
-    isCorrect: parsed.isCorrect,
-    aiFeedback: parsed.feedback,
-    marksAwarded,
-  });
-
-  return {
-    responseId: item.responseId,
-    isCorrect: parsed.isCorrect,
-    marksAwarded,
-    feedback: parsed.feedback,
-  };
+  await storage.updateResponse(item.responseId, { isCorrect: parsed.isCorrect, aiFeedback: parsed.feedback, marksAwarded });
+  return { responseId: item.responseId, isCorrect: parsed.isCorrect, marksAwarded, feedback: parsed.feedback };
 }
 
-async function markItemWithFallback(
-  item: MarkingItem,
+// ─── Batch call — all items for ONE student in a single API request ───────────
+
+async function callProviderBatch(
+  items: MarkingItem[],
+  provider: AiProvider,
+  batchPrompt: string
+): Promise<MarkingResult[]> {
+  const model = getModelName(provider);
+
+  const userLines = items.map((item, idx) => {
+    let line = `Answer ${idx + 1}:\nQuestion: ${item.questionContent}\nExpected Answer: ${item.expectedAnswer}\nStudent Answer: ${item.studentAnswer || "(no answer given)"}`;
+    if (item.imageCaption) line += `\nContext: ${item.imageCaption}`;
+    return line;
+  }).join("\n\n---\n\n");
+
+  const maxTokens = Math.min(250 * items.length + 300, 8000);
+  console.log(`[Batch] Sending ${items.length} answers to provider "${provider.name}" model="${model}" max_tokens=${maxTokens}`);
+
+  let rawContent: string;
+
+  if (provider.type === "anthropic") {
+    const client = getAnthropicClient(provider);
+    const response = await client.messages.create({
+      model,
+      max_tokens: maxTokens,
+      system: batchPrompt,
+      messages: [{ role: "user", content: userLines }],
+    });
+    rawContent = response.content[0]?.type === "text" ? response.content[0].text : "";
+  } else {
+    const client = getOpenAiClient(provider);
+    const response = await client.chat.completions.create({
+      model,
+      messages: [{ role: "system", content: batchPrompt }, { role: "user", content: userLines }],
+      response_format: { type: "json_object" },
+      max_tokens: maxTokens,
+    });
+    rawContent = response.choices[0]?.message?.content || "";
+  }
+  console.log(`[Batch] Raw response:\n${rawContent.slice(0, 1000)}`);
+
+  const data = parseJsonSafe(rawContent);
+
+  if (!data) {
+    throw new Error(`Could not parse JSON from batch response. Raw: ${rawContent.slice(0, 400)}`);
+  }
+
+  // Accept both {"results": [...]} and a direct array wrapped as {"0": ..., "1": ...} (some models)
+  let resultsArray: any[] = Array.isArray(data.results) ? data.results
+    : Array.isArray(data) ? data
+    : null;
+
+  if (!resultsArray) {
+    throw new Error(`Batch response missing results array. Keys found: ${Object.keys(data).join(", ")}. Raw: ${rawContent.slice(0, 400)}`);
+  }
+
+  if (resultsArray.length !== items.length) {
+    console.warn(`[Batch] Expected ${items.length} results but got ${resultsArray.length}`);
+  }
+
+  const results: MarkingResult[] = [];
+  for (let idx = 0; idx < items.length; idx++) {
+    const item = items[idx];
+    const entry = resultsArray.find((r: any) => Number(r.id) === idx + 1) ?? resultsArray[idx];
+
+    let isCorrect = false;
+    let feedback = "No result returned for this answer";
+
+    if (entry) {
+      isCorrect = typeof entry.isCorrect === "string"
+        ? entry.isCorrect.toLowerCase() === "true"
+        : Boolean(entry.isCorrect);
+      feedback = entry.feedback || "";
+    } else {
+      console.error(`[Batch] Missing result entry for answer ${idx + 1}`);
+      feedback = `AI did not return a result for answer ${idx + 1}`;
+    }
+
+    const marksAwarded = isCorrect ? item.marks : 0;
+    await storage.updateResponse(item.responseId, { isCorrect, aiFeedback: feedback, marksAwarded });
+    results.push({ responseId: item.responseId, isCorrect, marksAwarded, feedback });
+  }
+
+  console.log(`[Batch] Done — ${results.length} answers marked in 1 API call`);
+  return results;
+}
+
+// ─── Mark one student's items: batch only, NO individual fallback ─────────────
+
+async function markStudentItems(
+  items: MarkingItem[],
   providers: AiProvider[],
   prompt: string,
-  itemIndex: number
-): Promise<{ result: MarkingResult | null; error?: string }> {
-  const providerOrder = getWeightedProviderOrder(providers, itemIndex);
+  providerIndex: number
+): Promise<{ results: MarkingResult[]; errors: { responseId: number; error: string }[] }> {
+  const batchPrompt = prompt === DEFAULT_PROMPT ? DEFAULT_BATCH_PROMPT
+    : `${prompt}\n\nRespond ONLY with a JSON object: {"results": [{"id": 1, "isCorrect": true, "feedback": "..."}, ...]}`;
+
+  const providerOrder = getWeightedProviderOrder(providers, providerIndex);
+  const providerErrors: string[] = [];
+
   for (const provider of providerOrder) {
     try {
-      const result = await callProvider(item, provider, prompt);
-      return { result };
+      const results = await callProviderBatch(items, provider, batchPrompt);
+      return { results, errors: [] };
     } catch (err: any) {
-      console.error(`Provider "${provider.name}" failed for response ${item.responseId}: ${err.message}`);
+      const msg = `Provider "${provider.name}": ${err.message}`;
+      console.error(`[Batch] ${msg}`);
+      providerErrors.push(msg);
     }
   }
-  return { result: null, error: `All ${providers.length} provider(s) failed for this response` };
+
+  // All providers failed — throw so the error surfaces to the admin
+  throw new Error(`Batch marking failed for all providers:\n${providerErrors.join("\n")}`);
 }
 
 async function buildMarkingItems(
@@ -204,12 +324,7 @@ async function buildMarkingItems(
             });
           } else {
             if (!includeAlreadyMarked && resp && resp.isCorrect !== null) continue;
-            const upserted = await storage.upsertResponse({
-              attemptId: attempt.id,
-              questionId: q.id,
-              subquestionId: sq.id,
-              answer: null,
-            });
+            const upserted = await storage.upsertResponse({ attemptId: attempt.id, questionId: q.id, subquestionId: sq.id, answer: null });
             items.push({
               responseId: upserted.id,
               questionContent: `${q.content}\n${sq.content}`,
@@ -241,12 +356,7 @@ async function buildMarkingItems(
           });
         } else {
           if (!includeAlreadyMarked && resp && resp.isCorrect !== null) continue;
-          const upserted = await storage.upsertResponse({
-            attemptId: attempt.id,
-            questionId: q.id,
-            subquestionId: null,
-            answer: null,
-          });
+          const upserted = await storage.upsertResponse({ attemptId: attempt.id, questionId: q.id, subquestionId: null, answer: null });
           items.push({
             responseId: upserted.id,
             questionContent: q.content,
@@ -277,6 +387,16 @@ function getDefaultProviders(): AiProvider[] {
   }];
 }
 
+// Group items by student
+function groupByStudent(items: MarkingItem[]): Map<number, MarkingItem[]> {
+  const map = new Map<number, MarkingItem[]>();
+  for (const item of items) {
+    if (!map.has(item.examStudentId)) map.set(item.examStudentId, []);
+    map.get(item.examStudentId)!.push(item);
+  }
+  return map;
+}
+
 export async function markSAQResponses(
   examId: number,
   customPrompt?: string,
@@ -285,51 +405,54 @@ export async function markSAQResponses(
   let providers = (await storage.getAiProviders()).filter(p => p.isActive);
   if (providers.length === 0) providers = getDefaultProviders();
 
-  const items = await buildMarkingItems(examId);
-  const job = await storage.createAiMarkingJob({ examId, totalItems: items.length, prompt: customPrompt });
+  const allItems = await buildMarkingItems(examId);
+  const job = await storage.createAiMarkingJob({ examId, totalItems: allItems.length, prompt: customPrompt });
   const prompt = customPrompt || DEFAULT_PROMPT;
 
   const results: MarkingResult[] = [];
   const errors: { responseId: number; error: string }[] = [];
   let completed = 0;
 
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    let result: MarkingResult | null = null;
-    let error: string | undefined;
+  // Separate unanswered (no API call needed) from items needing marking
+  const unanswered = allItems.filter(i => i.isUnanswered);
+  const toMark = allItems.filter(i => !i.isUnanswered);
 
-    if (item.isUnanswered) {
-      const feedback = item.expectedAnswer
-        ? `Not answered. The correct answer is: ${item.expectedAnswer}`
-        : "Not answered.";
-      await storage.updateResponse(item.responseId, {
-        isCorrect: false,
-        aiFeedback: feedback,
-        marksAwarded: 0,
-      });
-      result = { responseId: item.responseId, isCorrect: false, marksAwarded: 0, feedback };
-    } else {
-      const out = await markItemWithFallback(item, providers, prompt, i);
-      result = out.result;
-      error = out.error;
-    }
-
+  // Handle unanswered items instantly
+  for (const item of unanswered) {
+    const feedback = item.expectedAnswer
+      ? `Not answered. The correct answer is: ${item.expectedAnswer}`
+      : "Not answered.";
+    await storage.updateResponse(item.responseId, { isCorrect: false, aiFeedback: feedback, marksAwarded: 0 });
+    results.push({ responseId: item.responseId, isCorrect: false, marksAwarded: 0, feedback });
     completed++;
     await storage.updateAiMarkingJob(job.id, { completedItems: completed });
+    onProgress?.({ completed, total: allItems.length, studentName: item.studentName, studentEmail: item.studentEmail, examStudentId: item.examStudentId });
+  }
 
-    if (result) {
-      results.push(result);
-    } else {
-      errors.push({ responseId: item.responseId, error: error || "Unknown error" });
-    }
+  // Group remaining items by student — one API call per student
+  const byStudent = groupByStudent(toMark);
+  let studentIndex = 0;
+
+  for (const [examStudentId, studentItems] of byStudent) {
+    const { studentName, studentEmail } = studentItems[0];
+
+    const { results: studentResults, errors: studentErrors } = await markStudentItems(
+      studentItems, providers, prompt, studentIndex++
+    );
+
+    for (const r of studentResults) results.push(r);
+    for (const e of studentErrors) errors.push(e);
+
+    completed += studentItems.length;
+    await storage.updateAiMarkingJob(job.id, { completedItems: completed });
 
     onProgress?.({
       completed,
-      total: items.length,
-      studentName: item.studentName,
-      studentEmail: item.studentEmail,
-      examStudentId: item.examStudentId,
-      error,
+      total: allItems.length,
+      studentName,
+      studentEmail,
+      examStudentId,
+      error: studentErrors.length > 0 ? `${studentErrors.length} answer(s) failed` : undefined,
     });
   }
 
@@ -356,50 +479,35 @@ export async function markStudentSAQResponses(
     const allResps = await storage.getResponsesByAttempt(attempt.id);
     for (const resp of allResps) {
       if (saqQuestionIds.has(resp.questionId)) {
-        await db.update(responses)
-          .set({ isCorrect: null, aiFeedback: null, marksAwarded: null })
-          .where(eq(responses.id, resp.id));
+        await db.update(responses).set({ isCorrect: null, aiFeedback: null, marksAwarded: null }).where(eq(responses.id, resp.id));
       }
     }
   }
 
-  const items = await buildMarkingItems(examId, examStudentId, true);
+  const allItems = await buildMarkingItems(examId, examStudentId, true);
   const prompt = customPrompt || DEFAULT_PROMPT;
 
   const results: MarkingResult[] = [];
   const errors: { responseId: number; error: string }[] = [];
 
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    let result: MarkingResult | null = null;
-    let error: string | undefined;
+  const unanswered = allItems.filter(i => i.isUnanswered);
+  const toMark = allItems.filter(i => !i.isUnanswered);
 
-    if (item.isUnanswered) {
-      const feedback = item.expectedAnswer
-        ? `Not answered. The correct answer is: ${item.expectedAnswer}`
-        : "Not answered.";
-      await storage.updateResponse(item.responseId, {
-        isCorrect: false,
-        aiFeedback: feedback,
-        marksAwarded: 0,
-      });
-      result = { responseId: item.responseId, isCorrect: false, marksAwarded: 0, feedback };
-    } else {
-      const out = await markItemWithFallback(item, providers, prompt, i);
-      result = out.result;
-      error = out.error;
-    }
+  for (const item of unanswered) {
+    const feedback = item.expectedAnswer
+      ? `Not answered. The correct answer is: ${item.expectedAnswer}`
+      : "Not answered.";
+    await storage.updateResponse(item.responseId, { isCorrect: false, aiFeedback: feedback, marksAwarded: 0 });
+    results.push({ responseId: item.responseId, isCorrect: false, marksAwarded: 0, feedback });
+    onProgress?.({ completed: results.length + errors.length, total: allItems.length, studentName: item.studentName, studentEmail: item.studentEmail, examStudentId: item.examStudentId });
+  }
 
-    if (result) results.push(result);
-    else errors.push({ responseId: item.responseId, error: error || "Unknown error" });
-    onProgress?.({
-      completed: i + 1,
-      total: items.length,
-      studentName: item.studentName,
-      studentEmail: item.studentEmail,
-      examStudentId: item.examStudentId,
-      error,
-    });
+  if (toMark.length > 0) {
+    const { results: batchResults, errors: batchErrors } = await markStudentItems(toMark, providers, prompt, 0);
+    for (const r of batchResults) results.push(r);
+    for (const e of batchErrors) errors.push(e);
+    const { studentName, studentEmail } = toMark[0];
+    onProgress?.({ completed: allItems.length, total: allItems.length, studentName, studentEmail, examStudentId, error: batchErrors.length > 0 ? `${batchErrors.length} answer(s) failed` : undefined });
   }
 
   return { results, errors };
@@ -428,41 +536,28 @@ export async function markSingleResponse(
 
   if (resp.subquestionId) {
     const [sq] = await db.select().from(subqTable).where(eq(subqTable.id, resp.subquestionId));
-    if (sq) {
-      questionContent = `${question.content}\n${sq.content}`;
-      expectedAnswer = sq.expectedAnswer || "";
-      marks = sq.marks;
-    }
+    if (sq) { questionContent = `${question.content}\n${sq.content}`; expectedAnswer = sq.expectedAnswer || ""; marks = sq.marks; }
   }
 
   const [attempt] = await db.select().from(attempts).where(eq(attempts.id, resp.attemptId));
-  let studentName = "Unknown";
-  let studentEmail = "";
-  let examStudentId = 0;
+  let studentName = "Unknown", studentEmail = "", examStudentId = 0;
   if (attempt) {
     examStudentId = attempt.examStudentId;
     const examStudents = await storage.getStudentsByExam(question.examId);
     const es = examStudents.find(s => s.id === attempt.examStudentId);
-    if (es) {
-      studentName = es.student?.name || "Unknown";
-      studentEmail = es.student?.email || "";
-    }
+    if (es) { studentName = es.student?.name || "Unknown"; studentEmail = es.student?.email || ""; }
   }
 
   const prompt = customPrompt || DEFAULT_PROMPT;
-  const fakeItem: MarkingItem = {
-    responseId: resp.id,
-    questionContent,
-    expectedAnswer,
-    studentAnswer: resp.answer,
-    marks,
-    imageCaption: question.imageCaption,
-    examStudentId,
-    studentName,
-    studentEmail,
-  };
+  const fakeItem: MarkingItem = { responseId: resp.id, questionContent, expectedAnswer, studentAnswer: resp.answer, marks, imageCaption: question.imageCaption, examStudentId, studentName, studentEmail };
 
-  const { result, error } = await markItemWithFallback(fakeItem, providers, prompt, 0);
-  if (!result) throw new Error(error || "All providers failed");
-  return result;
+  const providerOrder = getWeightedProviderOrder(providers, 0);
+  for (const provider of providerOrder) {
+    try {
+      return await callProviderSingle(fakeItem, provider, prompt);
+    } catch (err: any) {
+      console.error(`Provider "${provider.name}" failed for single response ${responseId}: ${err.message}`);
+    }
+  }
+  throw new Error("All providers failed");
 }

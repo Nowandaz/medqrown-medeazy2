@@ -297,6 +297,56 @@ export async function registerRoutes(
     }
   });
 
+  // Debug: test batch marking with 2 dummy questions — does NOT write to DB
+  app.post("/api/debug/batch-test", requireAdmin, async (req, res) => {
+    try {
+      let providers = (await storage.getAiProviders()).filter(p => p.isActive);
+      if (providers.length === 0) return res.status(400).json({ error: "No active providers" });
+      const OpenAI = (await import("openai")).default;
+      const Anthropic = (await import("@anthropic-ai/sdk")).default;
+      const results: any[] = [];
+      const BATCH_PROMPT = `You are marking a medical exam. For each numbered student answer, compare it to the expected answer and respond ONLY with a JSON object:\n{"results": [{"id": 1, "isCorrect": true, "feedback": "..."}, {"id": 2, "isCorrect": false, "feedback": "..."}]}`;
+      const TEST_INPUT = `Answer 1:\nQuestion: What is the normal adult resting heart rate?\nExpected Answer: 60-100 bpm\nStudent Answer: around 70 beats per minute\n\n---\n\nAnswer 2:\nQuestion: What is the largest organ in the human body?\nExpected Answer: Skin\nStudent Answer: liver`;
+      for (const p of providers) {
+        const apiKey = p.apiKeyDirect || (p.apiKeyEnv ? process.env[p.apiKeyEnv] : "");
+        const endpoint = p.endpoint || (p.baseUrlEnv ? process.env[p.baseUrlEnv] : undefined);
+        const model = p.model || (p.type === "gemini" ? "gemini-2.0-flash" : p.type === "anthropic" ? "claude-sonnet-4-5" : "gpt-4o");
+        try {
+          let raw: string;
+          if (p.type === "anthropic") {
+            const client = new Anthropic({ apiKey: apiKey || "dummy", baseURL: endpoint });
+            const resp = await client.messages.create({
+              model, max_tokens: 600, system: BATCH_PROMPT,
+              messages: [{ role: "user", content: TEST_INPUT }],
+            });
+            raw = resp.content[0]?.type === "text" ? resp.content[0].text : "";
+          } else {
+            const client = new OpenAI({ apiKey: apiKey || "dummy", baseURL: endpoint });
+            const resp = await client.chat.completions.create({
+              model, messages: [{ role: "system", content: BATCH_PROMPT }, { role: "user", content: TEST_INPUT }],
+              response_format: { type: "json_object" }, max_tokens: 600,
+            });
+            raw = resp.choices[0]?.message?.content || "";
+          }
+          let parsed: any = null;
+          try {
+            // Strip markdown code fences before parsing (Anthropic wraps in ```json...```)
+            let clean = raw.trim();
+            const fence = clean.match(/```(?:json)?\s*([\s\S]*?)```/);
+            if (fence) clean = fence[1].trim();
+            parsed = JSON.parse(clean);
+          } catch {}
+          results.push({ provider: p.name, model, success: !!parsed?.results, raw: raw.slice(0, 200), parsed });
+        } catch (err: any) {
+          results.push({ provider: p.name, model, success: false, error: err.message });
+        }
+      }
+      res.json({ results });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post("/api/exams/:examId/students/:esId/remark", requireAdmin, async (req, res) => {
     const examId = parseInt(req.params.examId);
     const esId = parseInt(req.params.esId);
