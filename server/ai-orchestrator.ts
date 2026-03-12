@@ -173,23 +173,52 @@ async function callProviderSingle(
   return { responseId: item.responseId, isCorrect: parsed.isCorrect, marksAwarded, feedback: parsed.feedback };
 }
 
-// ─── Batch call — all items for ONE student in a single API request ───────────
+// ─── How many answers per API request ────────────────────────────────────────
+const CHUNK_SIZE = 15;
 
-async function callProviderBatch(
-  items: MarkingItem[],
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
+  return chunks;
+}
+
+// ─── Request body builder — exported so you can inspect/log it ───────────────
+//
+// Builds the plain-text user message that gets sent in each API request.
+// Items are numbered 1..N within each chunk (reset per chunk).
+// The system prompt instructs the model to return {"results": [{"id":1,...}, ...]}
+//
+export function buildBatchRequestBody(items: MarkingItem[]): string {
+  return items.map((item, idx) => {
+    let block = [
+      `Answer ${idx + 1}:`,
+      `Question: ${item.questionContent}`,
+      `Expected Answer: ${item.expectedAnswer}`,
+      `Student Answer: ${item.studentAnswer || "(no answer given)"}`,
+    ].join("\n");
+    if (item.imageCaption) block += `\nContext: ${item.imageCaption}`;
+    return block;
+  }).join("\n\n---\n\n");
+}
+
+// ─── Single chunk call (one API request, ≤ CHUNK_SIZE answers) ───────────────
+
+async function callProviderChunk(
+  chunk: MarkingItem[],
+  chunkIndex: number,
+  totalChunks: number,
   provider: AiProvider,
   batchPrompt: string
 ): Promise<MarkingResult[]> {
   const model = getModelName(provider);
+  const userBody = buildBatchRequestBody(chunk);
+  // Per-chunk token budget: 200 output tokens per answer + 400 overhead, capped at 4000
+  const maxTokens = Math.min(200 * chunk.length + 400, 4000);
 
-  const userLines = items.map((item, idx) => {
-    let line = `Answer ${idx + 1}:\nQuestion: ${item.questionContent}\nExpected Answer: ${item.expectedAnswer}\nStudent Answer: ${item.studentAnswer || "(no answer given)"}`;
-    if (item.imageCaption) line += `\nContext: ${item.imageCaption}`;
-    return line;
-  }).join("\n\n---\n\n");
-
-  const maxTokens = Math.min(250 * items.length + 300, 8000);
-  console.log(`[Batch] Sending ${items.length} answers to provider "${provider.name}" model="${model}" max_tokens=${maxTokens}`);
+  console.log(
+    `[Chunk ${chunkIndex + 1}/${totalChunks}] ${chunk.length} answers → provider "${provider.name}" ` +
+    `model="${model}" max_tokens=${maxTokens}`
+  );
 
   let rawContent: string;
 
@@ -199,47 +228,58 @@ async function callProviderBatch(
       model,
       max_tokens: maxTokens,
       system: batchPrompt,
-      messages: [{ role: "user", content: userLines }],
+      messages: [{ role: "user", content: userBody }],
     });
     rawContent = response.content[0]?.type === "text" ? response.content[0].text : "";
   } else {
     const client = getOpenAiClient(provider);
     const response = await client.chat.completions.create({
       model,
-      messages: [{ role: "system", content: batchPrompt }, { role: "user", content: userLines }],
+      messages: [
+        { role: "system", content: batchPrompt },
+        { role: "user", content: userBody },
+      ],
       response_format: { type: "json_object" },
       max_tokens: maxTokens,
     });
     rawContent = response.choices[0]?.message?.content || "";
   }
-  console.log(`[Batch] Raw response:\n${rawContent.slice(0, 1000)}`);
+
+  console.log(`[Chunk ${chunkIndex + 1}/${totalChunks}] Raw response: ${rawContent.slice(0, 600)}`);
 
   const data = parseJsonSafe(rawContent);
-
   if (!data) {
-    throw new Error(`Could not parse JSON from batch response. Raw: ${rawContent.slice(0, 400)}`);
+    throw new Error(
+      `Chunk ${chunkIndex + 1}: could not parse JSON. Raw: ${rawContent.slice(0, 300)}`
+    );
   }
 
-  // Accept both {"results": [...]} and a direct array wrapped as {"0": ..., "1": ...} (some models)
-  let resultsArray: any[] = Array.isArray(data.results) ? data.results
-    : Array.isArray(data) ? data
+  const resultsArray: any[] = Array.isArray(data.results)
+    ? data.results
+    : Array.isArray(data)
+    ? data
     : null;
 
   if (!resultsArray) {
-    throw new Error(`Batch response missing results array. Keys found: ${Object.keys(data).join(", ")}. Raw: ${rawContent.slice(0, 400)}`);
+    throw new Error(
+      `Chunk ${chunkIndex + 1}: missing results array. Keys: ${Object.keys(data).join(", ")}`
+    );
   }
 
-  if (resultsArray.length !== items.length) {
-    console.warn(`[Batch] Expected ${items.length} results but got ${resultsArray.length}`);
+  if (resultsArray.length !== chunk.length) {
+    console.warn(
+      `[Chunk ${chunkIndex + 1}/${totalChunks}] Expected ${chunk.length} results but got ${resultsArray.length}`
+    );
   }
 
   const results: MarkingResult[] = [];
-  for (let idx = 0; idx < items.length; idx++) {
-    const item = items[idx];
+  for (let idx = 0; idx < chunk.length; idx++) {
+    const item = chunk[idx];
+    // IDs within a chunk are 1-based (reset per chunk)
     const entry = resultsArray.find((r: any) => Number(r.id) === idx + 1) ?? resultsArray[idx];
 
     let isCorrect = false;
-    let feedback = "No result returned for this answer";
+    let feedback = `AI did not return a result for answer ${idx + 1}`;
 
     if (entry) {
       isCorrect = typeof entry.isCorrect === "string"
@@ -247,8 +287,7 @@ async function callProviderBatch(
         : Boolean(entry.isCorrect);
       feedback = entry.feedback || "";
     } else {
-      console.error(`[Batch] Missing result entry for answer ${idx + 1}`);
-      feedback = `AI did not return a result for answer ${idx + 1}`;
+      console.error(`[Chunk ${chunkIndex + 1}] Missing entry for answer ${idx + 1}`);
     }
 
     const marksAwarded = isCorrect ? item.marks : 0;
@@ -256,11 +295,13 @@ async function callProviderBatch(
     results.push({ responseId: item.responseId, isCorrect, marksAwarded, feedback });
   }
 
-  console.log(`[Batch] Done — ${results.length} answers marked in 1 API call`);
+  console.log(
+    `[Chunk ${chunkIndex + 1}/${totalChunks}] Done — ${results.length} answers marked`
+  );
   return results;
 }
 
-// ─── Mark one student's items: batch only, NO individual fallback ─────────────
+// ─── Mark one student's items: split into CHUNK_SIZE chunks, per-chunk fallback
 
 async function markStudentItems(
   items: MarkingItem[],
@@ -268,25 +309,47 @@ async function markStudentItems(
   prompt: string,
   providerIndex: number
 ): Promise<{ results: MarkingResult[]; errors: { responseId: number; error: string }[] }> {
-  const batchPrompt = prompt === DEFAULT_PROMPT ? DEFAULT_BATCH_PROMPT
+  const batchPrompt = prompt === DEFAULT_PROMPT
+    ? DEFAULT_BATCH_PROMPT
     : `${prompt}\n\nRespond ONLY with a JSON object: {"results": [{"id": 1, "isCorrect": true, "feedback": "..."}, ...]}`;
 
-  const providerOrder = getWeightedProviderOrder(providers, providerIndex);
-  const providerErrors: string[] = [];
+  const chunks = chunkArray(items, CHUNK_SIZE);
+  const totalChunks = chunks.length;
+  console.log(
+    `[Mark] Student has ${items.length} answers → ${totalChunks} chunk(s) of ≤${CHUNK_SIZE}`
+  );
 
-  for (const provider of providerOrder) {
-    try {
-      const results = await callProviderBatch(items, provider, batchPrompt);
-      return { results, errors: [] };
-    } catch (err: any) {
-      const msg = `Provider "${provider.name}": ${err.message}`;
-      console.error(`[Batch] ${msg}`);
-      providerErrors.push(msg);
+  const allResults: MarkingResult[] = [];
+  const allErrors: { responseId: number; error: string }[] = [];
+
+  for (let ci = 0; ci < chunks.length; ci++) {
+    const chunk = chunks[ci];
+    const providerOrder = getWeightedProviderOrder(providers, providerIndex + ci);
+    const chunkErrors: string[] = [];
+    let chunkDone = false;
+
+    for (const provider of providerOrder) {
+      try {
+        const results = await callProviderChunk(chunk, ci, totalChunks, provider, batchPrompt);
+        for (const r of results) allResults.push(r);
+        chunkDone = true;
+        break;
+      } catch (err: any) {
+        const msg = `Chunk ${ci + 1} — Provider "${provider.name}": ${err.message}`;
+        console.error(`[Mark] ${msg}`);
+        chunkErrors.push(msg);
+      }
+    }
+
+    if (!chunkDone) {
+      // All providers failed this chunk — surface the error
+      throw new Error(
+        `Marking failed for chunk ${ci + 1}/${totalChunks} (answers ${ci * CHUNK_SIZE + 1}–${Math.min((ci + 1) * CHUNK_SIZE, items.length)}):\n${chunkErrors.join("\n")}`
+      );
     }
   }
 
-  // All providers failed — throw so the error surfaces to the admin
-  throw new Error(`Batch marking failed for all providers:\n${providerErrors.join("\n")}`);
+  return { results: allResults, errors: allErrors };
 }
 
 async function buildMarkingItems(
