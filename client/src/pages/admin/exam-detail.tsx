@@ -468,7 +468,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
   const [editImageUrl, setEditImageUrl] = useState("");
   const [editImageCaption, setEditImageCaption] = useState("");
   const [editOptions, setEditOptions] = useState<{ content: string; isCorrect: boolean }[]>([]);
-  const [editSubQs, setEditSubQs] = useState<{ content: string; marks: number; expectedAnswer: string }[]>([]);
+  const [editSubQs, setEditSubQs] = useState<{ id?: number; content: string; marks: number; expectedAnswer: string }[]>([]);
   const [editUploading, setEditUploading] = useState(false);
   const editFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -480,7 +480,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
     setEditImageUrl(q.imageUrl || "");
     setEditImageCaption(q.imageCaption || "");
     setEditOptions(q.options?.map((o: any) => ({ content: o.content, isCorrect: o.isCorrect })) || []);
-    setEditSubQs(q.subquestions?.map((sq: any) => ({ content: sq.content, marks: sq.marks, expectedAnswer: sq.expectedAnswer || "" })) || []);
+    setEditSubQs(q.subquestions?.map((sq: any) => ({ id: sq.id, content: sq.content, marks: sq.marks, expectedAnswer: sq.expectedAnswer || "" })) || []);
   };
 
   const uploadEditImage = async (file: File) => {

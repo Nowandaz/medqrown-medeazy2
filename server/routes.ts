@@ -229,11 +229,30 @@ export async function registerRoutes(
     }
     if (subs) {
       const { db } = await import("./db");
-      const { subquestions: sqTable } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      await db.delete(sqTable).where(eq(sqTable.questionId, qId));
+      const { subquestions: sqTable, responses: responsesTable } = await import("@shared/schema");
+      const { eq, inArray } = await import("drizzle-orm");
+
+      // IDs present in the incoming payload (existing subquestions being kept)
+      const keptIds = subs.filter((s: any) => s.id).map((s: any) => s.id as number);
+
+      // Find subquestions in DB that are NOT in the incoming list — these are being removed
+      const existingSubs = await db.select({ id: sqTable.id }).from(sqTable).where(eq(sqTable.questionId, qId));
+      const removedIds = existingSubs.map(s => s.id).filter(id => !keptIds.includes(id));
+
+      if (removedIds.length > 0) {
+        // Only delete responses for subquestions that are actually being removed
+        await db.delete(responsesTable).where(inArray(responsesTable.subquestionId, removedIds));
+        await db.delete(sqTable).where(inArray(sqTable.id, removedIds));
+      }
+
+      // Update existing subquestions in place and create new ones
       for (let i = 0; i < subs.length; i++) {
-        await storage.createSubquestion({ questionId: qId, content: subs[i].content, marks: subs[i].marks, expectedAnswer: subs[i].expectedAnswer, orderIndex: i });
+        const sub = subs[i];
+        if (sub.id) {
+          await db.update(sqTable).set({ content: sub.content, marks: sub.marks, expectedAnswer: sub.expectedAnswer, orderIndex: i }).where(eq(sqTable.id, sub.id));
+        } else {
+          await storage.createSubquestion({ questionId: qId, content: sub.content, marks: sub.marks, expectedAnswer: sub.expectedAnswer, orderIndex: i });
+        }
       }
     }
     invalidateExamCache(parseInt(req.params.examId));

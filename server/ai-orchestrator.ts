@@ -98,11 +98,33 @@ async function callProvider(
     max_tokens: 500,
   });
 
-  const content = response.choices[0]?.message?.content || "{}";
+  const rawContent = response.choices[0]?.message?.content || "";
   let parsed: { isCorrect: boolean; feedback: string };
   try {
-    parsed = JSON.parse(content);
+    // Strip markdown code fences if present (e.g. ```json ... ``` or ``` ... ```)
+    let content = rawContent.trim();
+    const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenceMatch) content = fenceMatch[1].trim();
+
+    // Try direct parse first
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      // Fall back: extract first {...} block from the text
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error("No JSON object found");
+      }
+    }
+
+    // Normalise isCorrect in case the AI returned a string like "true"/"false"
+    if (typeof (parsed as any).isCorrect === "string") {
+      (parsed as any).isCorrect = (parsed as any).isCorrect.toLowerCase() === "true";
+    }
   } catch {
+    console.error(`Failed to parse AI response content: ${rawContent.slice(0, 200)}`);
     parsed = { isCorrect: false, feedback: "Unable to parse AI response" };
   }
 

@@ -241,6 +241,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteSubquestions(questionId: number) {
+    // Must delete responses referencing these subquestions first (FK constraint)
+    const existingSubs = await db.select({ id: subquestions.id }).from(subquestions).where(eq(subquestions.questionId, questionId));
+    if (existingSubs.length > 0) {
+      const { inArray } = await import("drizzle-orm");
+      const subIds = existingSubs.map(s => s.id);
+      await db.delete(responses).where(inArray(responses.subquestionId, subIds));
+    }
     await db.delete(subquestions).where(eq(subquestions.questionId, questionId));
   }
 
