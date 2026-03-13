@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { storage } from "./storage";
 import type { AiProvider } from "@shared/schema";
 
@@ -54,6 +55,17 @@ function getOpenAiClient(provider: AiProvider): OpenAI {
 
 function getAnthropicClient(provider: AiProvider): Anthropic {
   return new Anthropic({ apiKey: getProviderKey(provider) || "dummy", baseURL: getProviderEndpoint(provider) });
+}
+
+function getGeminiClient(provider: AiProvider): GoogleGenerativeAI {
+  // The Replit Gemini sidecar injects AI_INTEGRATIONS_GEMINI_API_KEY and
+  // AI_INTEGRATIONS_GEMINI_BASE_URL. The Google GenAI SDK accepts a custom
+  // apiEndpoint to redirect through the Replit proxy.
+  const key = getProviderKey(provider) || "dummy";
+  const endpoint = getProviderEndpoint(provider);
+  return endpoint
+    ? new GoogleGenerativeAI(key, { apiEndpoint: endpoint } as any)
+    : new GoogleGenerativeAI(key);
 }
 
 function getModelName(provider: AiProvider): string {
@@ -144,6 +156,17 @@ async function callProviderSingle(
       messages: [{ role: "user", content: userContent }],
     });
     rawContent = response.content[0]?.type === "text" ? response.content[0].text : "";
+  } else if (provider.type === "gemini") {
+    const client = getGeminiClient(provider);
+    const geminiModel = client.getGenerativeModel({
+      model,
+      systemInstruction: prompt,
+    });
+    const result = await geminiModel.generateContent({
+      contents: [{ role: "user", parts: [{ text: userContent }] }],
+      generationConfig: { maxOutputTokens: 500 },
+    });
+    rawContent = result.response.text();
   } else {
     const client = getOpenAiClient(provider);
     const response = await client.chat.completions.create({
@@ -232,6 +255,17 @@ async function callProviderChunk(
       messages: [{ role: "user", content: userBody }],
     });
     rawContent = response.content[0]?.type === "text" ? response.content[0].text : "";
+  } else if (provider.type === "gemini") {
+    const client = getGeminiClient(provider);
+    const geminiModel = client.getGenerativeModel({
+      model,
+      systemInstruction: batchPrompt,
+    });
+    const result = await geminiModel.generateContent({
+      contents: [{ role: "user", parts: [{ text: userBody }] }],
+      generationConfig: { maxOutputTokens: maxTokens },
+    });
+    rawContent = result.response.text();
   } else {
     const client = getOpenAiClient(provider);
     // NOTE: Do NOT use response_format: json_object here — many free-tier and open-source
