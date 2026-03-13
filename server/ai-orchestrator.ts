@@ -235,9 +235,10 @@ async function callProviderChunk(
 ): Promise<MarkingResult[]> {
   const model = getModelName(provider);
   const userBody = buildBatchRequestBody(chunk);
-  // Keep max_tokens low enough to stay within tight credit budgets on free-tier providers.
-  // Formula: ~80 output tokens per answer (brief feedback) + 200 overhead, hard cap 1200.
-  const maxTokens = Math.min(80 * chunk.length + 200, 1200);
+  // Allow generous output so verbose models (e.g. Gemini 2.5 Flash) don't truncate mid-JSON.
+  // Formula: ~200 tokens per answer + 400 overhead, capped at 8000.
+  // Gemini (direct key) and Replit OpenAI are free so no credit concerns.
+  const maxTokens = Math.min(200 * chunk.length + 400, 8000);
 
   console.log(
     `[Chunk ${chunkIndex + 1}/${totalChunks}] ${chunk.length} answers → provider "${provider.name}" ` +
