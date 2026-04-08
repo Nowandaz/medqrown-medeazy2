@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: medqrown-medeazy
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_FROM_NAME
+        value: MedQrown MedEazy
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
