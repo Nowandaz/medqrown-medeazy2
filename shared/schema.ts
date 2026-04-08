@@ -210,4 +210,3 @@ export type InsertStudentFeedback = z.infer<typeof insertStudentFeedbackSchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type AiMarkingJob = typeof aiMarkingJobs.$inferSelect;
 
-export * from "./models/chat";
