@@ -243,19 +243,30 @@ function AiProvidersSection({ providers }: { providers: any[] }) {
             )}
             {testResults?.map((r: any, i: number) => (
               <div key={i} className={`rounded-md border p-3 ${r.success ? "border-green-500/40 bg-green-50 dark:bg-green-950/20" : "border-red-500/40 bg-red-50 dark:bg-red-950/20"}`}>
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
                   {r.success
                     ? <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
                     : <XCircle className="w-4 h-4 text-red-600 shrink-0" />}
                   <span className="font-medium text-sm">{r.provider}</span>
                   <Badge variant="outline" className="text-xs">{r.model}</Badge>
                 </div>
+                {r.keySource && (
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Key: <code className="font-mono">{r.keyPreview}</code> · {r.keyLen} chars · source: {r.keySource}
+                  </p>
+                )}
                 {r.success
-                  ? <p className="text-xs text-green-700 dark:text-green-400">✓ API call succeeded and returned valid JSON</p>
-                  : <p className="text-xs text-red-700 dark:text-red-400 break-all">{r.error || "Failed to parse response"}</p>}
-                {!r.success && r.raw && (
+                  ? <p className="text-xs text-green-700 dark:text-green-400 font-medium">✓ API call succeeded — this provider is working correctly</p>
+                  : <p className="text-xs text-red-700 dark:text-red-400 break-all font-medium">{r.error || "Failed to parse response"}</p>}
+                {r.success && r.raw && (
                   <details className="mt-1">
                     <summary className="text-xs text-muted-foreground cursor-pointer">Raw response</summary>
+                    <pre className="text-xs mt-1 whitespace-pre-wrap break-all">{r.raw}</pre>
+                  </details>
+                )}
+                {!r.success && r.raw && (
+                  <details className="mt-1">
+                    <summary className="text-xs text-muted-foreground cursor-pointer">Raw API response (for debugging)</summary>
                     <pre className="text-xs mt-1 whitespace-pre-wrap break-all">{r.raw}</pre>
                   </details>
                 )}
