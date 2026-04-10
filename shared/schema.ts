@@ -100,8 +100,8 @@ export const attempts = pgTable("attempts", {
 export const responses = pgTable("responses", {
   id: serial("id").primaryKey(),
   attemptId: integer("attempt_id").notNull().references(() => attempts.id, { onDelete: "cascade" }),
-  questionId: integer("question_id").notNull().references(() => questions.id),
-  subquestionId: integer("subquestion_id").references(() => subquestions.id),
+  questionId: integer("question_id").notNull().references(() => questions.id, { onDelete: "cascade" }),
+  subquestionId: integer("subquestion_id").references(() => subquestions.id, { onDelete: "set null" }),
   answer: text("answer"),
   isCorrect: boolean("is_correct"),
   aiFeedback: text("ai_feedback"),
@@ -162,7 +162,7 @@ export const auditLogs = pgTable("audit_logs", {
 
 export const aiMarkingJobs = pgTable("ai_marking_jobs", {
   id: serial("id").primaryKey(),
-  examId: integer("exam_id").notNull().references(() => exams.id),
+  examId: integer("exam_id").notNull().references(() => exams.id, { onDelete: "cascade" }),
   status: text("status").notNull().default("pending"),
   totalItems: integer("total_items").notNull().default(0),
   completedItems: integer("completed_items").notNull().default(0),
