@@ -38,9 +38,7 @@ export async function registerRoutes(
     })
   );
 
-  if (process.env.REPL_ID) {
-    registerObjectStorageRoutes(app);
-  }
+  registerObjectStorageRoutes(app);
 
   // Admin Auth
   app.post("/api/admin/login", async (req, res) => {
