@@ -457,6 +457,11 @@ export async function registerRoutes(
   app.post("/api/exams/:examId/send-emails", requireAdmin, async (req, res) => {
     const examId = parseInt(req.params.examId);
     const { templateId, studentIds, customSubject, customBody, onlySendNew } = req.body;
+
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      return res.status(503).json({ message: "Email is not configured. Set SMTP_USER and SMTP_PASS environment variables." });
+    }
+
     const exam = await storage.getExam(examId);
     if (!exam) return res.status(404).json({ message: "Exam not found" });
 
@@ -477,7 +482,17 @@ export async function registerRoutes(
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
       },
+      connectionTimeout: 15000,
+      greetingTimeout: 10000,
+      socketTimeout: 20000,
     });
+
+    // Verify SMTP connection before looping — fail fast with clear error
+    try {
+      await transporter.verify();
+    } catch (verifyErr: any) {
+      return res.status(503).json({ message: `SMTP connection failed: ${verifyErr.message}` });
+    }
 
     const subjectTemplate = customSubject || template?.subject || "MedQrown MedEazy {exam_name} - Your Access Credentials";
     const bodyTemplate = customBody || template?.body || getDefaultEmailBody();
