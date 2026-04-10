@@ -8,6 +8,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: SUPABASE_DATABASE_URL
+        sync: false
       - key: DATABASE_URL
         sync: false
       - key: SESSION_SECRET
