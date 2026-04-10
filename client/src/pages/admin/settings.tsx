@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Brain, Mail, Users, Shield, Plus, Trash2, Save, Pencil } from "lucide-react";
+import { ArrowLeft, Brain, Mail, Users, Shield, Plus, Trash2, Save, Pencil, FlaskConical, CheckCircle, XCircle, Loader2 } from "lucide-react";
 import logoPath from "@assets/medqrown_logo.png";
 
 export default function AdminSettings() {
@@ -68,6 +68,24 @@ function AiProvidersSection({ providers }: { providers: any[] }) {
   const [form, setForm] = useState({
     name: "", type: "openai", apiKeyValue: "", endpoint: "", model: "", weight: 1
   });
+  const [testing, setTesting] = useState(false);
+  const [testResults, setTestResults] = useState<any[] | null>(null);
+  const [showTestDialog, setShowTestDialog] = useState(false);
+
+  const runProviderTest = async () => {
+    setTesting(true);
+    setTestResults(null);
+    try {
+      const res = await apiRequest("POST", "/api/debug/batch-test", {});
+      const data = await res.json();
+      setTestResults(data.results || []);
+      setShowTestDialog(true);
+    } catch (e: any) {
+      toast({ title: "Test failed", description: e.message, variant: "destructive" });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const resetForm = () => {
     setForm({ name: "", type: "openai", apiKeyValue: "", endpoint: "", model: "", weight: 1 });
@@ -168,14 +186,26 @@ function AiProvidersSection({ providers }: { providers: any[] }) {
           <h3 className="font-medium">AI Providers</h3>
           <p className="text-sm text-muted-foreground">Configure multiple AI providers with custom endpoints and models</p>
         </div>
-        <Dialog open={showAdd} onOpenChange={(v) => { setShowAdd(v); if (!v) resetForm(); }}>
-          <DialogTrigger asChild><Button size="sm" data-testid="button-add-provider"><Plus className="w-3 h-3 mr-1" />Add Provider</Button></DialogTrigger>
-          <DialogContent className="max-h-[85vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>{editingId ? "Edit AI Provider" : "Add AI Provider"}</DialogTitle></DialogHeader>
-            {formContent}
-          </DialogContent>
-        </Dialog>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={runProviderTest} disabled={testing || providers.length === 0} title="Test all active providers with 2 dummy questions">
+            {testing ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <FlaskConical className="w-3 h-3 mr-1" />}
+            {testing ? "Testing..." : "Test"}
+          </Button>
+          <Dialog open={showAdd} onOpenChange={(v) => { setShowAdd(v); if (!v) resetForm(); }}>
+            <DialogTrigger asChild><Button size="sm" data-testid="button-add-provider"><Plus className="w-3 h-3 mr-1" />Add Provider</Button></DialogTrigger>
+            <DialogContent className="max-h-[85vh] overflow-y-auto">
+              <DialogHeader><DialogTitle>{editingId ? "Edit AI Provider" : "Add AI Provider"}</DialogTitle></DialogHeader>
+              {formContent}
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
+
+      {providers.length === 0 && (
+        <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+          No AI providers configured. Add one above — paste your API key directly into the form. The key is stored in the database and works on any host (Render, Railway, etc.).
+        </div>
+      )}
 
       {providers.map((p: any) => (
         <Card key={p.id} className="shadow-sm" data-testid={`card-provider-${p.id}`}>
@@ -201,6 +231,39 @@ function AiProvidersSection({ providers }: { providers: any[] }) {
           </CardContent>
         </Card>
       ))}
+
+      {/* Test results dialog */}
+      <Dialog open={showTestDialog} onOpenChange={setShowTestDialog}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Provider Test Results</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground mb-3">Each provider was tested with 2 dummy medical questions.</p>
+          <div className="space-y-3">
+            {testResults?.length === 0 && (
+              <p className="text-sm text-muted-foreground">No active providers to test.</p>
+            )}
+            {testResults?.map((r: any, i: number) => (
+              <div key={i} className={`rounded-md border p-3 ${r.success ? "border-green-500/40 bg-green-50 dark:bg-green-950/20" : "border-red-500/40 bg-red-50 dark:bg-red-950/20"}`}>
+                <div className="flex items-center gap-2 mb-1">
+                  {r.success
+                    ? <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+                    : <XCircle className="w-4 h-4 text-red-600 shrink-0" />}
+                  <span className="font-medium text-sm">{r.provider}</span>
+                  <Badge variant="outline" className="text-xs">{r.model}</Badge>
+                </div>
+                {r.success
+                  ? <p className="text-xs text-green-700 dark:text-green-400">✓ API call succeeded and returned valid JSON</p>
+                  : <p className="text-xs text-red-700 dark:text-red-400 break-all">{r.error || "Failed to parse response"}</p>}
+                {!r.success && r.raw && (
+                  <details className="mt-1">
+                    <summary className="text-xs text-muted-foreground cursor-pointer">Raw response</summary>
+                    <pre className="text-xs mt-1 whitespace-pre-wrap break-all">{r.raw}</pre>
+                  </details>
+                )}
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
