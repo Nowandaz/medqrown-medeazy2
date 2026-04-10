@@ -334,34 +334,55 @@ export async function registerRoutes(
         const apiKey = p.apiKeyDirect || (p.apiKeyEnv ? process.env[p.apiKeyEnv] : "");
         const endpoint = p.endpoint || (p.baseUrlEnv ? process.env[p.baseUrlEnv] : undefined);
         const model = p.model || (p.type === "gemini" ? "gemini-2.0-flash" : p.type === "anthropic" ? "claude-sonnet-4-5" : "gpt-4o");
+
+        // Key diagnostics (never expose the full key)
+        const keyLen = apiKey ? apiKey.trim().length : 0;
+        const keyPreview = apiKey ? apiKey.trim().slice(0, 6) + "…" + apiKey.trim().slice(-4) : "(none)";
+        const keySource = p.apiKeyDirect ? "direct (DB)" : p.apiKeyEnv ? `env:${p.apiKeyEnv}` : "missing";
+
+        if (!apiKey || apiKey.trim().length < 8) {
+          results.push({ provider: p.name, model, success: false, keySource, keyPreview, keyLen,
+            error: "No API key found. Paste your key in Edit Provider → API Key field." });
+          continue;
+        }
+
         try {
           let raw: string;
           if (p.type === "anthropic") {
-            const client = new Anthropic({ apiKey: apiKey || "dummy", baseURL: endpoint });
+            const client = new Anthropic({ apiKey: apiKey.trim(), baseURL: endpoint });
             const resp = await client.messages.create({
               model, max_tokens: 600, system: BATCH_PROMPT,
               messages: [{ role: "user", content: TEST_INPUT }],
             });
             raw = resp.content[0]?.type === "text" ? resp.content[0].text : "";
           } else {
-            const client = new OpenAI({ apiKey: apiKey || "dummy", baseURL: endpoint });
+            const client = new OpenAI({ apiKey: apiKey.trim(), baseURL: endpoint });
             const resp = await client.chat.completions.create({
               model, messages: [{ role: "system", content: BATCH_PROMPT }, { role: "user", content: TEST_INPUT }],
-              response_format: { type: "json_object" }, max_tokens: 600,
+              max_tokens: 600,
             });
             raw = resp.choices[0]?.message?.content || "";
           }
           let parsed: any = null;
           try {
-            // Strip markdown code fences before parsing (Anthropic wraps in ```json...```)
             let clean = raw.trim();
             const fence = clean.match(/```(?:json)?\s*([\s\S]*?)```/);
             if (fence) clean = fence[1].trim();
-            parsed = JSON.parse(clean);
+            // try full JSON first, then extract first {...} block
+            try { parsed = JSON.parse(clean); } catch {
+              const match = clean.match(/\{[\s\S]*\}/);
+              if (match) parsed = JSON.parse(match[0]);
+            }
           } catch {}
-          results.push({ provider: p.name, model, success: !!parsed?.results, raw: raw.slice(0, 200), parsed });
+          results.push({ provider: p.name, model, success: !!parsed?.results, keySource, keyPreview, keyLen, raw: raw.slice(0, 300), parsed });
         } catch (err: any) {
-          results.push({ provider: p.name, model, success: false, error: err.message });
+          // Extract HTTP status and body if available (openai SDK wraps it)
+          const status = (err as any).status || (err as any).statusCode;
+          const body = (err as any).error || (err as any).body;
+          const errMsg = status
+            ? `HTTP ${status}: ${body?.error?.message || body?.message || err.message}`
+            : err.message;
+          results.push({ provider: p.name, model, success: false, keySource, keyPreview, keyLen, error: errMsg });
         }
       }
       res.json({ results });
