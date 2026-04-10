@@ -332,7 +332,8 @@ function StudentsTab({ examId, examStudents }: { examId: number; examStudents: a
       queryClient.invalidateQueries({ queryKey: ["/api/exams", examId, "students"] });
       toast({ title: `Emails: ${data.sent} sent, ${data.failed} failed` });
     } catch (e: any) {
-      toast({ title: "Email sending failed", variant: "destructive" });
+      const msg = e?.message?.includes("{") ? JSON.parse(e.message.replace(/^\d+: /, ""))?.message : e?.message;
+      toast({ title: "Email failed", description: msg || "Could not connect to mail server. Check SMTP settings.", variant: "destructive" });
     } finally {
       setSending(false);
     }
@@ -1470,7 +1471,8 @@ function EmailsTab({ examId, examStudents, templates }: { examId: number; examSt
       queryClient.invalidateQueries({ queryKey: ["/api/exams", examId, "students"] });
       toast({ title: `Emails sent: ${data.sent} delivered, ${data.failed} failed` });
     } catch (e: any) {
-      toast({ title: "Email sending failed", variant: "destructive" });
+      const msg = e?.message?.includes("{") ? JSON.parse(e.message.replace(/^\d+: /, ""))?.message : e?.message;
+      toast({ title: "Email failed", description: msg || "Could not connect to mail server. Check SMTP settings.", variant: "destructive" });
     } finally {
       setSending(false);
     }
