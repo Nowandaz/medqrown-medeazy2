@@ -40,6 +40,11 @@ export async function registerRoutes(
 
   registerObjectStorageRoutes(app);
 
+  // Health check (used by Render deployment)
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", ts: Date.now() });
+  });
+
   // Admin Auth
   app.post("/api/admin/login", async (req, res) => {
     try {
