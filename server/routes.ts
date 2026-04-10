@@ -115,8 +115,16 @@ export async function registerRoutes(
   });
 
   app.delete("/api/exams/:id", requireAdmin, async (req, res) => {
-    await storage.deleteExam(parseInt(req.params.id));
-    res.json({ ok: true });
+    try {
+      const examId = parseInt(req.params.id);
+      const exam = await storage.getExam(examId);
+      if (!exam) return res.status(404).json({ message: "Exam not found" });
+      await storage.deleteExam(examId);
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("Delete exam error:", error);
+      res.status(500).json({ message: "Failed to delete exam", error: error?.message });
+    }
   });
 
   // Exam Students
@@ -151,8 +159,13 @@ export async function registerRoutes(
   });
 
   app.delete("/api/exams/:examId/students/:esId", requireAdmin, async (req, res) => {
-    await storage.deleteExamStudent(parseInt(req.params.esId));
-    res.json({ ok: true });
+    try {
+      await storage.deleteExamStudent(parseInt(req.params.esId));
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("Delete exam student error:", error);
+      res.status(500).json({ message: "Failed to remove student", error: error?.message });
+    }
   });
 
   app.post("/api/exams/:examId/students/:esId/reset", requireAdmin, async (req, res) => {
@@ -210,9 +223,16 @@ export async function registerRoutes(
   });
 
   app.delete("/api/exams/:examId/questions/:qId", requireAdmin, async (req, res) => {
-    invalidateExamCache(parseInt(req.params.examId));
-    await storage.deleteQuestion(parseInt(req.params.qId));
-    res.json({ ok: true });
+    try {
+      const examId = parseInt(req.params.examId);
+      const qId = parseInt(req.params.qId);
+      invalidateExamCache(examId);
+      await storage.deleteQuestionCascade(qId);
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("Delete question error:", error);
+      res.status(500).json({ message: "Failed to delete question", error: error?.message });
+    }
   });
 
   app.patch("/api/exams/:examId/questions/:qId", requireAdmin, async (req, res) => {
