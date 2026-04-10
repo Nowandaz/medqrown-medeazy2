@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and, desc, asc, sql, count } from "drizzle-orm";
+import { eq, and, desc, asc, sql, count, inArray } from "drizzle-orm";
 import {
   admins, exams, students, examStudents, questions, questionOptions,
   subquestions, attempts, responses, aiProviders, emailTemplates,
@@ -43,6 +43,7 @@ export interface IStorage {
   createQuestion(q: InsertQuestion): Promise<Question>;
   updateQuestion(id: number, data: Partial<InsertQuestion>): Promise<Question>;
   deleteQuestion(id: number): Promise<void>;
+  deleteQuestionCascade(id: number): Promise<void>;
 
   getQuestionOptions(questionId: number): Promise<QuestionOption[]>;
   createQuestionOption(opt: InsertQuestionOption): Promise<QuestionOption>;
@@ -215,6 +216,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteQuestion(id: number) {
+    await db.delete(questions).where(eq(questions.id, id));
+  }
+
+  async deleteQuestionCascade(id: number) {
+    // Explicit cascade: delete responses first, then options/subquestions, then the question
+    // (DB cascades now handle this, but explicit deletion is belt-and-suspenders safe)
+    await db.delete(responses).where(eq(responses.questionId, id));
+    const subs = await db.select({ id: subquestions.id }).from(subquestions).where(eq(subquestions.questionId, id));
+    if (subs.length > 0) {
+      await db.delete(responses).where(inArray(responses.subquestionId, subs.map(s => s.id)));
+      await db.delete(subquestions).where(eq(subquestions.questionId, id));
+    }
+    await db.delete(questionOptions).where(eq(questionOptions.questionId, id));
     await db.delete(questions).where(eq(questions.id, id));
   }
 
