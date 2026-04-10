@@ -497,16 +497,28 @@ function getReplitFallbackProvider(): AiProvider {
   };
 }
 
-// Returns active DB providers with the Replit OpenAI always appended as a last resort.
-// This guarantees marking works even if every user-configured provider is out of credits.
+// Returns active DB providers with the Replit OpenAI appended as a last resort,
+// but only when the Replit AI integrations sidecar is actually present (i.e. running on Replit).
+// On Render and other non-Replit hosts those env vars don't exist, so we skip the fallback.
 async function getProvidersWithFallback(): Promise<AiProvider[]> {
   const active = (await storage.getAiProviders()).filter(p => p.isActive);
-  const fallback = getReplitFallbackProvider();
-  // Only append if not already represented by an env-key-based Replit provider
+
+  // Only add the Replit fallback if the sidecar key is actually injected
+  const replitKeyAvailable = !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  if (!replitKeyAvailable) {
+    if (active.length === 0) {
+      throw new Error(
+        "No AI providers configured. Please add an AI provider (OpenAI, Anthropic, Gemini, or compatible) in the AI Providers settings."
+      );
+    }
+    return active;
+  }
+
+  // On Replit: append the sidecar fallback unless already represented
   const alreadyHasReplit = active.some(
     p => p.apiKeyEnv === "AI_INTEGRATIONS_OPENAI_API_KEY" && !p.apiKeyDirect
   );
-  return alreadyHasReplit ? active : [...active, fallback];
+  return alreadyHasReplit ? active : [...active, getReplitFallbackProvider()];
 }
 
 // Group items by student
