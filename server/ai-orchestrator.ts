@@ -412,6 +412,13 @@ async function buildMarkingItems(
     const attempt = await storage.getAttemptByExamStudent(es.id);
     if (!attempt) continue;
 
+    // Skip students who haven't submitted yet during bulk marking.
+    // Marking in-progress students permanently stamps unanswered questions as
+    // "not answered" (isCorrect: false), which then gets skipped on their own
+    // submission because the skip check is `isCorrect !== null`.
+    // Only bypass this when marking a specific student (e.g. admin remark).
+    if (!filterExamStudentId && attempt.status !== "submitted") continue;
+
     const allResponses = await storage.getResponsesByAttempt(attempt.id);
     const studentName = es.student?.name || "Unknown";
     const studentEmail = es.student?.email || "";
