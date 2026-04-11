@@ -266,22 +266,48 @@ export default function StudentResults() {
                                 </div>
                               )}
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm">
-                                <span className="text-muted-foreground">Your answer: </span>
-                                {r.answer == null ? (
-                                  <span className="italic text-muted-foreground">No answer given</span>
-                                ) : (
-                                  <span className="font-medium">
-                                    {q.type === "mcq" ? (
-                                      q.options?.find((o: any) => String(o.id) === r.answer)?.content || r.answer
-                                    ) : r.answer}
-                                  </span>
+                            {q.type === "mcq" && q.options ? (
+                              <div className="flex-1 min-w-0 space-y-1.5">
+                                {r.answer == null && (
+                                  <p className="text-xs italic text-muted-foreground mb-1">No answer selected</p>
                                 )}
-                              </p>
-                            </div>
+                                {q.options.map((o: any, oi: number) => {
+                                  const label = String.fromCharCode(65 + oi);
+                                  const isStudentPick = String(o.id) === r.answer;
+                                  const isCorrectOpt = o.isCorrect;
+                                  const isWrongPick = isStudentPick && !isCorrectOpt;
+                                  const isCorrectPick = isStudentPick && isCorrectOpt;
+                                  return (
+                                    <div key={o.id} className={`flex items-start gap-2 rounded-md px-2.5 py-1.5 border text-sm transition-colors
+                                      ${isCorrectPick ? "bg-green-50 border-green-400 dark:bg-green-950/30 dark:border-green-600" :
+                                        isWrongPick ? "bg-red-50 border-red-400 dark:bg-red-950/30 dark:border-red-600" :
+                                        isCorrectOpt ? "bg-green-50/60 border-green-300 dark:bg-green-950/20 dark:border-green-700" :
+                                        "bg-muted/30 border-transparent"}`}>
+                                      <span className={`font-bold text-xs mt-0.5 shrink-0 w-4 ${isCorrectOpt ? "text-green-700 dark:text-green-400" : isWrongPick ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>{label}</span>
+                                      <span className={`flex-1 leading-snug ${isCorrectOpt ? "font-medium" : ""}`}>{o.content}</span>
+                                      <span className="shrink-0 flex items-center gap-1">
+                                        {isCorrectPick && <><CheckCircle className="w-3.5 h-3.5 text-green-600" /><span className="text-xs text-green-600 font-medium">Your answer ✓</span></>}
+                                        {isWrongPick && <><XCircle className="w-3.5 h-3.5 text-red-500" /><span className="text-xs text-red-500 font-medium">Your answer</span></>}
+                                        {!isStudentPick && isCorrectOpt && <><CheckCircle className="w-3.5 h-3.5 text-green-600" /><span className="text-xs text-green-600 font-medium">Correct</span></>}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm">
+                                  <span className="text-muted-foreground">Your answer: </span>
+                                  {r.answer == null ? (
+                                    <span className="italic text-muted-foreground">No answer given</span>
+                                  ) : (
+                                    <span className="font-medium">{r.answer}</span>
+                                  )}
+                                </p>
+                              </div>
+                            )}
                             {r.marksAwarded != null && (
-                              <Badge variant={r.marksAwarded > 0 ? "default" : "destructive"} className="text-xs shrink-0">
+                              <Badge variant={r.marksAwarded > 0 ? "default" : "destructive"} className="text-xs shrink-0 self-start">
                                 {r.marksAwarded}/{subQ?.marks || q.marks}
                               </Badge>
                             )}
@@ -294,15 +320,6 @@ export default function StudentResults() {
                         </div>
                       );
                     })}
-
-                    {q.type === "mcq" && q.options && (
-                      <div className="flex items-center gap-1.5 pt-1">
-                        <CheckCircle className="w-3.5 h-3.5 text-green-600 shrink-0" />
-                        <p className="text-xs text-green-600 font-medium">
-                          Correct: {q.options.filter((o: any) => o.isCorrect).map((o: any) => o.content).join(", ")}
-                        </p>
-                      </div>
-                    )}
                   </CardContent>
                 </Card>
               ))}
