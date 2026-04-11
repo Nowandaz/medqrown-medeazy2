@@ -238,7 +238,11 @@ export default function StudentResults() {
                       </div>
                     )}
 
-                    {q.responses?.map((r: any) => {
+                    {[...(q.responses || [])].sort((a: any, b: any) => {
+                        const ai = q.subquestions?.findIndex((s: any) => s.id === a.subquestionId) ?? 0;
+                        const bi = q.subquestions?.findIndex((s: any) => s.id === b.subquestionId) ?? 0;
+                        return ai - bi;
+                      }).map((r: any) => {
                       const subQ = q.subquestions?.find((s: any) => s.id === r.subquestionId);
                       return (
                         <div key={r.id} className="rounded-lg border bg-muted/20 p-3 space-y-2">
