@@ -853,9 +853,13 @@ export async function registerRoutes(
         try {
           const providers = (await storage.getAiProviders()).filter(p => p.isActive);
           if (providers.length > 0) {
-            console.log(`[Auto-Mark] Queuing auto-marking for exam ${es.examId} after student submission`);
-            enqueueMarking(es.examId).catch(err =>
-              console.error(`[Auto-Mark] Error:`, err.message)
+            // Mark ONLY the submitting student — not the whole exam.
+            // Marking the whole exam caused other in-progress students' unanswered
+            // questions to be permanently stamped "not answered", then skipped on
+            // their own submission because isCorrect was already set.
+            console.log(`[Auto-Mark] Marking student ${esId} after submission (exam ${es.examId})`);
+            markStudentSAQResponses(es.examId, esId).catch(err =>
+              console.error(`[Auto-Mark] Error for student ${esId}:`, err.message)
             );
           }
         } catch (err: any) {
