@@ -46,6 +46,20 @@ export async function registerRoutes(
     res.json({ status: "ok", ts: Date.now() });
   });
 
+  // Version marker — change BUILD_MARKER on every meaningful push so we can verify what's live
+  const BUILD_MARKER = "2026-04-18-supabase-uploads-v2";
+  const SERVER_STARTED_AT = new Date().toISOString();
+  app.get("/api/version", (_req, res) => {
+    res.json({
+      buildMarker: BUILD_MARKER,
+      startedAt: SERVER_STARTED_AT,
+      uptimeSec: Math.round(process.uptime()),
+      hasSupabaseKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      hasSmtpUser: !!process.env.SMTP_USER,
+      uploadFlow: "supabase-direct",
+    });
+  });
+
   // Admin Auth
   app.post("/api/admin/login", async (req, res) => {
     try {
