@@ -1,81 +1,88 @@
 import type { Express, Request, Response } from "express";
 import { randomUUID } from "crypto";
 import path from "path";
-import fs from "fs";
 
-// Images are stored in server/uploads/ on the local filesystem.
-// Replit's filesystem is persistent across restarts, so images are never lost.
-// No Supabase, no GCS, no external dependencies.
+const SUPABASE_PROJECT_URL = "https://aavwvonsaphlqyylmjgt.supabase.co";
+const BUCKET = "medqrown-images";
 
-const UPLOADS_DIR = path.join(process.cwd(), "server", "uploads");
+function getServiceRoleKey(): string | null {
+  return process.env.SUPABASE_SERVICE_ROLE_KEY || null;
+}
 
-function ensureUploadsDir() {
-  if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-  }
+function isSupabaseStorageConfigured(): boolean {
+  return !!getServiceRoleKey();
 }
 
 export function registerObjectStorageRoutes(app: Express): void {
-  ensureUploadsDir();
 
-  // Step 1: Client requests an upload slot — we return a PUT URL and the final public URL
-  app.post("/api/uploads/request-url", (req: Request, res: Response) => {
+  app.post("/api/uploads/request-url", async (req: Request, res: Response) => {
     try {
-      const { name } = req.body;
-      if (!name) return res.status(400).json({ error: "Missing required field: name" });
+      const { name, size, contentType } = req.body;
+
+      if (!name) {
+        return res.status(400).json({ error: "Missing required field: name" });
+      }
 
       const ext = path.extname(name) || "";
       const filename = `${randomUUID()}${ext}`;
-      const uploadURL = `/api/uploads/put/${filename}`;
-      const objectPath = `/api/uploads/image/${filename}`;
 
-      return res.json({ uploadURL, objectPath, metadata: req.body });
-    } catch (err) {
-      console.error("request-url error:", err);
+      if (isSupabaseStorageConfigured()) {
+        const objectPath = `questions/${filename}`;
+        const publicUrl = `${SUPABASE_PROJECT_URL}/storage/v1/object/public/${BUCKET}/${objectPath}`;
+        const uploadURL = `/api/uploads/put/${encodeURIComponent(objectPath)}`;
+        return res.json({ uploadURL, objectPath: publicUrl, metadata: { name, size, contentType } });
+      }
+
+      return res.status(500).json({ error: "Image storage not configured. Set SUPABASE_SERVICE_ROLE_KEY." });
+    } catch (error) {
+      console.error("Error generating upload URL:", error);
       return res.status(500).json({ error: "Failed to generate upload URL" });
     }
   });
 
-  // Step 2: Client PUTs the raw file bytes here — we save them to disk
-  app.put("/api/uploads/put/:filename", (req: Request, res: Response) => {
-    ensureUploadsDir();
-    const filename = path.basename(req.params.filename);
-    const dest = path.join(UPLOADS_DIR, filename);
-    const out = fs.createWriteStream(dest);
-
-    req.pipe(out);
-
-    out.on("finish", () => res.json({ ok: true }));
-    out.on("error", (err) => {
-      console.error("Write error:", err);
-      res.status(500).json({ error: "Failed to save file" });
-    });
-    req.on("error", (err) => {
-      console.error("Request stream error:", err);
-      out.destroy();
-      res.status(500).json({ error: "Upload stream failed" });
-    });
-  });
-
-  // Step 3: Serve uploaded images publicly
-  app.get("/api/uploads/image/:filename", (req: Request, res: Response) => {
-    const filename = path.basename(req.params.filename);
-    const filePath = path.join(UPLOADS_DIR, filename);
-
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: "Image not found" });
+  app.put("/api/uploads/put/*objectPath", async (req: Request, res: Response) => {
+    const key = getServiceRoleKey();
+    if (!key) {
+      return res.status(500).json({ error: "Storage not configured" });
     }
 
-    const ext = path.extname(filename).toLowerCase();
-    const mimeTypes: Record<string, string> = {
-      ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-      ".png": "image/png", ".gif": "image/gif",
-      ".webp": "image/webp", ".svg": "image/svg+xml",
-    };
-    const contentType = mimeTypes[ext] || "application/octet-stream";
+    const objectPath = req.params.objectPath;
+    const contentType = req.headers["content-type"] || "application/octet-stream";
 
-    res.setHeader("Content-Type", contentType);
-    res.setHeader("Cache-Control", "public, max-age=31536000");
-    fs.createReadStream(filePath).pipe(res);
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    req.on("end", async () => {
+      try {
+        const body = Buffer.concat(chunks);
+        const uploadResp = await fetch(
+          `${SUPABASE_PROJECT_URL}/storage/v1/object/${BUCKET}/${objectPath}`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${key}`,
+              "Content-Type": contentType,
+              "x-upsert": "true",
+            },
+            body,
+          }
+        );
+
+        if (!uploadResp.ok) {
+          const errText = await uploadResp.text();
+          console.error("Supabase upload error:", errText);
+          return res.status(500).json({ error: "Failed to upload to Supabase Storage" });
+        }
+
+        return res.json({ ok: true });
+      } catch (err) {
+        console.error("Upload error:", err);
+        return res.status(500).json({ error: "Upload failed" });
+      }
+    });
+
+    req.on("error", (err) => {
+      console.error("Request stream error:", err);
+      res.status(500).json({ error: "Upload stream failed" });
+    });
   });
 }
