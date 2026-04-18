@@ -9,6 +9,7 @@ import { markSAQResponses, markSingleResponse, markStudentSAQResponses } from ".
 import { enqueueMarking } from "./marking-queue";
 import { getExamStructure, invalidateExamCache } from "./exam-cache";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
+import { listBucketObjects, deleteSupabaseStorageObjects, urlForObjectPath } from "./supabase-storage";
 
 function generatePassword(email: string): string {
   const prefix = email.split("@")[0].slice(0, 4).toLowerCase();
@@ -148,6 +149,9 @@ export async function registerRoutes(
     let student = await storage.getStudentByEmail(email);
     if (!student) {
       student = await storage.createStudent({ name, email });
+    } else if (name && student.name !== name) {
+      // Re-adding an existing student with a different name → update it
+      student = await storage.updateStudent(student.id, { name });
     }
     const existing = await storage.getExamStudentByExamAndStudent(examId, student.id);
     if (existing) return res.status(400).json({ message: "Student already added to this exam" });
@@ -170,6 +174,40 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Delete exam student error:", error);
       res.status(500).json({ message: "Failed to remove student", error: error?.message });
+    }
+  });
+
+  // Permanently delete a student record (and all their exam history via cascade)
+  app.delete("/api/students/:id", requireAdmin, async (req, res) => {
+    try {
+      await storage.deleteStudent(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("Delete student error:", error);
+      res.status(500).json({ message: "Failed to delete student", error: error?.message });
+    }
+  });
+
+  // Scan Supabase bucket for files not referenced by any question, optionally delete them
+  app.post("/api/admin/cleanup-storage", requireAdmin, async (req, res) => {
+    try {
+      const dryRun = req.body?.dryRun !== false; // default true — preview only
+      const bucketObjects = await listBucketObjects("questions");
+      const allQs = await storage.getAllExams();
+      const usedUrls = new Set<string>();
+      for (const exam of allQs) {
+        const qs = await storage.getQuestionsByExam(exam.id);
+        qs.forEach(q => { if (q.imageUrl) usedUrls.add(q.imageUrl); });
+      }
+      const orphans = bucketObjects.filter(p => !usedUrls.has(urlForObjectPath(p)));
+      if (dryRun) {
+        return res.json({ dryRun: true, totalInBucket: bucketObjects.length, used: usedUrls.size, orphanCount: orphans.length, orphans: orphans.slice(0, 50) });
+      }
+      const result = await deleteSupabaseStorageObjects(orphans.map(p => urlForObjectPath(p)));
+      res.json({ dryRun: false, totalInBucket: bucketObjects.length, used: usedUrls.size, orphanCount: orphans.length, ...result });
+    } catch (error: any) {
+      console.error("Cleanup storage error:", error);
+      res.status(500).json({ message: "Cleanup failed", error: error?.message });
     }
   });
 
