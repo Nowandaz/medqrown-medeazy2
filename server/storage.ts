@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { eq, and, desc, asc, sql, count, inArray } from "drizzle-orm";
+import { deleteSupabaseStorageObject, deleteSupabaseStorageObjects } from "./supabase-storage";
 import {
   admins, exams, students, examStudents, questions, questionOptions,
   subquestions, attempts, responses, aiProviders, emailTemplates,
@@ -29,6 +30,8 @@ export interface IStorage {
   getStudent(id: number): Promise<Student | undefined>;
   getStudentByEmail(email: string): Promise<Student | undefined>;
   createStudent(student: InsertStudent): Promise<Student>;
+  updateStudent(id: number, data: Partial<InsertStudent>): Promise<Student>;
+  deleteStudent(id: number): Promise<void>;
   getStudentsByExam(examId: number): Promise<(ExamStudent & { student: Student })[]>;
 
   getExamStudent(id: number): Promise<ExamStudent | undefined>;
@@ -135,7 +138,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteExam(id: number) {
+    // Collect image URLs first so we can clean up bucket files after the cascade
+    const qs = await db.select({ imageUrl: questions.imageUrl }).from(questions).where(eq(questions.examId, id));
+    const imageUrls = qs.map(q => q.imageUrl).filter((u): u is string => !!u);
     await db.delete(exams).where(eq(exams.id, id));
+    if (imageUrls.length > 0) {
+      // Fire-and-forget — don't block the response on bucket cleanup
+      deleteSupabaseStorageObjects(imageUrls)
+        .then(r => console.log(`[deleteExam ${id}] bucket cleanup: ${r.deleted} deleted, ${r.failed} failed`))
+        .catch(e => console.warn(`[deleteExam ${id}] bucket cleanup error:`, e?.message || e));
+    }
   }
 
   async getStudent(id: number) {
@@ -151,6 +163,16 @@ export class DatabaseStorage implements IStorage {
   async createStudent(student: InsertStudent) {
     const [created] = await db.insert(students).values(student).returning();
     return created;
+  }
+
+  async updateStudent(id: number, data: Partial<InsertStudent>) {
+    const [updated] = await db.update(students).set(data).where(eq(students.id, id)).returning();
+    return updated;
+  }
+
+  async deleteStudent(id: number) {
+    // FK cascades remove examStudents, attempts, responses
+    await db.delete(students).where(eq(students.id, id));
   }
 
   async getStudentsByExam(examId: number) {
@@ -216,10 +238,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteQuestion(id: number) {
+    const [q] = await db.select({ imageUrl: questions.imageUrl }).from(questions).where(eq(questions.id, id));
     await db.delete(questions).where(eq(questions.id, id));
+    if (q?.imageUrl) {
+      deleteSupabaseStorageObject(q.imageUrl).catch(e => console.warn(`[deleteQuestion ${id}] bucket cleanup error:`, e?.message || e));
+    }
   }
 
   async deleteQuestionCascade(id: number) {
+    const [q] = await db.select({ imageUrl: questions.imageUrl }).from(questions).where(eq(questions.id, id));
     // Explicit cascade: delete responses first, then options/subquestions, then the question
     // (DB cascades now handle this, but explicit deletion is belt-and-suspenders safe)
     await db.delete(responses).where(eq(responses.questionId, id));
@@ -230,6 +257,9 @@ export class DatabaseStorage implements IStorage {
     }
     await db.delete(questionOptions).where(eq(questionOptions.questionId, id));
     await db.delete(questions).where(eq(questions.id, id));
+    if (q?.imageUrl) {
+      deleteSupabaseStorageObject(q.imageUrl).catch(e => console.warn(`[deleteQuestionCascade ${id}] bucket cleanup error:`, e?.message || e));
+    }
   }
 
   async getQuestionOptions(questionId: number) {
