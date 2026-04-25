@@ -47,7 +47,7 @@ export async function registerRoutes(
   });
 
   // Version marker — change BUILD_MARKER on every meaningful push so we can verify what's live
-  const BUILD_MARKER = "2026-04-18-case-insensitive-email-v4";
+  const BUILD_MARKER = "2026-04-25-next-button-overlay-block-v2";
   const SERVER_STARTED_AT = new Date().toISOString();
   app.get("/api/version", (_req, res) => {
     res.json({
@@ -780,6 +780,8 @@ export async function registerRoutes(
       }
     }
 
+    const upcomingImageUrl = qs[attempt.currentQuestionIndex + 1]?.imageUrl || null;
+
     res.json({
       attemptId: attempt.id,
       currentQuestionIndex: attempt.currentQuestionIndex,
@@ -790,6 +792,7 @@ export async function registerRoutes(
       questionStartedAt: attempt.questionStartedAt?.toISOString() ?? null,
       startedAt: attempt.startedAt?.toISOString() ?? null,
       question: questionData,
+      upcomingImageUrl,
     });
   });
 
@@ -831,10 +834,26 @@ export async function registerRoutes(
   app.post("/api/student/next-question", async (req, res) => {
     const esId = (req.session as any)?.examStudentId;
     if (!esId) return res.status(401).json({ message: "Not authenticated" });
-    const { attemptId } = req.body;
+    const { attemptId, expectedCurrentQuestionIndex } = req.body;
     const attempt = await storage.getAttempt(attemptId);
     if (!attempt) return res.status(404).json({ message: "Attempt not found" });
     if (attempt.examStudentId !== esId) return res.status(403).json({ message: "Forbidden" });
+
+    // Optimistic concurrency: if the client tells us which index it thinks it's on
+    // and that doesn't match the server, this is a stale/duplicate request
+    // (e.g. accidental double-click after the first request already advanced us).
+    // Reject as a no-op rather than skipping a question.
+    if (
+      typeof expectedCurrentQuestionIndex === "number" &&
+      expectedCurrentQuestionIndex !== attempt.currentQuestionIndex
+    ) {
+      return res.status(409).json({
+        message: "Stale next-question request — already advanced",
+        staleRequest: true,
+        currentQuestionIndex: attempt.currentQuestionIndex,
+      });
+    }
+
     const es = await storage.getExamStudent(attempt.examStudentId);
     if (!es) return res.status(404).json({ message: "Exam student not found" });
     const exam = await storage.getExam(es.examId);
@@ -872,11 +891,15 @@ export async function registerRoutes(
       questionData.savedSubAnswers = subResponses;
     }
 
+    // Hint the client about the question after this one so it can preload its image
+    const upcomingImageUrl = qs[nextIndex + 1]?.imageUrl || null;
+
     res.json({
       currentQuestionIndex: nextIndex,
       totalQuestions: qs.length,
       questionStartedAt: questionStartedAt?.toISOString() ?? null,
       question: questionData,
+      upcomingImageUrl,
     });
   });
 
