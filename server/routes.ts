@@ -47,7 +47,7 @@ export async function registerRoutes(
   });
 
   // Version marker — change BUILD_MARKER on every meaningful push so we can verify what's live
-  const BUILD_MARKER = "2026-04-18-no-cache-html-v3";
+  const BUILD_MARKER = "2026-04-18-case-insensitive-email-v4";
   const SERVER_STARTED_AT = new Date().toISOString();
   app.get("/api/version", (_req, res) => {
     res.json({
@@ -64,7 +64,8 @@ export async function registerRoutes(
   app.post("/api/admin/login", async (req, res) => {
     try {
       const { email, password } = req.body;
-      const admin = await storage.getAdminByEmail(email);
+      const normalizedEmail = (email || "").trim().toLowerCase();
+      const admin = await storage.getAdminByEmail(normalizedEmail);
       if (!admin) return res.status(401).json({ message: "Invalid credentials" });
       const valid = await bcrypt.compare(password, admin.passwordHash);
       if (!valid) return res.status(401).json({ message: "Invalid credentials" });
@@ -159,7 +160,8 @@ export async function registerRoutes(
 
   app.post("/api/exams/:examId/students", requireAdmin, async (req, res) => {
     const examId = parseInt(req.params.examId);
-    const { name, email } = req.body;
+    const { name } = req.body;
+    const email = (req.body.email || "").trim().toLowerCase();
     let student = await storage.getStudentByEmail(email);
     if (!student) {
       student = await storage.createStudent({ name, email });
