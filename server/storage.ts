@@ -101,12 +101,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAdminByEmail(email: string) {
-    const [admin] = await db.select().from(admins).where(eq(admins.email, email));
+    const normalized = (email || "").trim().toLowerCase();
+    const [admin] = await db
+      .select()
+      .from(admins)
+      .where(sql`LOWER(${admins.email}) = ${normalized}`);
     return admin;
   }
 
   async createAdmin(admin: InsertAdmin) {
-    const [created] = await db.insert(admins).values(admin).returning();
+    const normalized = { ...admin, email: (admin.email || "").trim().toLowerCase() };
+    const [created] = await db.insert(admins).values(normalized).returning();
     return created;
   }
 
@@ -156,12 +161,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getStudentByEmail(email: string) {
-    const [student] = await db.select().from(students).where(eq(students.email, email));
+    const normalized = (email || "").trim().toLowerCase();
+    const [student] = await db
+      .select()
+      .from(students)
+      .where(sql`LOWER(${students.email}) = ${normalized}`);
     return student;
   }
 
   async createStudent(student: InsertStudent) {
-    const [created] = await db.insert(students).values(student).returning();
+    const normalized = { ...student, email: (student.email || "").trim().toLowerCase() };
+    const [created] = await db.insert(students).values(normalized).returning();
     return created;
   }
 
@@ -191,11 +201,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getExamStudentByCredentials(examId: number, email: string, password: string) {
+    const normalizedEmail = (email || "").trim().toLowerCase();
     const result = await db
       .select()
       .from(examStudents)
       .innerJoin(students, eq(examStudents.studentId, students.id))
-      .where(and(eq(examStudents.examId, examId), eq(students.email, email), eq(examStudents.password, password)));
+      .where(
+        and(
+          eq(examStudents.examId, examId),
+          sql`LOWER(${students.email}) = ${normalizedEmail}`,
+          eq(examStudents.password, password),
+        ),
+      );
     if (result.length === 0) return undefined;
     return { ...result[0].exam_students, student: result[0].students };
   }
