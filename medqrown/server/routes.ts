@@ -47,7 +47,7 @@ export async function registerRoutes(
   });
 
   // Version marker — change BUILD_MARKER on every meaningful push so we can verify what's live
-  const BUILD_MARKER = "2026-04-25-next-button-guard-image-preload-v1";
+  const BUILD_MARKER = "2026-04-25-next-button-overlay-block-v2";
   const SERVER_STARTED_AT = new Date().toISOString();
   app.get("/api/version", (_req, res) => {
     res.json({
