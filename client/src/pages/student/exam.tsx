@@ -371,26 +371,12 @@ export default function StudentExam() {
 
       <main className="max-w-3xl mx-auto px-4 py-6">
         {q ? (
-          <div className="space-y-5 relative">
-            {/* Bulletproof click blocker: while we are advancing to the next question,
-                this overlay physically covers the question card AND the Next button so
-                no click can land on either of them, even if React hasn't re-rendered
-                the disabled button yet. */}
-            {advancing && (
-              <div
-                className="absolute inset-0 z-50 flex items-center justify-center bg-background/85 backdrop-blur-sm rounded-lg"
-                aria-live="polite"
-                aria-busy="true"
-                data-testid="overlay-advancing"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex flex-col items-center gap-3 text-center px-6">
-                  <Loader2 className="w-10 h-10 animate-spin text-primary" />
-                  <p className="text-sm font-medium text-foreground">Loading next question…</p>
-                  <p className="text-xs text-muted-foreground">Please wait, do not click again.</p>
-                </div>
-              </div>
-            )}
+          <div
+            className={`space-y-5 transition-opacity duration-150 ${
+              advancing ? "opacity-60 pointer-events-none select-none" : ""
+            }`}
+            aria-busy={advancing}
+          >
             <Card className="border-primary/10 shadow-sm overflow-hidden">
               <div className="bg-gradient-to-r from-primary/5 to-transparent px-5 py-3 border-b border-primary/10">
                 <div className="flex items-center gap-2 flex-wrap">
