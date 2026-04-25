@@ -24,18 +24,32 @@ export default function StudentExam() {
   const [subAnswers, setSubAnswers] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [advancing, setAdvancing] = useState(false);
   const [remainingTime, setRemainingTime] = useState<number | null>(null);
   const [questionStartedAt, setQuestionStartedAt] = useState<string | null>(null);
   const [attemptStartedAt, setAttemptStartedAt] = useState<string | null>(null);
+  const [upcomingImageUrl, setUpcomingImageUrl] = useState<string | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const attemptDataRef = useRef<any>(null);
   const answerRef = useRef("");
   const subAnswersRef = useRef<Record<number, string>>({});
   const isAutoSubmittingRef = useRef(false);
+  // Hard guard against double-clicks on Next/Submit while the previous request is still in flight
+  const advancingRef = useRef(false);
 
   useEffect(() => { attemptDataRef.current = attemptData; }, [attemptData]);
   useEffect(() => { answerRef.current = answer; }, [answer]);
   useEffect(() => { subAnswersRef.current = subAnswers; }, [subAnswers]);
+
+  // Preload the next question's image in the background so it's already in the
+  // browser cache by the time the student clicks Next. This dramatically reduces
+  // perceived image load time on slower connections.
+  useEffect(() => {
+    if (!upcomingImageUrl) return;
+    const img = new Image();
+    img.decoding = "async";
+    img.src = upcomingImageUrl;
+  }, [upcomingImageUrl]);
 
   const saveCurrentAnswerImmediate = useCallback(async () => {
     const data = attemptDataRef.current;
@@ -83,6 +97,7 @@ export default function StudentExam() {
     try {
       const res = await apiRequest("POST", "/api/student/next-question", {
         attemptId: data.attemptId,
+        expectedCurrentQuestionIndex: data.currentQuestionIndex,
       });
       const nextData = await res.json();
       setAttemptData((prev: any) => ({
@@ -94,6 +109,7 @@ export default function StudentExam() {
       setAnswer(nextData.question?.savedAnswer || "");
       setSubAnswers(nextData.question?.savedSubAnswers || {});
       if (nextData.questionStartedAt) setQuestionStartedAt(nextData.questionStartedAt);
+      setUpcomingImageUrl(nextData.upcomingImageUrl || null);
       return false;
     } catch (e: any) {
       const errorData = await e.json?.().catch(() => ({}));
@@ -104,6 +120,11 @@ export default function StudentExam() {
 
   const handleTimerExpiry = useCallback(async () => {
     if (isAutoSubmittingRef.current) return;
+    // If a manual Next/Submit click is currently in flight, let it finish.
+    // For per_question timers, the user's click will advance the question anyway,
+    // so we'd just be racing the same /next-question call. Bail and let the next
+    // timer tick re-check (or, for per_question, the new question will reset the timer).
+    if (advancingRef.current) return;
     isAutoSubmittingRef.current = true;
     const data = attemptDataRef.current;
     if (!data) { isAutoSubmittingRef.current = false; return; }
@@ -145,6 +166,7 @@ export default function StudentExam() {
       setSubAnswers(data.question?.savedSubAnswers || {});
       if (data.questionStartedAt) setQuestionStartedAt(data.questionStartedAt);
       if (data.startedAt) setAttemptStartedAt(data.startedAt);
+      setUpcomingImageUrl(data.upcomingImageUrl || null);
       setLoading(false);
     } catch {
       toast({ title: "Error", description: "Failed to load exam", variant: "destructive" });
@@ -227,10 +249,19 @@ export default function StudentExam() {
 
   const handleNext = async () => {
     if (isAutoSubmittingRef.current) return;
-    await saveCurrentAnswer();
+    // Hard guard: ignore any clicks while a previous Next is still in flight.
+    // This prevents accidental double-clicks from skipping a question.
+    if (advancingRef.current) return;
+    advancingRef.current = true;
+    setAdvancing(true);
+    let shouldSubmitAfter = false;
     try {
+      await saveCurrentAnswer();
       const res = await apiRequest("POST", "/api/student/next-question", {
         attemptId: attemptData.attemptId,
+        // Optimistic concurrency: server will reject the request as a stale duplicate
+        // (rather than skipping forward) if the client's expected index doesn't match.
+        expectedCurrentQuestionIndex: attemptData.currentQuestionIndex,
       });
       const data = await res.json();
       setAttemptData((prev: any) => ({
@@ -242,18 +273,31 @@ export default function StudentExam() {
       setAnswer(data.question?.savedAnswer || "");
       setSubAnswers(data.question?.savedSubAnswers || {});
       if (data.questionStartedAt) setQuestionStartedAt(data.questionStartedAt);
+      setUpcomingImageUrl(data.upcomingImageUrl || null);
     } catch (e: any) {
       const errorData = await e.json?.().catch(() => ({}));
       if (errorData?.isLastQuestion) {
-        await submitExam();
+        // Defer the submit until after we release the in-flight lock below,
+        // otherwise submitExam's own guard will see advancingRef and bail.
+        shouldSubmitAfter = true;
+      } else if (errorData?.staleRequest) {
+        // Duplicate/stale Next request — silently ignore (the server has already advanced).
       } else {
         toast({ title: "Error", description: "Failed to load next question", variant: "destructive" });
       }
+    } finally {
+      advancingRef.current = false;
+      setAdvancing(false);
+    }
+    if (shouldSubmitAfter) {
+      await submitExam();
     }
   };
 
   const submitExam = async () => {
     if (isAutoSubmittingRef.current) return;
+    if (advancingRef.current) return;
+    advancingRef.current = true;
     setSubmitting(true);
     try {
       await saveCurrentAnswer();
@@ -265,6 +309,7 @@ export default function StudentExam() {
     } catch {
       toast({ title: "Submit failed", variant: "destructive" });
     } finally {
+      advancingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -326,7 +371,26 @@ export default function StudentExam() {
 
       <main className="max-w-3xl mx-auto px-4 py-6">
         {q ? (
-          <div className="space-y-5">
+          <div className="space-y-5 relative">
+            {/* Bulletproof click blocker: while we are advancing to the next question,
+                this overlay physically covers the question card AND the Next button so
+                no click can land on either of them, even if React hasn't re-rendered
+                the disabled button yet. */}
+            {advancing && (
+              <div
+                className="absolute inset-0 z-50 flex items-center justify-center bg-background/85 backdrop-blur-sm rounded-lg"
+                aria-live="polite"
+                aria-busy="true"
+                data-testid="overlay-advancing"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex flex-col items-center gap-3 text-center px-6">
+                  <Loader2 className="w-10 h-10 animate-spin text-primary" />
+                  <p className="text-sm font-medium text-foreground">Loading next question…</p>
+                  <p className="text-xs text-muted-foreground">Please wait, do not click again.</p>
+                </div>
+              </div>
+            )}
             <Card className="border-primary/10 shadow-sm overflow-hidden">
               <div className="bg-gradient-to-r from-primary/5 to-transparent px-5 py-3 border-b border-primary/10">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -354,6 +418,10 @@ export default function StudentExam() {
                       alt="Question image"
                       className="max-w-full max-h-72 rounded-lg mx-auto object-contain"
                       data-testid="img-question"
+                      loading="eager"
+                      decoding="async"
+                      // @ts-ignore - fetchpriority is a valid HTML attribute, not yet in React types
+                      fetchpriority="high"
                     />
                   </div>
                 )}
@@ -422,14 +490,39 @@ export default function StudentExam() {
               </p>
               <div className="flex items-center gap-2">
                 {isLastQuestion ? (
-                  <Button onClick={submitExam} disabled={submitting} size="lg" className="shadow-sm" data-testid="button-submit">
-                    <Send className="w-4 h-4 mr-2" />
+                  <Button
+                    onClick={submitExam}
+                    disabled={submitting || advancing}
+                    size="lg"
+                    className="shadow-sm"
+                    data-testid="button-submit"
+                  >
+                    {submitting ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4 mr-2" />
+                    )}
                     {submitting ? "Submitting..." : "Submit Exam"}
                   </Button>
                 ) : (
-                  <Button onClick={handleNext} disabled={saving} size="lg" className="shadow-sm" data-testid="button-next">
-                    {saving ? "Saving..." : "Next Question"}
-                    <ChevronRight className="w-4 h-4 ml-1" />
+                  <Button
+                    onClick={handleNext}
+                    disabled={advancing || submitting}
+                    size="lg"
+                    className="shadow-sm"
+                    data-testid="button-next"
+                  >
+                    {advancing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      <>
+                        Next Question
+                        <ChevronRight className="w-4 h-4 ml-1" />
+                      </>
+                    )}
                   </Button>
                 )}
               </div>
