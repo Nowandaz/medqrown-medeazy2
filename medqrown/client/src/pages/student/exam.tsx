@@ -97,6 +97,7 @@ export default function StudentExam() {
     try {
       const res = await apiRequest("POST", "/api/student/next-question", {
         attemptId: data.attemptId,
+        expectedCurrentQuestionIndex: data.currentQuestionIndex,
       });
       const nextData = await res.json();
       setAttemptData((prev: any) => ({
@@ -108,6 +109,7 @@ export default function StudentExam() {
       setAnswer(nextData.question?.savedAnswer || "");
       setSubAnswers(nextData.question?.savedSubAnswers || {});
       if (nextData.questionStartedAt) setQuestionStartedAt(nextData.questionStartedAt);
+      setUpcomingImageUrl(nextData.upcomingImageUrl || null);
       return false;
     } catch (e: any) {
       const errorData = await e.json?.().catch(() => ({}));
@@ -118,6 +120,11 @@ export default function StudentExam() {
 
   const handleTimerExpiry = useCallback(async () => {
     if (isAutoSubmittingRef.current) return;
+    // If a manual Next/Submit click is currently in flight, let it finish.
+    // For per_question timers, the user's click will advance the question anyway,
+    // so we'd just be racing the same /next-question call. Bail and let the next
+    // timer tick re-check (or, for per_question, the new question will reset the timer).
+    if (advancingRef.current) return;
     isAutoSubmittingRef.current = true;
     const data = attemptDataRef.current;
     if (!data) { isAutoSubmittingRef.current = false; return; }
@@ -159,6 +166,7 @@ export default function StudentExam() {
       setSubAnswers(data.question?.savedSubAnswers || {});
       if (data.questionStartedAt) setQuestionStartedAt(data.questionStartedAt);
       if (data.startedAt) setAttemptStartedAt(data.startedAt);
+      setUpcomingImageUrl(data.upcomingImageUrl || null);
       setLoading(false);
     } catch {
       toast({ title: "Error", description: "Failed to load exam", variant: "destructive" });
@@ -246,10 +254,14 @@ export default function StudentExam() {
     if (advancingRef.current) return;
     advancingRef.current = true;
     setAdvancing(true);
+    let shouldSubmitAfter = false;
     try {
       await saveCurrentAnswer();
       const res = await apiRequest("POST", "/api/student/next-question", {
         attemptId: attemptData.attemptId,
+        // Optimistic concurrency: server will reject the request as a stale duplicate
+        // (rather than skipping forward) if the client's expected index doesn't match.
+        expectedCurrentQuestionIndex: attemptData.currentQuestionIndex,
       });
       const data = await res.json();
       setAttemptData((prev: any) => ({
@@ -265,13 +277,20 @@ export default function StudentExam() {
     } catch (e: any) {
       const errorData = await e.json?.().catch(() => ({}));
       if (errorData?.isLastQuestion) {
-        await submitExam();
+        // Defer the submit until after we release the in-flight lock below,
+        // otherwise submitExam's own guard will see advancingRef and bail.
+        shouldSubmitAfter = true;
+      } else if (errorData?.staleRequest) {
+        // Duplicate/stale Next request — silently ignore (the server has already advanced).
       } else {
         toast({ title: "Error", description: "Failed to load next question", variant: "destructive" });
       }
     } finally {
       advancingRef.current = false;
       setAdvancing(false);
+    }
+    if (shouldSubmitAfter) {
+      await submitExam();
     }
   };
 
