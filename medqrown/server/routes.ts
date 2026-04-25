@@ -834,10 +834,26 @@ export async function registerRoutes(
   app.post("/api/student/next-question", async (req, res) => {
     const esId = (req.session as any)?.examStudentId;
     if (!esId) return res.status(401).json({ message: "Not authenticated" });
-    const { attemptId } = req.body;
+    const { attemptId, expectedCurrentQuestionIndex } = req.body;
     const attempt = await storage.getAttempt(attemptId);
     if (!attempt) return res.status(404).json({ message: "Attempt not found" });
     if (attempt.examStudentId !== esId) return res.status(403).json({ message: "Forbidden" });
+
+    // Optimistic concurrency: if the client tells us which index it thinks it's on
+    // and that doesn't match the server, this is a stale/duplicate request
+    // (e.g. accidental double-click after the first request already advanced us).
+    // Reject as a no-op rather than skipping a question.
+    if (
+      typeof expectedCurrentQuestionIndex === "number" &&
+      expectedCurrentQuestionIndex !== attempt.currentQuestionIndex
+    ) {
+      return res.status(409).json({
+        message: "Stale next-question request — already advanced",
+        staleRequest: true,
+        currentQuestionIndex: attempt.currentQuestionIndex,
+      });
+    }
+
     const es = await storage.getExamStudent(attempt.examStudentId);
     if (!es) return res.status(404).json({ message: "Exam student not found" });
     const exam = await storage.getExam(es.examId);
