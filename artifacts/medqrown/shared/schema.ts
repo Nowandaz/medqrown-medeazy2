@@ -58,6 +58,7 @@ export const questions = pgTable("questions", {
   orderIndex: integer("order_index").notNull(),
   marks: integer("marks").notNull().default(1),
   expectedAnswer: text("expected_answer"),
+  explanation: text("explanation"),
   imageUrl: text("image_url"),
   imageCaption: text("image_caption"),
   hasSubquestions: boolean("has_subquestions").notNull().default(false),

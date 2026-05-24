@@ -249,12 +249,12 @@ export async function registerRoutes(
 
   app.post("/api/exams/:examId/questions", requireAdmin, async (req, res) => {
     const examId = parseInt(req.params.examId);
-    const { type, content, marks, expectedAnswer, imageUrl, imageCaption, hasSubquestions, options, subquestions: subs } = req.body;
+    const { type, content, marks, expectedAnswer, explanation, imageUrl, imageCaption, hasSubquestions, options, subquestions: subs } = req.body;
     const existingQs = await storage.getQuestionsByExam(examId);
     const orderIndex = existingQs.length;
     const question = await storage.createQuestion({
       examId, type, content, orderIndex, marks: marks || 1,
-      expectedAnswer, imageUrl, imageCaption, hasSubquestions: hasSubquestions || false,
+      expectedAnswer, explanation: explanation || null, imageUrl, imageCaption, hasSubquestions: hasSubquestions || false,
     });
 
     if (type === "mcq" && options) {
@@ -319,6 +319,7 @@ export async function registerRoutes(
           orderIndex: nextIndex++,
           marks: parseInt(item.marks) || 1,
           hasSubquestions: false,
+          explanation: item.explanation ? String(item.explanation).trim() : null,
         });
 
         for (let i = 0; i < optionKeys.length; i++) {
@@ -356,8 +357,8 @@ export async function registerRoutes(
 
   app.patch("/api/exams/:examId/questions/:qId", requireAdmin, async (req, res) => {
     const qId = parseInt(req.params.qId);
-    const { content, marks, expectedAnswer, imageUrl, imageCaption, options, subquestions: subs } = req.body;
-    await storage.updateQuestion(qId, { content, marks, expectedAnswer, imageUrl, imageCaption });
+    const { content, marks, expectedAnswer, explanation, imageUrl, imageCaption, options, subquestions: subs } = req.body;
+    await storage.updateQuestion(qId, { content, marks, expectedAnswer, explanation: explanation ?? null, imageUrl, imageCaption });
     if (options) {
       await storage.deleteQuestionOptions(qId);
       for (let i = 0; i < options.length; i++) {

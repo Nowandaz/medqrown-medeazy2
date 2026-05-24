@@ -452,6 +452,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
   const [qContent, setQContent] = useState("");
   const [qMarks, setQMarks] = useState(1);
   const [qExpected, setQExpected] = useState("");
+  const [qExplanation, setQExplanation] = useState("");
   const [hasSubQ, setHasSubQ] = useState(false);
   const [subQCount, setSubQCount] = useState(2);
   const [subQs, setSubQs] = useState<{ content: string; marks: number; expectedAnswer: string }[]>([]);
@@ -470,6 +471,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
   const [editContent, setEditContent] = useState("");
   const [editMarks, setEditMarks] = useState(1);
   const [editExpected, setEditExpected] = useState("");
+  const [editExplanation, setEditExplanation] = useState("");
   const [editImageUrl, setEditImageUrl] = useState("");
   const [editImageCaption, setEditImageCaption] = useState("");
   const [editOptions, setEditOptions] = useState<{ content: string; isCorrect: boolean }[]>([]);
@@ -482,6 +484,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
     setEditContent(q.content || "");
     setEditMarks(q.marks || 1);
     setEditExpected(q.expectedAnswer || "");
+    setEditExplanation(q.explanation || "");
     setEditImageUrl(q.imageUrl || "");
     setEditImageCaption(q.imageCaption || "");
     setEditOptions(q.options?.map((o: any) => ({ content: o.content, isCorrect: o.isCorrect })) || []);
@@ -509,6 +512,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
         content: editContent,
         marks: editMarks,
         expectedAnswer: editQ.type === "saq" ? editExpected : undefined,
+        explanation: editQ.type === "mcq" ? (editExplanation || null) : undefined,
         imageUrl: editImageUrl || null,
         imageCaption: editImageCaption || null,
         options: editQ.type === "mcq" ? editOptions : undefined,
@@ -555,6 +559,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
         content: qContent,
         marks: qMarks,
         expectedAnswer: qType === "saq" ? qExpected : undefined,
+        explanation: qType === "mcq" ? (qExplanation || null) : undefined,
         hasSubquestions: hasSubQ,
         imageUrl: imageUrl || undefined,
         imageCaption: imageCaption || undefined,
@@ -623,6 +628,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
     setQContent("");
     setQMarks(1);
     setQExpected("");
+    setQExplanation("");
     setHasSubQ(false);
     setSubQs([]);
     setImageUrl("");
@@ -646,7 +652,8 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
       "C": "Kidney",
       "D": "Spleen"
     },
-    "answer": "B"
+    "answer": "B",
+    "explanation": "The pancreas contains islets of Langerhans which produce insulin to regulate blood glucose levels."
   },
   {
     "number": 2,
@@ -658,7 +665,8 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
       "C": "100–140 bpm",
       "D": "140–180 bpm"
     },
-    "answer": "B"
+    "answer": "B",
+    "explanation": "A normal resting heart rate for adults ranges from 60 to 100 beats per minute."
   }
 ]`;
 
@@ -872,6 +880,13 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
                 </div>
               )}
 
+              {qType === "mcq" && (
+                <div className="space-y-2">
+                  <Label>Explanation <span className="text-muted-foreground font-normal text-xs">(shown to students after results are released)</span></Label>
+                  <Textarea value={qExplanation} onChange={(e) => setQExplanation(e.target.value)} placeholder="Explain why the correct answer is right..." rows={3} />
+                </div>
+              )}
+
               <Button className="w-full h-11" onClick={() => addQuestion.mutate()} disabled={!qContent || addQuestion.isPending} data-testid="button-submit-question">
                 {addQuestion.isPending ? "Adding..." : "Add Question"}
               </Button>
@@ -934,6 +949,12 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
                 <div className="space-y-2">
                   <Label>Expected Answer</Label>
                   <Textarea value={editExpected} onChange={(e) => setEditExpected(e.target.value)} data-testid="input-edit-expected-answer" />
+                </div>
+              )}
+              {editQ.type === "mcq" && (
+                <div className="space-y-2">
+                  <Label>Explanation <span className="text-muted-foreground font-normal text-xs">(shown to students after results are released)</span></Label>
+                  <Textarea value={editExplanation} onChange={(e) => setEditExplanation(e.target.value)} placeholder="Explain why the correct answer is right..." rows={3} />
                 </div>
               )}
               {editQ.hasSubquestions && editSubQs.length > 0 && (
