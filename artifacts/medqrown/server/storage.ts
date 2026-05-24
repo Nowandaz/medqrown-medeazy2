@@ -100,6 +100,7 @@ export interface IStorage {
   getStudentSignupById(id: number): Promise<StudentSignup | undefined>;
   getAllStudentSignups(): Promise<StudentSignup[]>;
   updateStudentSignup(id: number, data: Partial<StudentSignup>): Promise<StudentSignup>;
+  deleteStudentSignup(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -539,7 +540,7 @@ export class DatabaseStorage implements IStorage {
     return analytics;
   }
 
-  async createStudentSignup(data: { name: string; email: string; university: string; verificationCode: string; verificationExpiresAt: Date; token: string }) {
+  async createStudentSignup(data: { name: string; email: string; university: string; yearOfStudy?: string | null; password?: string | null; verificationCode: string; verificationExpiresAt: Date; token: string }) {
     const [row] = await db.insert(studentSignups).values({
       ...data,
       emailVerified: false,
@@ -571,6 +572,10 @@ export class DatabaseStorage implements IStorage {
   async updateStudentSignup(id: number, data: Partial<StudentSignup>) {
     const [row] = await db.update(studentSignups).set(data).where(eq(studentSignups.id, id)).returning();
     return row;
+  }
+
+  async deleteStudentSignup(id: number) {
+    await db.delete(studentSignups).where(eq(studentSignups.id, id));
   }
 }
 

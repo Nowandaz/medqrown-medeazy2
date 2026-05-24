@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, XCircle, Clock, GraduationCap, Mail, Building2, ShieldCheck, ShieldX } from "lucide-react";
+import { CheckCircle, XCircle, Clock, GraduationCap, Mail, Building2, ShieldCheck, ShieldX, Trash2, UserPlus } from "lucide-react";
 import type { Exam } from "@shared/schema";
 
 interface Signup {
@@ -17,6 +17,7 @@ interface Signup {
   name: string;
   email: string;
   university: string;
+  yearOfStudy: string | null;
   status: string;
   emailVerified: boolean;
   rejectionReason: string | null;
@@ -35,9 +36,15 @@ export default function AdminSignups() {
   const { toast } = useToast();
   const [approveTarget, setApproveTarget] = useState<Signup | null>(null);
   const [rejectTarget, setRejectTarget] = useState<Signup | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Signup | null>(null);
   const [selectedExam, setSelectedExam] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   const [filter, setFilter] = useState<string>("all");
+
+  // Manual enrol form state
+  const [enrolName, setEnrolName] = useState("");
+  const [enrolEmail, setEnrolEmail] = useState("");
+  const [enrolExam, setEnrolExam] = useState("");
 
   const { data: signups = [], isLoading } = useQuery<Signup[]>({
     queryKey: ["/api/admin/signups"],
@@ -51,15 +58,12 @@ export default function AdminSignups() {
   const approveMutation = useMutation({
     mutationFn: async ({ id, examId }: { id: number; examId: number }) => {
       const res = await apiRequest("POST", `/api/admin/signups/${id}/approve`, { examId });
-      if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.message);
-      }
+      if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/signups"] });
-      setApproveTarget(null);
-      setSelectedExam("");
+      queryClient.invalidateQueries({ queryKey: ["/api/exams"] });
+      setApproveTarget(null); setSelectedExam("");
       toast({ title: "Student approved", description: "They have been added to the selected exam." });
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -68,16 +72,40 @@ export default function AdminSignups() {
   const rejectMutation = useMutation({
     mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
       const res = await apiRequest("POST", `/api/admin/signups/${id}/reject`, { reason });
-      if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.message);
-      }
+      if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/signups"] });
-      setRejectTarget(null);
-      setRejectReason("");
+      setRejectTarget(null); setRejectReason("");
       toast({ title: "Application rejected" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/admin/signups/${id}`);
+      if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/signups"] });
+      setDeleteTarget(null);
+      toast({ title: "Record deleted" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const enrolMutation = useMutation({
+    mutationFn: async ({ name, email, examId }: { name: string; email: string; examId: number }) => {
+      const res = await apiRequest("POST", "/api/admin/students/enrol", { name, email, examId });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.message);
+      return d;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/exams"] });
+      setEnrolName(""); setEnrolEmail(""); setEnrolExam("");
+      toast({ title: "Student enrolled", description: `Password: ${data.password}` });
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -87,6 +115,7 @@ export default function AdminSignups() {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-xl font-semibold flex items-center gap-2">
@@ -98,9 +127,7 @@ export default function AdminSignups() {
               </Badge>
             )}
           </h2>
-          <p className="text-muted-foreground text-sm mt-0.5">
-            Review, approve or reject student applications
-          </p>
+          <p className="text-muted-foreground text-sm mt-0.5">Review, approve or reject student applications</p>
         </div>
         <Select value={filter} onValueChange={setFilter}>
           <SelectTrigger className="w-44">
@@ -116,11 +143,10 @@ export default function AdminSignups() {
         </Select>
       </div>
 
+      {/* Signup list */}
       {isLoading ? (
         <div className="space-y-3">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="h-24 rounded-lg bg-muted/50 animate-pulse" />
-          ))}
+          {[1, 2, 3].map(i => <div key={i} className="h-24 rounded-lg bg-muted/50 animate-pulse" />)}
         </div>
       ) : filtered.length === 0 ? (
         <Card className="border-dashed">
@@ -150,12 +176,9 @@ export default function AdminSignups() {
                         )}
                       </div>
                       <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
-                        <span className="flex items-center gap-1">
-                          <Mail className="w-3.5 h-3.5" /> {signup.email}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Building2 className="w-3.5 h-3.5" /> {signup.university}
-                        </span>
+                        <span className="flex items-center gap-1"><Mail className="w-3.5 h-3.5" /> {signup.email}</span>
+                        <span className="flex items-center gap-1"><Building2 className="w-3.5 h-3.5" /> {signup.university}</span>
+                        {signup.yearOfStudy && <span className="text-xs bg-muted px-2 py-0.5 rounded-full">{signup.yearOfStudy}</span>}
                       </div>
                       <p className="text-xs text-muted-foreground">
                         Applied {new Date(signup.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
@@ -165,24 +188,23 @@ export default function AdminSignups() {
                       )}
                     </div>
 
-                    {signup.status === "pending_approval" && (
-                      <div className="flex gap-2 shrink-0">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-red-600 border-red-200 hover:bg-red-50 dark:hover:bg-red-900/20"
-                          onClick={() => setRejectTarget(signup)}
-                        >
-                          <ShieldX className="w-3.5 h-3.5 mr-1" /> Reject
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => setApproveTarget(signup)}
-                        >
-                          <CheckCircle className="w-3.5 h-3.5 mr-1" /> Approve
-                        </Button>
-                      </div>
-                    )}
+                    <div className="flex gap-2 shrink-0 flex-wrap">
+                      {signup.status === "pending_approval" && (
+                        <>
+                          <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 dark:hover:bg-red-900/20"
+                            onClick={() => setRejectTarget(signup)}>
+                            <ShieldX className="w-3.5 h-3.5 mr-1" /> Reject
+                          </Button>
+                          <Button size="sm" onClick={() => setApproveTarget(signup)}>
+                            <CheckCircle className="w-3.5 h-3.5 mr-1" /> Approve
+                          </Button>
+                        </>
+                      )}
+                      <Button size="sm" variant="outline" className="text-red-500 border-red-200 hover:bg-red-50 dark:hover:bg-red-900/20"
+                        onClick={() => setDeleteTarget(signup)}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -191,12 +213,56 @@ export default function AdminSignups() {
         </div>
       )}
 
+      {/* Manual enrol section */}
+      <Card className="border-primary/10">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <UserPlus className="w-4 h-4 text-primary" />
+            Manually Enrol a Student
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Add any student directly to an exam. If they don't have an account yet, one will be created automatically.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Full Name</Label>
+              <Input placeholder="Student's full name" value={enrolName} onChange={e => setEnrolName(e.target.value)} className="h-9 text-sm" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Email Address</Label>
+              <Input type="email" placeholder="student@email.com" value={enrolEmail} onChange={e => setEnrolEmail(e.target.value)} className="h-9 text-sm" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Exam</Label>
+              <Select value={enrolExam} onValueChange={setEnrolExam}>
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="Choose exam..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {exams.map(e => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="mt-3 flex justify-end">
+            <Button
+              size="sm"
+              disabled={!enrolEmail || !enrolExam || enrolMutation.isPending}
+              onClick={() => enrolMutation.mutate({ name: enrolName, email: enrolEmail, examId: parseInt(enrolExam) })}
+            >
+              <UserPlus className="w-3.5 h-3.5 mr-1.5" />
+              {enrolMutation.isPending ? "Enrolling..." : "Enrol Student"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Approve dialog */}
       <Dialog open={!!approveTarget} onOpenChange={() => { setApproveTarget(null); setSelectedExam(""); }}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Approve Application</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Approve Application</DialogTitle></DialogHeader>
           <div className="space-y-4 pt-2">
             <p className="text-sm text-muted-foreground">
               Approving <strong>{approveTarget?.name}</strong> — select which exam to enrol them in.
@@ -204,13 +270,9 @@ export default function AdminSignups() {
             <div className="space-y-2">
               <Label>Assign to Exam</Label>
               <Select value={selectedExam} onValueChange={setSelectedExam}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose an exam..." />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Choose an exam..." /></SelectTrigger>
                 <SelectContent>
-                  {exams.map(e => (
-                    <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>
-                  ))}
+                  {exams.map(e => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -230,29 +292,41 @@ export default function AdminSignups() {
       {/* Reject dialog */}
       <Dialog open={!!rejectTarget} onOpenChange={() => { setRejectTarget(null); setRejectReason(""); }}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reject Application</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Reject Application</DialogTitle></DialogHeader>
           <div className="space-y-4 pt-2">
             <p className="text-sm text-muted-foreground">
               Rejecting <strong>{rejectTarget?.name}</strong>. You can optionally provide a reason.
             </p>
             <div className="space-y-2">
               <Label>Reason (optional)</Label>
-              <Input
-                placeholder="e.g. Not enrolled in this programme"
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-              />
+              <Input placeholder="e.g. Not enrolled in this programme" value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)} />
             </div>
             <div className="flex gap-2 justify-end pt-2">
               <Button variant="outline" onClick={() => { setRejectTarget(null); setRejectReason(""); }}>Cancel</Button>
-              <Button
-                variant="destructive"
-                disabled={rejectMutation.isPending}
-                onClick={() => rejectTarget && rejectMutation.mutate({ id: rejectTarget.id, reason: rejectReason })}
-              >
+              <Button variant="destructive" disabled={rejectMutation.isPending}
+                onClick={() => rejectTarget && rejectMutation.mutate({ id: rejectTarget.id, reason: rejectReason })}>
                 {rejectMutation.isPending ? "Rejecting..." : "Reject Application"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete dialog */}
+      <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Delete Record</DialogTitle></DialogHeader>
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              Permanently delete the sign-up record for <strong>{deleteTarget?.name}</strong>? This cannot be undone.
+            </p>
+            <div className="flex gap-2 justify-end pt-2">
+              <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+              <Button variant="destructive" disabled={deleteMutation.isPending}
+                onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}>
+                <Trash2 className="w-3.5 h-3.5 mr-1" />
+                {deleteMutation.isPending ? "Deleting..." : "Delete"}
               </Button>
             </div>
           </div>

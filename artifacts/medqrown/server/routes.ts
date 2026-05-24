@@ -1104,15 +1104,21 @@ export async function registerRoutes(
 
   app.post("/api/student/signup", async (req, res) => {
     try {
-      const { name, email, university } = req.body;
-      if (!name || !email || !university) {
-        return res.status(400).json({ message: "Name, email and university are required" });
+      const { name, email, university, yearOfStudy, password } = req.body;
+      if (!name || !email || !university || !password) {
+        return res.status(400).json({ message: "Name, email, university and password are required" });
       }
       const normalizedEmail = (email || "").trim().toLowerCase();
 
+      // Check if student already has a full account (enrolled in an exam)
+      const existingStudent = await storage.getStudentByEmail(normalizedEmail);
+      if (existingStudent) {
+        return res.status(409).json({ message: "An account with this email already exists. Please sign in using your existing credentials.", hasAccount: true });
+      }
+
       const existing = await storage.getStudentSignupByEmail(normalizedEmail);
       if (existing && existing.status !== "rejected") {
-        return res.status(409).json({ message: "An application with this email already exists", token: existing.token });
+        return res.status(409).json({ message: "An application with this email is already being processed.", token: existing.token });
       }
 
       const code = Math.floor(100000 + Math.random() * 900000).toString();
@@ -1123,6 +1129,8 @@ export async function registerRoutes(
         name: name.trim(),
         email: normalizedEmail,
         university: university.trim(),
+        yearOfStudy: yearOfStudy || null,
+        password: password,
         verificationCode: code,
         verificationExpiresAt: expiresAt,
         token,
@@ -1253,8 +1261,8 @@ export async function registerRoutes(
 
       const existing = await storage.getExamStudentByExamAndStudent(examId, student.id);
       if (!existing) {
-        const password = generatePassword(normalizedEmail);
-        await storage.createExamStudent({ examId, studentId: student.id, password, attemptStatus: "not_started", resetCount: 0, emailSent: false });
+        const examPassword = signup.password || generatePassword(normalizedEmail);
+        await storage.createExamStudent({ examId, studentId: student.id, password: examPassword, attemptStatus: "not_started", resetCount: 0, emailSent: false });
       }
 
       await storage.updateStudentSignup(id, { status: "approved", approvedExamId: examId });
@@ -1277,6 +1285,46 @@ export async function registerRoutes(
       res.json({ ok: true });
     } catch (error: any) {
       res.status(500).json({ message: "Rejection failed: " + error.message });
+    }
+  });
+
+  app.delete("/api/admin/signups/:id", requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const signup = await storage.getStudentSignupById(id);
+      if (!signup) return res.status(404).json({ message: "Signup not found" });
+      await storage.deleteStudentSignup(id);
+      await storage.createAuditLog({ adminId: (req as any).admin.id, action: "delete_signup", details: `${signup.name} (${signup.email})` });
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ message: "Delete failed: " + error.message });
+    }
+  });
+
+  // Manual enrol: admin picks any student (existing or new) + exam
+  app.post("/api/admin/students/enrol", requireAdmin, async (req, res) => {
+    try {
+      const { name, email, examId } = req.body;
+      if (!email || !examId) return res.status(400).json({ message: "Email and examId are required" });
+      const normalizedEmail = (email || "").trim().toLowerCase();
+
+      let student = await storage.getStudentByEmail(normalizedEmail);
+      if (!student) {
+        if (!name) return res.status(400).json({ message: "Name is required for a new student" });
+        student = await storage.createStudent({ name: name.trim(), email: normalizedEmail });
+      } else if (name && student.name !== name.trim()) {
+        student = await storage.updateStudent(student.id, { name: name.trim() });
+      }
+
+      const existing = await storage.getExamStudentByExamAndStudent(examId, student.id);
+      if (existing) return res.status(400).json({ message: "Student is already enrolled in this exam" });
+
+      const password = generatePassword(normalizedEmail);
+      await storage.createExamStudent({ examId, studentId: student.id, password, attemptStatus: "not_started", resetCount: 0, emailSent: false });
+      await storage.createAuditLog({ adminId: (req as any).admin.id, action: "manual_enrol", details: `${student.name} (${normalizedEmail}) → exam ${examId}` });
+      res.json({ ok: true, student, password });
+    } catch (error: any) {
+      res.status(500).json({ message: "Enrolment failed: " + error.message });
     }
   });
 

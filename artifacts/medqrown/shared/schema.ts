@@ -175,6 +175,8 @@ export const studentSignups = pgTable("student_signups", {
   name: text("name").notNull(),
   email: text("email").notNull(),
   university: text("university").notNull(),
+  yearOfStudy: text("year_of_study"),
+  password: text("password"),
   verificationCode: text("verification_code").notNull(),
   verificationExpiresAt: timestamp("verification_expires_at").notNull(),
   emailVerified: boolean("email_verified").notNull().default(false),
