@@ -281,6 +281,63 @@ export async function registerRoutes(
     res.json(created);
   });
 
+  app.post("/api/exams/:examId/questions/bulk", requireAdmin, async (req, res) => {
+    try {
+      const examId = parseInt(req.params.examId);
+      const { questions: bulk } = req.body;
+      if (!Array.isArray(bulk) || bulk.length === 0) {
+        return res.status(400).json({ message: "questions must be a non-empty array" });
+      }
+
+      const existingQs = await storage.getQuestionsByExam(examId);
+      let nextIndex = existingQs.length;
+      const created: any[] = [];
+
+      for (const item of bulk) {
+        if (!item.question || typeof item.question !== "string") {
+          return res.status(400).json({ message: `Question ${item.number ?? "?"}: missing or invalid "question" field` });
+        }
+        if (!item.options || typeof item.options !== "object" || Array.isArray(item.options)) {
+          return res.status(400).json({ message: `Question ${item.number ?? "?"}: "options" must be an object e.g. { "A": "...", "B": "..." }` });
+        }
+        const optionKeys = Object.keys(item.options);
+        if (optionKeys.length < 2) {
+          return res.status(400).json({ message: `Question ${item.number ?? "?"}: at least 2 options required` });
+        }
+        const answerKey = String(item.answer ?? "").trim().toUpperCase();
+        if (!answerKey || !item.options[answerKey]) {
+          return res.status(400).json({ message: `Question ${item.number ?? "?"}: "answer" must match one of the option keys (${optionKeys.join(", ")})` });
+        }
+
+        const question = await storage.createQuestion({
+          examId,
+          type: "mcq",
+          content: String(item.question).trim(),
+          orderIndex: nextIndex++,
+          marks: parseInt(item.marks) || 1,
+          hasSubquestions: false,
+        });
+
+        for (let i = 0; i < optionKeys.length; i++) {
+          const key = optionKeys[i];
+          await storage.createQuestionOption({
+            questionId: question.id,
+            content: String(item.options[key]).trim(),
+            isCorrect: key.toUpperCase() === answerKey,
+            orderIndex: i,
+          });
+        }
+
+        created.push({ ...question, options: await storage.getQuestionOptions(question.id) });
+      }
+
+      invalidateExamCache(examId);
+      res.json({ imported: created.length, questions: created });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Bulk import failed" });
+    }
+  });
+
   app.delete("/api/exams/:examId/questions/:qId", requireAdmin, async (req, res) => {
     try {
       const examId = parseInt(req.params.examId);

@@ -444,6 +444,10 @@ function StudentsTab({ examId, examStudents }: { examId: number; examStudents: a
 function QuestionsTab({ examId, questions }: { examId: number; questions: any[] }) {
   const { toast } = useToast();
   const [showAdd, setShowAdd] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
+  const [bulkJson, setBulkJson] = useState("");
+  const [bulkError, setBulkError] = useState("");
+  const [bulkParsed, setBulkParsed] = useState<any[] | null>(null);
   const [qType, setQType] = useState("mcq");
   const [qContent, setQContent] = useState("");
   const [qMarks, setQMarks] = useState(1);
@@ -575,6 +579,46 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
     },
   });
 
+  const bulkImport = useMutation({
+    mutationFn: async (parsed: any[]) => {
+      const res = await fetch(`/api/exams/${examId}/questions/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ questions: parsed }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Import failed");
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/exams", examId, "questions"] });
+      toast({ title: `Imported ${data.imported} question${data.imported !== 1 ? "s" : ""}`, description: "Questions added successfully." });
+      setShowBulk(false);
+      setBulkJson("");
+      setBulkParsed(null);
+      setBulkError("");
+    },
+    onError: (err: any) => {
+      setBulkError(err.message);
+    },
+  });
+
+  function parseBulkJson() {
+    setBulkError("");
+    setBulkParsed(null);
+    try {
+      const parsed = JSON.parse(bulkJson);
+      const arr = Array.isArray(parsed) ? parsed : parsed.questions;
+      if (!Array.isArray(arr) || arr.length === 0) {
+        setBulkError("JSON must be an array of question objects (or an object with a \"questions\" array).");
+        return;
+      }
+      setBulkParsed(arr);
+    } catch {
+      setBulkError("Invalid JSON — please check for missing commas, quotes, or brackets.");
+    }
+  }
+
   function resetForm() {
     setQContent("");
     setQMarks(1);
@@ -591,6 +635,33 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
     ]);
   }
 
+  const BULK_EXAMPLE = `[
+  {
+    "number": 1,
+    "question": "Which organ produces insulin?",
+    "marks": 1,
+    "options": {
+      "A": "Liver",
+      "B": "Pancreas",
+      "C": "Kidney",
+      "D": "Spleen"
+    },
+    "answer": "B"
+  },
+  {
+    "number": 2,
+    "question": "The normal resting heart rate is:",
+    "marks": 2,
+    "options": {
+      "A": "40–60 bpm",
+      "B": "60–100 bpm",
+      "C": "100–140 bpm",
+      "D": "140–180 bpm"
+    },
+    "answer": "B"
+  }
+]`;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -598,6 +669,57 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
           <h3 className="font-semibold">Questions</h3>
           <p className="text-xs text-muted-foreground">{questions.length} question{questions.length !== 1 ? "s" : ""}</p>
         </div>
+        <div className="flex items-center gap-2">
+        {/* ── Bulk Import ─────────────────────────────────────── */}
+        <Dialog open={showBulk} onOpenChange={(v) => { setShowBulk(v); if (!v) { setBulkJson(""); setBulkParsed(null); setBulkError(""); } }}>
+          <DialogTrigger asChild>
+            <Button size="sm" variant="outline" className="text-xs"><Upload className="w-3.5 h-3.5 mr-1" />Bulk Import</Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>Bulk Import MCQs</DialogTitle></DialogHeader>
+            <div className="space-y-4 pt-2 text-sm">
+              <div className="rounded-lg bg-muted/60 border p-3 space-y-1 text-xs text-muted-foreground">
+                <p className="font-semibold text-foreground">Expected JSON format</p>
+                <p>An array of objects — each with <code>number</code>, <code>question</code>, <code>marks</code>, <code>options</code> (key→text), and <code>answer</code> (matching key).</p>
+              </div>
+              <div>
+                <Label className="text-xs mb-1 block">Example</Label>
+                <pre className="text-xs bg-muted rounded-lg p-3 overflow-x-auto whitespace-pre">{BULK_EXAMPLE}</pre>
+              </div>
+              <div className="space-y-2">
+                <Label>Paste your JSON here</Label>
+                <Textarea
+                  value={bulkJson}
+                  onChange={(e) => { setBulkJson(e.target.value); setBulkParsed(null); setBulkError(""); }}
+                  placeholder="Paste JSON array of questions..."
+                  className="font-mono text-xs min-h-[180px]"
+                />
+              </div>
+              {bulkError && (
+                <div className="rounded-lg bg-destructive/10 border border-destructive/30 text-destructive text-xs p-3 flex gap-2">
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  <span>{bulkError}</span>
+                </div>
+              )}
+              {bulkParsed && (
+                <div className="rounded-lg bg-green-50 border border-green-200 text-green-800 text-xs p-3">
+                  <CheckCircle className="w-3.5 h-3.5 inline mr-1 mb-0.5" />
+                  <strong>{bulkParsed.length} question{bulkParsed.length !== 1 ? "s" : ""}</strong> parsed — ready to import.
+                </div>
+              )}
+              <div className="flex gap-2 justify-end pt-1">
+                {!bulkParsed ? (
+                  <Button size="sm" onClick={parseBulkJson} disabled={!bulkJson.trim()}>Parse JSON</Button>
+                ) : (
+                  <Button size="sm" onClick={() => bulkImport.mutate(bulkParsed!)} disabled={bulkImport.isPending}>
+                    {bulkImport.isPending ? <><Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />Importing...</> : `Import ${bulkParsed.length} Question${bulkParsed.length !== 1 ? "s" : ""}`}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+        {/* ── Add Single Question ──────────────────────────────── */}
         <Dialog open={showAdd} onOpenChange={(v) => { setShowAdd(v); if (!v) resetForm(); }}>
           <DialogTrigger asChild>
             <Button size="sm" className="text-xs" data-testid="button-add-question"><Plus className="w-3.5 h-3.5 mr-1" />Add Question</Button>
@@ -756,6 +878,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
             </div>
           </DialogContent>
         </Dialog>
+        </div>{/* end button-wrapper */}
       </div>
 
       <Dialog open={!!editQ} onOpenChange={(open) => { if (!open) setEditQ(null); }}>
