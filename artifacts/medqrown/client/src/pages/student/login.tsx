@@ -153,6 +153,14 @@ export default function StudentLogin() {
               New student? Sign up here
             </button>
             <p className="text-center text-xs text-muted-foreground">
+              <button
+                onClick={() => setLocation("/student/forgot-password")}
+                className="hover:text-primary transition-colors underline underline-offset-2"
+              >
+                Forgot password?
+              </button>
+            </p>
+            <p className="text-center text-xs text-muted-foreground">
               <a href="/admin" className="hover:text-primary transition-colors underline underline-offset-2" data-testid="link-admin-portal">Admin Portal</a>
             </p>
           </div>

@@ -12,6 +12,8 @@ import StudentLogin from "@/pages/student/login";
 import StudentSignup from "@/pages/student/signup";
 import StudentVerifyEmail from "@/pages/student/verify-email";
 import StudentAwaiting from "@/pages/student/awaiting";
+import StudentForgotPassword from "@/pages/student/forgot-password";
+import StudentResetPassword from "@/pages/student/reset-password";
 import StudentInstructions from "@/pages/student/instructions";
 import StudentExam from "@/pages/student/exam";
 import StudentResults from "@/pages/student/results";
@@ -27,6 +29,8 @@ function Router() {
       <Route path="/student/signup" component={StudentSignup} />
       <Route path="/student/verify" component={StudentVerifyEmail} />
       <Route path="/student/awaiting" component={StudentAwaiting} />
+      <Route path="/student/forgot-password" component={StudentForgotPassword} />
+      <Route path="/student/reset-password" component={StudentResetPassword} />
       <Route path="/student/instructions" component={StudentInstructions} />
       <Route path="/student/exam" component={StudentExam} />
       <Route path="/student/results" component={StudentResults} />

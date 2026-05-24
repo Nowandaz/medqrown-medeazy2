@@ -1234,6 +1234,93 @@ export async function registerRoutes(
     });
   });
 
+  app.post("/api/student/forgot-password", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ message: "Email is required" });
+      const normalizedEmail = email.trim().toLowerCase();
+
+      const student = await storage.getStudentByEmail(normalizedEmail);
+      if (!student) {
+        // Don't reveal whether email exists — send generic success
+        return res.json({ message: "If this email is registered, a reset code has been sent." });
+      }
+
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+      await storage.updateStudent(student.id, { resetCode: code, resetExpiresAt: expiresAt });
+
+      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+        try {
+          const transporter = createSmtpTransporter();
+          await transporter.sendMail({
+            from: `"MedQrown MedEazy" <${process.env.SMTP_USER}>`,
+            to: normalizedEmail,
+            subject: "Reset your MedQrown MedEazy password",
+            html: `
+              <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;background:#fff;">
+                <h2 style="color:#1a1a2e;margin-bottom:4px;">MedQrown MedEazy</h2>
+                <p style="color:#6b7280;margin-top:0;margin-bottom:32px;font-size:14px;">Student Portal — Password Reset</p>
+                <p style="color:#374151;">Hello <strong>${student.name}</strong>,</p>
+                <p style="color:#374151;">We received a request to reset your password. Use the code below:</p>
+                <div style="background:#f3f4f6;border-radius:12px;padding:24px;text-align:center;margin:24px 0;">
+                  <span style="font-size:36px;font-weight:700;letter-spacing:8px;color:#1a1a2e;">${code}</span>
+                </div>
+                <p style="color:#374151;">This code expires in <strong>15 minutes</strong>.</p>
+                <p style="color:#6b7280;font-size:13px;">If you didn't request a password reset, you can safely ignore this email.</p>
+                <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;"/>
+                <p style="color:#9ca3af;font-size:12px;margin:0;">MedQrown MedEazy</p>
+              </div>`,
+            text: `Hello ${student.name},\n\nYour password reset code is: ${code}\n\nThis code expires in 15 minutes.\n\nIf you didn't request this, ignore this email.\n\nMedQrown MedEazy`,
+          });
+        } catch (mailErr: any) {
+          console.error("Reset email failed:", mailErr.message);
+        }
+      }
+
+      res.json({ message: "Reset code sent to your email" });
+    } catch (error: any) {
+      console.error("Forgot password error:", error);
+      res.status(500).json({ message: "Something went wrong. Please try again." });
+    }
+  });
+
+  app.post("/api/student/reset-password", async (req, res) => {
+    try {
+      const { email, code, newPassword } = req.body;
+      if (!email || !code || !newPassword) {
+        return res.status(400).json({ message: "Email, code and new password are required" });
+      }
+      if (newPassword.length < 6) {
+        return res.status(400).json({ message: "Password must be at least 6 characters" });
+      }
+
+      const normalizedEmail = email.trim().toLowerCase();
+      const student = await storage.getStudentByEmail(normalizedEmail);
+      if (!student) return res.status(404).json({ message: "No account found for this email" });
+
+      if (!student.resetCode || !student.resetExpiresAt) {
+        return res.status(400).json({ message: "No reset request found. Please request a new code." });
+      }
+      if (student.resetCode !== code.trim()) {
+        return res.status(400).json({ message: "Incorrect code. Please try again." });
+      }
+      if (new Date() > new Date(student.resetExpiresAt)) {
+        return res.status(400).json({ message: "Code has expired. Please request a new one." });
+      }
+
+      // Update password on all exam_students records for this student
+      await storage.updateAllExamStudentPasswords(student.id, newPassword);
+      // Clear the reset code
+      await storage.updateStudent(student.id, { resetCode: null, resetExpiresAt: null });
+
+      res.json({ message: "Password reset successfully" });
+    } catch (error: any) {
+      console.error("Reset password error:", error);
+      res.status(500).json({ message: "Password reset failed. Please try again." });
+    }
+  });
+
   // ── Admin Signup Management ──────────────────────────────────────────────
 
   app.get("/api/admin/signups", requireAdmin, async (_req, res) => {

@@ -235,6 +235,10 @@ export class DatabaseStorage implements IStorage {
     await db.update(examStudents).set(data).where(eq(examStudents.id, id));
   }
 
+  async updateAllExamStudentPasswords(studentId: number, password: string) {
+    await db.update(examStudents).set({ password }).where(eq(examStudents.studentId, studentId));
+  }
+
   async deleteExamStudent(id: number) {
     await db.delete(examStudents).where(eq(examStudents.id, id));
   }

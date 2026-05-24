@@ -31,6 +31,8 @@ export const students = pgTable("students", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull(),
+  resetCode: text("reset_code"),
+  resetExpiresAt: timestamp("reset_expires_at"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
