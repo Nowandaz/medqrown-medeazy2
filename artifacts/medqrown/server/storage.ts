@@ -41,6 +41,7 @@ export interface IStorage {
   updateExamStudent(id: number, data: Partial<ExamStudent>): Promise<void>;
   deleteExamStudent(id: number): Promise<void>;
   getExamStudentByExamAndStudent(examId: number, studentId: number): Promise<ExamStudent | undefined>;
+  getAnyExamStudentByStudent(studentId: number): Promise<ExamStudent | undefined>;
 
   getQuestion(id: number): Promise<Question | undefined>;
   getQuestionsByExam(examId: number): Promise<Question[]>;
@@ -245,6 +246,11 @@ export class DatabaseStorage implements IStorage {
 
   async getExamStudentByExamAndStudent(examId: number, studentId: number) {
     const [es] = await db.select().from(examStudents).where(and(eq(examStudents.examId, examId), eq(examStudents.studentId, studentId)));
+    return es;
+  }
+
+  async getAnyExamStudentByStudent(studentId: number) {
+    const [es] = await db.select().from(examStudents).where(eq(examStudents.studentId, studentId)).limit(1);
     return es;
   }
 

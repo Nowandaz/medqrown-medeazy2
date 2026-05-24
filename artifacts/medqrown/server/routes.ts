@@ -171,7 +171,10 @@ export async function registerRoutes(
     }
     const existing = await storage.getExamStudentByExamAndStudent(examId, student.id);
     if (existing) return res.status(400).json({ message: "Student already added to this exam" });
-    const password = generatePassword(email);
+    // Reuse the student's existing password if they're already enrolled in other exams,
+    // so they can access all their exams with the same credentials.
+    const existingEnrolment = await storage.getAnyExamStudentByStudent(student.id);
+    const password = existingEnrolment ? existingEnrolment.password : generatePassword(email);
     const examStudent = await storage.createExamStudent({
       examId,
       studentId: student.id,
@@ -1437,7 +1440,8 @@ export async function registerRoutes(
 
       const existing = await storage.getExamStudentByExamAndStudent(examId, student.id);
       if (!existing) {
-        const examPassword = signup.password || generatePassword(normalizedEmail);
+        const existingEnrolment = await storage.getAnyExamStudentByStudent(student.id);
+        const examPassword = existingEnrolment?.password || signup.password || generatePassword(normalizedEmail);
         await storage.createExamStudent({ examId, studentId: student.id, password: examPassword, attemptStatus: "not_started", resetCount: 0, emailSent: false });
       }
 
