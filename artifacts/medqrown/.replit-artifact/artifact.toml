@@ -1,0 +1,15 @@
+kind = "web"
+previewPath = "/"
+title = "MedQrown MedEazy"
+version = "1.0.0"
+id = "medqrown_app_001"
+
+[[services]]
+localPort = 5000
+name = "MedQrown"
+paths = ["/"]
+
+[services.development]
+run = "npm run dev"
+
+[services.production]
