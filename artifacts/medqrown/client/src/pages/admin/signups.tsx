@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, XCircle, Clock, GraduationCap, Mail, Building2, ShieldCheck, ShieldX, Trash2, UserPlus } from "lucide-react";
+import { CheckCircle, XCircle, Clock, GraduationCap, Mail, Building2, ShieldCheck, ShieldX, Trash2, UserPlus, PlusCircle } from "lucide-react";
 import type { Exam } from "@shared/schema";
 
 interface Signup {
@@ -37,7 +37,9 @@ export default function AdminSignups() {
   const [approveTarget, setApproveTarget] = useState<Signup | null>(null);
   const [rejectTarget, setRejectTarget] = useState<Signup | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Signup | null>(null);
+  const [addExamTarget, setAddExamTarget] = useState<Signup | null>(null);
   const [selectedExam, setSelectedExam] = useState("");
+  const [addExamSelected, setAddExamSelected] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   const [filter, setFilter] = useState<string>("all");
 
@@ -91,6 +93,21 @@ export default function AdminSignups() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/signups"] });
       setDeleteTarget(null);
       toast({ title: "Record deleted" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const addToExamMutation = useMutation({
+    mutationFn: async ({ name, email, examId }: { name: string; email: string; examId: number }) => {
+      const res = await apiRequest("POST", "/api/admin/students/enrol", { name, email, examId });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.message);
+      return d;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/exams"] });
+      setAddExamTarget(null); setAddExamSelected("");
+      toast({ title: "Student added to exam", description: "They can now access the additional exam." });
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -200,6 +217,12 @@ export default function AdminSignups() {
                           </Button>
                         </>
                       )}
+                      {signup.status === "approved" && (
+                        <Button size="sm" variant="outline" className="text-primary border-primary/30 hover:bg-primary/5"
+                          onClick={() => { setAddExamTarget(signup); setAddExamSelected(""); }}>
+                          <PlusCircle className="w-3.5 h-3.5 mr-1" /> Add to Exam
+                        </Button>
+                      )}
                       <Button size="sm" variant="outline" className="text-red-500 border-red-200 hover:bg-red-50 dark:hover:bg-red-900/20"
                         onClick={() => setDeleteTarget(signup)}>
                         <Trash2 className="w-3.5 h-3.5" />
@@ -307,6 +330,37 @@ export default function AdminSignups() {
               <Button variant="destructive" disabled={rejectMutation.isPending}
                 onClick={() => rejectTarget && rejectMutation.mutate({ id: rejectTarget.id, reason: rejectReason })}>
                 {rejectMutation.isPending ? "Rejecting..." : "Reject Application"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add to another exam dialog */}
+      <Dialog open={!!addExamTarget} onOpenChange={() => { setAddExamTarget(null); setAddExamSelected(""); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add to Another Exam</DialogTitle></DialogHeader>
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              Add <strong>{addExamTarget?.name}</strong> to an additional exam. They'll be able to access it straight away.
+            </p>
+            <div className="space-y-2">
+              <Label>Select Exam</Label>
+              <Select value={addExamSelected} onValueChange={setAddExamSelected}>
+                <SelectTrigger><SelectValue placeholder="Choose an exam..." /></SelectTrigger>
+                <SelectContent>
+                  {exams.map(e => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <Button variant="outline" onClick={() => { setAddExamTarget(null); setAddExamSelected(""); }}>Cancel</Button>
+              <Button
+                disabled={!addExamSelected || addToExamMutation.isPending}
+                onClick={() => addExamTarget && addToExamMutation.mutate({ name: addExamTarget.name, email: addExamTarget.email, examId: parseInt(addExamSelected) })}
+              >
+                <PlusCircle className="w-3.5 h-3.5 mr-1.5" />
+                {addToExamMutation.isPending ? "Adding..." : "Add to Exam"}
               </Button>
             </div>
           </div>

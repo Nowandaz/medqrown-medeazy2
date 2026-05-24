@@ -36,25 +36,30 @@ export default function StudentSignup() {
     }
     setLoading(true);
     try {
-      const res = await apiRequest("POST", "/api/student/signup", { name, email, university, yearOfStudy, password });
+      const res = await fetch("/api/student/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ name, email, university, yearOfStudy, password }),
+      });
       const data = await res.json();
       if (!res.ok) {
         if (res.status === 409 && data.token) {
-          toast({ title: "Application exists", description: data.message });
+          toast({ title: "Application already in progress", description: "You already have a pending application with this email." });
           setLocation(`/student/awaiting?token=${data.token}`);
           return;
         }
         if (res.status === 409 && data.hasAccount) {
-          toast({ title: "Account already exists", description: data.message, variant: "destructive" });
+          toast({ title: "Email already registered", description: "This email already has an account. Please sign in instead.", variant: "destructive" });
           setLocation("/");
           return;
         }
-        toast({ title: "Error", description: data.message || "Signup failed", variant: "destructive" });
+        toast({ title: "Signup failed", description: data.message || "Something went wrong. Please try again.", variant: "destructive" });
         return;
       }
       setLocation(`/student/verify?token=${data.token}`);
     } catch {
-      toast({ title: "Error", description: "Could not connect. Please try again.", variant: "destructive" });
+      toast({ title: "Connection error", description: "Could not reach the server. Please check your internet and try again.", variant: "destructive" });
     } finally {
       setLoading(false);
     }
