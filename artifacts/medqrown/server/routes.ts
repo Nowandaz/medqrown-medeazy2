@@ -1499,7 +1499,8 @@ export async function registerRoutes(
       const existing = await storage.getExamStudentByExamAndStudent(examId, student.id);
       if (existing) return res.status(400).json({ message: "Student is already enrolled in this exam" });
 
-      const password = generatePassword(normalizedEmail);
+      const existingEnrolment = await storage.getAnyExamStudentByStudent(student.id);
+      const password = existingEnrolment ? existingEnrolment.password : generatePassword(normalizedEmail);
       await storage.createExamStudent({ examId, studentId: student.id, password, attemptStatus: "not_started", resetCount: 0, emailSent: false });
       await storage.createAuditLog({ adminId: (req as any).admin.id, action: "manual_enrol", details: `${student.name} (${normalizedEmail}) → exam ${examId}` });
       res.json({ ok: true, student, password });
