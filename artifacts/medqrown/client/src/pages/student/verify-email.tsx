@@ -41,10 +41,14 @@ export default function StudentVerifyEmail() {
   const handleResend = async () => {
     setResending(true);
     try {
-      const res = await apiRequest("POST", "/api/student/signup/resend-code", { token });
+      const res = await fetch("/api/student/signup/resend-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
       const data = await res.json();
       if (!res.ok) {
-        toast({ title: "Error", description: data.message, variant: "destructive" });
+        toast({ title: res.status === 429 ? "Limit reached" : "Error", description: data.message, variant: "destructive" });
         return;
       }
       toast({ title: "Code resent", description: "A new verification code has been sent to your email." });

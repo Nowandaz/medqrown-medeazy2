@@ -41,7 +41,7 @@ export default function ResetPassword() {
       });
       const data = await res.json();
       if (!res.ok) {
-        toast({ title: "Reset failed", description: data.message, variant: "destructive" });
+        toast({ title: res.status === 429 ? "Limit reached" : "Reset failed", description: data.message, variant: "destructive" });
         return;
       }
       toast({ title: "Password updated!", description: "You can now sign in with your new password." });

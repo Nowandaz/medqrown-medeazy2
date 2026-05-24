@@ -1089,6 +1089,26 @@ export async function registerRoutes(
 
   // ── Student Self-Signup ──────────────────────────────────────────────────
 
+  // In-memory rate limiter: max 3 code sends per 30 minutes per key
+  const codeSendLog = new Map<string, { count: number; windowStart: number }>();
+  const CODE_SEND_LIMIT = 3;
+  const CODE_SEND_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
+
+  function checkCodeRateLimit(key: string): { allowed: boolean; remaining: number; resetInMins: number } {
+    const now = Date.now();
+    const entry = codeSendLog.get(key);
+    if (!entry || now - entry.windowStart > CODE_SEND_WINDOW_MS) {
+      codeSendLog.set(key, { count: 1, windowStart: now });
+      return { allowed: true, remaining: CODE_SEND_LIMIT - 1, resetInMins: 30 };
+    }
+    if (entry.count >= CODE_SEND_LIMIT) {
+      const resetInMins = Math.ceil((CODE_SEND_WINDOW_MS - (now - entry.windowStart)) / 60000);
+      return { allowed: false, remaining: 0, resetInMins };
+    }
+    entry.count += 1;
+    return { allowed: true, remaining: CODE_SEND_LIMIT - entry.count, resetInMins: 30 };
+  }
+
   function createSmtpTransporter() {
     return nodemailer.createTransport({
       host: process.env.SMTP_HOST || "smtp.gmail.com",
@@ -1201,6 +1221,12 @@ export async function registerRoutes(
       if (!signup) return res.status(404).json({ message: "Invalid link" });
       if (signup.emailVerified) return res.status(400).json({ message: "Email already verified" });
 
+      const rateKey = `verify:${token}`;
+      const limit = checkCodeRateLimit(rateKey);
+      if (!limit.allowed) {
+        return res.status(429).json({ message: `Too many resend attempts. Please try again in ${limit.resetInMins} minute${limit.resetInMins === 1 ? "" : "s"}.`, resetInMins: limit.resetInMins });
+      }
+
       const code = Math.floor(100000 + Math.random() * 900000).toString();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       await storage.updateStudentSignup(signup.id, { verificationCode: code, verificationExpiresAt: expiresAt });
@@ -1239,6 +1265,12 @@ export async function registerRoutes(
       const { email } = req.body;
       if (!email) return res.status(400).json({ message: "Email is required" });
       const normalizedEmail = email.trim().toLowerCase();
+
+      const rateKey = `reset:${normalizedEmail}`;
+      const limit = checkCodeRateLimit(rateKey);
+      if (!limit.allowed) {
+        return res.status(429).json({ message: `Too many attempts. Please try again in ${limit.resetInMins} minute${limit.resetInMins === 1 ? "" : "s"}.`, resetInMins: limit.resetInMins });
+      }
 
       const student = await storage.getStudentByEmail(normalizedEmail);
       if (!student) {

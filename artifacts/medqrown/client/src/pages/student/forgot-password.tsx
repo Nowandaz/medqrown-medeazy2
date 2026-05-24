@@ -25,7 +25,7 @@ export default function ForgotPassword() {
       });
       const data = await res.json();
       if (!res.ok) {
-        toast({ title: "Error", description: data.message, variant: "destructive" });
+        toast({ title: res.status === 429 ? "Limit reached" : "Error", description: data.message, variant: "destructive" });
         return;
       }
       toast({ title: "Code sent!", description: "Check your email for the reset code." });
