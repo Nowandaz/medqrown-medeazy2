@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { LogIn, Phone, MessageSquare, Mail as MailIcon } from "lucide-react";
+import { LogIn, Phone, MessageSquare, Mail as MailIcon, UserPlus } from "lucide-react";
 import logoPath from "@assets/medqrown_logo.png";
 
 export default function StudentLogin() {
@@ -143,9 +143,19 @@ export default function StudentLogin() {
             </CardContent>
           </Card>
 
-          <p className="text-center text-xs text-muted-foreground mt-5">
-            <a href="/admin" className="hover:text-primary transition-colors underline underline-offset-2" data-testid="link-admin-portal">Admin Portal</a>
-          </p>
+          <div className="mt-5 space-y-3">
+            <button
+              onClick={() => setLocation("/student/signup")}
+              className="w-full flex items-center justify-center gap-2 h-11 rounded-lg border border-primary/20 text-sm text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors bg-primary/5 hover:bg-primary/10"
+              data-testid="button-signup"
+            >
+              <UserPlus className="w-4 h-4" />
+              New student? Sign up here
+            </button>
+            <p className="text-center text-xs text-muted-foreground">
+              <a href="/admin" className="hover:text-primary transition-colors underline underline-offset-2" data-testid="link-admin-portal">Admin Portal</a>
+            </p>
+          </div>
         </div>
       </div>
     </div>

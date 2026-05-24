@@ -4,7 +4,7 @@ import { deleteSupabaseStorageObject, deleteSupabaseStorageObjects } from "./sup
 import {
   admins, exams, students, examStudents, questions, questionOptions,
   subquestions, attempts, responses, aiProviders, emailTemplates,
-  emailLogs, studentFeedback, auditLogs, aiMarkingJobs,
+  emailLogs, studentFeedback, auditLogs, aiMarkingJobs, studentSignups,
   type Admin, type InsertAdmin, type Exam, type InsertExam,
   type Student, type InsertStudent, type ExamStudent, type InsertExamStudent,
   type Question, type InsertQuestion, type QuestionOption, type InsertQuestionOption,
@@ -12,6 +12,7 @@ import {
   type ExamResponse, type InsertResponse, type AiProvider, type InsertAiProvider,
   type EmailTemplate, type InsertEmailTemplate, type StudentFeedbackType,
   type InsertStudentFeedback, type AuditLog, type AiMarkingJob,
+  type StudentSignup,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -92,6 +93,13 @@ export interface IStorage {
   getExamStats(examId: number): Promise<{ total: number; submitted: number; inProgress: number; notStarted: number }>;
   getExamRankings(examId: number): Promise<{ studentName: string; studentEmail: string; totalScore: number; maxScore: number; percentage: number }[]>;
   getQuestionAnalytics(examId: number): Promise<{ questionId: number; content: string; type: string; totalAttempts: number; correctCount: number; avgMarks: number }[]>;
+
+  createStudentSignup(data: { name: string; email: string; university: string; verificationCode: string; verificationExpiresAt: Date; token: string }): Promise<StudentSignup>;
+  getStudentSignupByEmail(email: string): Promise<StudentSignup | undefined>;
+  getStudentSignupByToken(token: string): Promise<StudentSignup | undefined>;
+  getStudentSignupById(id: number): Promise<StudentSignup | undefined>;
+  getAllStudentSignups(): Promise<StudentSignup[]>;
+  updateStudentSignup(id: number, data: Partial<StudentSignup>): Promise<StudentSignup>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -529,6 +537,40 @@ export class DatabaseStorage implements IStorage {
       });
     }
     return analytics;
+  }
+
+  async createStudentSignup(data: { name: string; email: string; university: string; verificationCode: string; verificationExpiresAt: Date; token: string }) {
+    const [row] = await db.insert(studentSignups).values({
+      ...data,
+      emailVerified: false,
+      status: "pending_email",
+    }).returning();
+    return row;
+  }
+
+  async getStudentSignupByEmail(email: string) {
+    const normalized = (email || "").trim().toLowerCase();
+    const [row] = await db.select().from(studentSignups).where(eq(studentSignups.email, normalized)).orderBy(desc(studentSignups.createdAt));
+    return row;
+  }
+
+  async getStudentSignupByToken(token: string) {
+    const [row] = await db.select().from(studentSignups).where(eq(studentSignups.token, token));
+    return row;
+  }
+
+  async getStudentSignupById(id: number) {
+    const [row] = await db.select().from(studentSignups).where(eq(studentSignups.id, id));
+    return row;
+  }
+
+  async getAllStudentSignups() {
+    return db.select().from(studentSignups).orderBy(desc(studentSignups.createdAt));
+  }
+
+  async updateStudentSignup(id: number, data: Partial<StudentSignup>) {
+    const [row] = await db.update(studentSignups).set(data).where(eq(studentSignups.id, id)).returning();
+    return row;
   }
 }
 

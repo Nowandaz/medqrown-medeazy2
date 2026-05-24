@@ -170,6 +170,21 @@ export const aiMarkingJobs = pgTable("ai_marking_jobs", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+export const studentSignups = pgTable("student_signups", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  university: text("university").notNull(),
+  verificationCode: text("verification_code").notNull(),
+  verificationExpiresAt: timestamp("verification_expires_at").notNull(),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  status: text("status").notNull().default("pending_email"),
+  token: text("token").notNull().unique(),
+  rejectionReason: text("rejection_reason"),
+  approvedExamId: integer("approved_exam_id").references(() => exams.id),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
 export const insertAdminSchema = createInsertSchema(admins).omit({ id: true, createdAt: true });
 export const insertExamSchema = createInsertSchema(exams).omit({ id: true, createdAt: true });
 export const insertStudentSchema = createInsertSchema(students).omit({ id: true, createdAt: true });
@@ -209,4 +224,7 @@ export type StudentFeedbackType = typeof studentFeedback.$inferSelect;
 export type InsertStudentFeedback = z.infer<typeof insertStudentFeedbackSchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type AiMarkingJob = typeof aiMarkingJobs.$inferSelect;
+export type StudentSignup = typeof studentSignups.$inferSelect;
+export const insertStudentSignupSchema = createInsertSchema(studentSignups).omit({ id: true, createdAt: true });
+export type InsertStudentSignup = z.infer<typeof insertStudentSignupSchema>;
 

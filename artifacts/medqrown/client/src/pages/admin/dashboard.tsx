@@ -13,14 +13,16 @@ import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   BookOpen, Plus, LogOut, Settings, Trash2, Play, Pause, Eye,
-  Clock, FileText
+  Clock, FileText, GraduationCap
 } from "lucide-react";
 import type { Exam } from "@shared/schema";
 import logoPath from "@assets/medqrown_logo.png";
+import AdminSignups from "@/pages/admin/signups";
 
 export default function AdminDashboard() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState<"exams" | "signups">("exams");
   const [showCreate, setShowCreate] = useState(false);
   const [newExam, setNewExam] = useState({ title: "", timerMode: "none", perQuestionSeconds: 60, fullExamSeconds: 3600 });
 
@@ -121,6 +123,35 @@ export default function AdminDashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+        {/* Tab switcher */}
+        <div className="flex gap-1 mb-6 bg-muted/50 p-1 rounded-lg w-fit">
+          <button
+            onClick={() => setActiveTab("exams")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              activeTab === "exams"
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            Exams
+          </button>
+          <button
+            onClick={() => setActiveTab("signups")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              activeTab === "signups"
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <GraduationCap className="w-4 h-4" />
+            Sign-Up Requests
+          </button>
+        </div>
+
+        {activeTab === "signups" && <AdminSignups />}
+
+        {activeTab === "exams" && <>
         <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
           <div>
             <h2 className="text-xl font-bold">Examiner Dashboard</h2>
@@ -287,6 +318,7 @@ export default function AdminDashboard() {
             })}
           </div>
         )}
+        </>}
       </main>
     </div>
   );

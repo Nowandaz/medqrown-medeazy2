@@ -1087,6 +1087,199 @@ export async function registerRoutes(
     res.json({ id: admin.id, email: admin.email, name: admin.name, role: admin.role });
   });
 
+  // ── Student Self-Signup ──────────────────────────────────────────────────
+
+  function createSmtpTransporter() {
+    return nodemailer.createTransport({
+      host: process.env.SMTP_HOST || "smtp.gmail.com",
+      port: parseInt(process.env.SMTP_PORT || "587"),
+      secure: false,
+      family: 4,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      connectionTimeout: 15000,
+      greetingTimeout: 10000,
+      socketTimeout: 20000,
+    });
+  }
+
+  app.post("/api/student/signup", async (req, res) => {
+    try {
+      const { name, email, university } = req.body;
+      if (!name || !email || !university) {
+        return res.status(400).json({ message: "Name, email and university are required" });
+      }
+      const normalizedEmail = (email || "").trim().toLowerCase();
+
+      const existing = await storage.getStudentSignupByEmail(normalizedEmail);
+      if (existing && existing.status !== "rejected") {
+        return res.status(409).json({ message: "An application with this email already exists", token: existing.token });
+      }
+
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+      const token = crypto.randomBytes(24).toString("hex");
+
+      const signup = await storage.createStudentSignup({
+        name: name.trim(),
+        email: normalizedEmail,
+        university: university.trim(),
+        verificationCode: code,
+        verificationExpiresAt: expiresAt,
+        token,
+      });
+
+      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+        try {
+          const transporter = createSmtpTransporter();
+          await transporter.sendMail({
+            from: `"MedQrown MedEazy" <${process.env.SMTP_USER}>`,
+            to: normalizedEmail,
+            subject: "Verify your MedQrown MedEazy account",
+            html: `
+              <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;background:#fff;">
+                <img src="https://i.imgur.com/placeholder.png" alt="" style="display:none"/>
+                <h2 style="color:#1a1a2e;margin-bottom:4px;">MedQrown MedEazy</h2>
+                <p style="color:#6b7280;margin-top:0;margin-bottom:32px;font-size:14px;">Student Portal Verification</p>
+                <p style="color:#374151;">Hello <strong>${name.trim()}</strong>,</p>
+                <p style="color:#374151;">We received a request to verify your account.</p>
+                <p style="color:#374151;">Your verification code is:</p>
+                <div style="background:#f3f4f6;border-radius:12px;padding:24px;text-align:center;margin:24px 0;">
+                  <span style="font-size:36px;font-weight:700;letter-spacing:8px;color:#1a1a2e;">${code}</span>
+                </div>
+                <p style="color:#374151;">This code will expire in <strong>15 minutes</strong>.</p>
+                <p style="color:#6b7280;font-size:13px;">If you did not request this code, please ignore this email or contact our support team immediately.</p>
+                <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;"/>
+                <p style="color:#9ca3af;font-size:12px;margin:0;">Thank you,<br/><strong>MedQrown MedEazy</strong></p>
+              </div>`,
+            text: `Hello ${name.trim()},\n\nWe received a request to verify your account.\n\nYour verification code is: ${code}\n\nThis code will expire in 15 minutes.\n\nIf you did not request this code, please ignore this email.\n\nThank you,\nMedQrown MedEazy`,
+          });
+        } catch (mailErr: any) {
+          console.error("Verification email failed:", mailErr.message);
+        }
+      }
+
+      res.json({ token: signup.token, message: "Verification code sent to your email" });
+    } catch (error: any) {
+      console.error("Signup error:", error);
+      res.status(500).json({ message: "Signup failed. Please try again." });
+    }
+  });
+
+  app.post("/api/student/verify-email", async (req, res) => {
+    try {
+      const { token, code } = req.body;
+      if (!token || !code) return res.status(400).json({ message: "Token and code are required" });
+
+      const signup = await storage.getStudentSignupByToken(token);
+      if (!signup) return res.status(404).json({ message: "Invalid or expired link" });
+      if (signup.emailVerified) return res.json({ message: "Already verified", status: signup.status });
+      if (signup.verificationCode !== code.trim()) return res.status(400).json({ message: "Incorrect code. Please try again." });
+      if (new Date() > new Date(signup.verificationExpiresAt)) {
+        return res.status(400).json({ message: "Code has expired. Please request a new one." });
+      }
+
+      await storage.updateStudentSignup(signup.id, { emailVerified: true, status: "pending_approval" });
+      res.json({ message: "Email verified! Awaiting admin approval." });
+    } catch (error: any) {
+      console.error("Verify error:", error);
+      res.status(500).json({ message: "Verification failed. Please try again." });
+    }
+  });
+
+  app.post("/api/student/signup/resend-code", async (req, res) => {
+    try {
+      const { token } = req.body;
+      const signup = await storage.getStudentSignupByToken(token);
+      if (!signup) return res.status(404).json({ message: "Invalid link" });
+      if (signup.emailVerified) return res.status(400).json({ message: "Email already verified" });
+
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+      await storage.updateStudentSignup(signup.id, { verificationCode: code, verificationExpiresAt: expiresAt });
+
+      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+        const transporter = createSmtpTransporter();
+        await transporter.sendMail({
+          from: `"MedQrown MedEazy" <${process.env.SMTP_USER}>`,
+          to: signup.email,
+          subject: "Your new verification code – MedQrown MedEazy",
+          html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;"><h2 style="color:#1a1a2e;">MedQrown MedEazy</h2><p>Hello <strong>${signup.name}</strong>,</p><p>Your new verification code is:</p><div style="background:#f3f4f6;border-radius:12px;padding:24px;text-align:center;margin:24px 0;"><span style="font-size:36px;font-weight:700;letter-spacing:8px;color:#1a1a2e;">${code}</span></div><p>This code will expire in <strong>15 minutes</strong>.</p><p style="color:#9ca3af;font-size:12px;">Thank you,<br/><strong>MedQrown MedEazy</strong></p></div>`,
+          text: `Hello ${signup.name},\n\nYour new verification code is: ${code}\n\nExpires in 15 minutes.\n\nMedQrown MedEazy`,
+        });
+      }
+      res.json({ message: "New code sent to your email" });
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to resend code" });
+    }
+  });
+
+  app.get("/api/student/signup-status/:token", async (req, res) => {
+    const signup = await storage.getStudentSignupByToken(req.params.token);
+    if (!signup) return res.status(404).json({ message: "Not found" });
+    res.json({
+      name: signup.name,
+      email: signup.email,
+      university: signup.university,
+      status: signup.status,
+      emailVerified: signup.emailVerified,
+      rejectionReason: signup.rejectionReason,
+    });
+  });
+
+  // ── Admin Signup Management ──────────────────────────────────────────────
+
+  app.get("/api/admin/signups", requireAdmin, async (_req, res) => {
+    const signups = await storage.getAllStudentSignups();
+    res.json(signups);
+  });
+
+  app.post("/api/admin/signups/:id/approve", requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { examId } = req.body;
+      if (!examId) return res.status(400).json({ message: "examId is required" });
+
+      const signup = await storage.getStudentSignupById(id);
+      if (!signup) return res.status(404).json({ message: "Signup not found" });
+      if (signup.status !== "pending_approval") {
+        return res.status(400).json({ message: "Only pending signups can be approved" });
+      }
+
+      const normalizedEmail = signup.email.trim().toLowerCase();
+      let student = await storage.getStudentByEmail(normalizedEmail);
+      if (!student) {
+        student = await storage.createStudent({ name: signup.name, email: normalizedEmail });
+      }
+
+      const existing = await storage.getExamStudentByExamAndStudent(examId, student.id);
+      if (!existing) {
+        const password = generatePassword(normalizedEmail);
+        await storage.createExamStudent({ examId, studentId: student.id, password, attemptStatus: "not_started", resetCount: 0, emailSent: false });
+      }
+
+      await storage.updateStudentSignup(id, { status: "approved", approvedExamId: examId });
+      await storage.createAuditLog({ adminId: (req as any).admin.id, action: "approve_signup", details: `${signup.name} (${signup.email}) → exam ${examId}` });
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ message: "Approval failed: " + error.message });
+    }
+  });
+
+  app.post("/api/admin/signups/:id/reject", requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { reason } = req.body;
+      const signup = await storage.getStudentSignupById(id);
+      if (!signup) return res.status(404).json({ message: "Signup not found" });
+
+      await storage.updateStudentSignup(id, { status: "rejected", rejectionReason: reason || null });
+      await storage.createAuditLog({ adminId: (req as any).admin.id, action: "reject_signup", details: `${signup.name} (${signup.email})` });
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ message: "Rejection failed: " + error.message });
+    }
+  });
+
   return httpServer;
 }
 
