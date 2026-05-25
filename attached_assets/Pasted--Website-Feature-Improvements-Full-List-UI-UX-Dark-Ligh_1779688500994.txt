@@ -1,0 +1,73 @@
+🛠️ Website Feature Improvements — Full List
+
+🎨 UI / UX
+
+Dark / Light Mode toggle — floating button that appears on every page
+Landing Page — a proper home page (currently missing); ask for required details
+About Us Page — add and populate accordingly
+
+
+📊 Progress Display
+
+Student progress indicator (left-hand side) — instead of showing "exam in progress," show specific progress e.g. "SAQ 12/30", "MCQ 7/20", etc.
+
+
+📤 Bulk Upload
+
+Bulk upload for SAQs — same as MCQ bulk upload; accept JSON format (format to be provided); fields should include question, sub-questions, options (if applicable), and answers
+
+
+📈 Analytics Improvements
+
+SAQ Analytics — show:
+
+Full question
+Sub-questions
+Given options (if any)
+Student answers + correct answers
+
+
+MCQ Analytics — show question + relevant detail (already partially there, refine further)
+
+
+👥 Sign-Up Requests / Student Management
+
+Reorganize sign-up requests area — group by university
+Search tool in the sign-up requests area
+Master student database — sign-up requests should feed into one central database of all students
+
+
+✅ Bulk Actions & Delete Safety
+
+Checkbox / Select All — add selection option wherever students are listed, to enable mass actions
+Delete confirmation prompt — clicking delete should trigger a "Are you sure?" dialog before proceeding
+Undo window — after deletion, provide a 30–60 second undo window
+
+
+⏱️ Exam / Timer Fixes
+
+Time delay bug — when the timer hits zero, there's a lag before moving to the next question; fix so transition is immediate
+Exam auto-submit on exit — if a student leaves the exam (exits the end stage), the timer should keep running in the background; once time is up, the exam should auto-submit even if the student is gone
+
+
+🔐 Forgot Password
+
+Email validation before OTP — when a student enters their email in Forgot Password, first check if it exists in the student database:
+
+
+❌ If not found → show "This email does not exist"
+✅ If found → proceed to send the reset code
+
+
+💬 Feedback Section
+
+Reply to feedback — add a reply option per feedback entry:
+
+
+Press "Reply with AI" → sends feedback to your AI API
+AI generates a draft response using a specific template/format
+You edit the draft as needed
+Send final reply to student's email via existing SMTP
+
+
+Delete feedback — add a delete button for individual feedback entries
