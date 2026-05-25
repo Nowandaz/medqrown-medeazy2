@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { ToastAction } from "@/components/ui/toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -443,6 +445,34 @@ function StudentsTab({ examId, examStudents }: { examId: number; examStudents: a
 
 function QuestionsTab({ examId, questions }: { examId: number; questions: any[] }) {
   const { toast } = useToast();
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [pendingDeletes, setPendingDeletes] = useState<Set<number>>(new Set());
+  const deleteTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+
+  const initiateDeleteQuestion = (qId: number) => {
+    setConfirmDeleteId(null);
+    setPendingDeletes(prev => new Set(Array.from(prev).concat([qId])));
+    const timer = setTimeout(() => {
+      deleteTimers.current.delete(qId);
+      setPendingDeletes(prev => { const n = new Set(prev); n.delete(qId); return n; });
+      deleteQuestion.mutate(qId);
+    }, 30000);
+    deleteTimers.current.set(qId, timer);
+    toast({
+      title: "Question deleted",
+      description: "Will be permanently removed in 30 seconds.",
+      action: <ToastAction altText="Undo" onClick={() => undoDeleteQuestion(qId)}>Undo</ToastAction>,
+      duration: 30000,
+    });
+  };
+
+  const undoDeleteQuestion = (qId: number) => {
+    const t = deleteTimers.current.get(qId);
+    if (t) { clearTimeout(t); deleteTimers.current.delete(qId); }
+    setPendingDeletes(prev => { const n = new Set(prev); n.delete(qId); return n; });
+    toast({ title: "Deletion cancelled", description: "Question restored.", duration: 3000 });
+  };
+
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
   const [bulkJson, setBulkJson] = useState("");
@@ -644,31 +674,47 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
   const BULK_EXAMPLE = `[
   {
     "number": 1,
+    "type": "mcq",
     "question": "Which organ produces insulin?",
     "marks": 1,
-    "options": {
-      "A": "Liver",
-      "B": "Pancreas",
-      "C": "Kidney",
-      "D": "Spleen"
-    },
+    "options": { "A": "Liver", "B": "Pancreas", "C": "Kidney", "D": "Spleen" },
     "answer": "B",
-    "explanation": "The pancreas contains islets of Langerhans which produce insulin to regulate blood glucose levels."
+    "explanation": "The pancreas contains islets of Langerhans which produce insulin.",
+    "imageDescription": null
   },
   {
     "number": 2,
-    "question": "The normal resting heart rate is:",
-    "marks": 2,
-    "options": {
-      "A": "40–60 bpm",
-      "B": "60–100 bpm",
-      "C": "100–140 bpm",
-      "D": "140–180 bpm"
-    },
-    "answer": "B",
-    "explanation": "A normal resting heart rate for adults ranges from 60 to 100 beats per minute."
+    "type": "saq",
+    "question": "Describe the role of the kidney in homeostasis.",
+    "marks": 4,
+    "hasSubquestions": false,
+    "expectedAnswer": "The kidney filters blood, removes metabolic waste products...",
+    "imageDescription": null
+  },
+  {
+    "number": 3,
+    "type": "saq",
+    "question": "Anatomy of the heart.",
+    "hasSubquestions": true,
+    "imageDescription": "Diagram showing the four chambers of the heart with labels",
+    "subquestions": [
+      {
+        "question": "Name the four chambers of the heart.",
+        "marks": 2,
+        "expectedAnswer": "Left atrium, right atrium, left ventricle, right ventricle",
+        "imageDescription": null
+      },
+      {
+        "question": "What is the function of the left ventricle?",
+        "marks": 3,
+        "expectedAnswer": "Pumps oxygenated blood to the systemic circulation via the aorta",
+        "imageDescription": null
+      }
+    ]
   }
 ]`;
+
+  const visibleQuestions = questions.filter((q: any) => !pendingDeletes.has(q.id));
 
   return (
     <div className="space-y-4">
@@ -684,11 +730,11 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
             <Button size="sm" variant="outline" className="text-xs"><Upload className="w-3.5 h-3.5 mr-1" />Bulk Import</Button>
           </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>Bulk Import MCQs</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>Bulk Import Questions (MCQ &amp; SAQ)</DialogTitle></DialogHeader>
             <div className="space-y-4 pt-2 text-sm">
               <div className="rounded-lg bg-muted/60 border p-3 space-y-1 text-xs text-muted-foreground">
                 <p className="font-semibold text-foreground">Expected JSON format</p>
-                <p>An array of objects — each with <code>number</code>, <code>question</code>, <code>marks</code>, <code>options</code> (key→text), and <code>answer</code> (matching key).</p>
+                <p>An array of objects. Set <code>"type": "mcq"</code> or <code>"type": "saq"</code>. MCQs need <code>options</code> + <code>answer</code>; SAQs need <code>expectedAnswer</code> (or a <code>subquestions</code> array). Use <code>imageDescription</code> to describe any image — you can upload the actual image later.</p>
               </div>
               <div>
                 <Label className="text-xs mb-1 block">Example</Label>
@@ -997,7 +1043,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
         </Card>
       ) : (
         <div className="space-y-3">
-          {questions.map((q: any, idx: number) => (
+          {visibleQuestions.map((q: any, idx: number) => (
             <Card key={q.id} className="shadow-sm overflow-hidden" data-testid={`card-question-${q.id}`}>
               <div className="bg-gradient-to-r from-primary/5 to-transparent px-4 py-2 border-b border-primary/5">
                 <div className="flex items-center justify-between gap-2">
@@ -1013,7 +1059,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(q)} data-testid={`button-edit-q-${q.id}`}>
                     <Pencil className="w-3 h-3" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => deleteQuestion.mutate(q.id)} data-testid={`button-delete-q-${q.id}`}>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setConfirmDeleteId(q.id)} data-testid={`button-delete-q-${q.id}`}>
                     <Trash2 className="w-3 h-3" />
                   </Button>
                 </div>
@@ -1063,6 +1109,26 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
           ))}
         </div>
       )}
+
+      <AlertDialog open={confirmDeleteId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this question?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The question will be hidden immediately. You have 30 seconds to undo before it is permanently deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => confirmDeleteId !== null && initiateDeleteQuestion(confirmDeleteId)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

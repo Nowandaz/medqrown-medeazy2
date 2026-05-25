@@ -297,42 +297,78 @@ export async function registerRoutes(
       const created: any[] = [];
 
       for (const item of bulk) {
+        const num = item.number ?? "?";
         if (!item.question || typeof item.question !== "string") {
-          return res.status(400).json({ message: `Question ${item.number ?? "?"}: missing or invalid "question" field` });
+          return res.status(400).json({ message: `Question ${num}: missing or invalid "question" field` });
         }
-        if (!item.options || typeof item.options !== "object" || Array.isArray(item.options)) {
-          return res.status(400).json({ message: `Question ${item.number ?? "?"}: "options" must be an object e.g. { "A": "...", "B": "..." }` });
+        const itemType = ((item.type as string) || "mcq").toLowerCase();
+        if (itemType !== "mcq" && itemType !== "saq") {
+          return res.status(400).json({ message: `Question ${num}: "type" must be "mcq" or "saq"` });
         }
-        const optionKeys = Object.keys(item.options);
-        if (optionKeys.length < 2) {
-          return res.status(400).json({ message: `Question ${item.number ?? "?"}: at least 2 options required` });
-        }
-        const answerKey = String(item.answer ?? "").trim().toUpperCase();
-        if (!answerKey || !item.options[answerKey]) {
-          return res.status(400).json({ message: `Question ${item.number ?? "?"}: "answer" must match one of the option keys (${optionKeys.join(", ")})` });
-        }
+        const imageCaption = item.imageDescription ? String(item.imageDescription).trim() : null;
 
-        const question = await storage.createQuestion({
-          examId,
-          type: "mcq",
-          content: String(item.question).trim(),
-          orderIndex: nextIndex++,
-          marks: parseInt(item.marks) || 1,
-          hasSubquestions: false,
-          explanation: item.explanation ? String(item.explanation).trim() : null,
-        });
-
-        for (let i = 0; i < optionKeys.length; i++) {
-          const key = optionKeys[i];
-          await storage.createQuestionOption({
-            questionId: question.id,
-            content: String(item.options[key]).trim(),
-            isCorrect: key.toUpperCase() === answerKey,
-            orderIndex: i,
+        if (itemType === "mcq") {
+          if (!item.options || typeof item.options !== "object" || Array.isArray(item.options)) {
+            return res.status(400).json({ message: `Question ${num}: MCQ "options" must be an object e.g. { "A": "...", "B": "..." }` });
+          }
+          const optionKeys = Object.keys(item.options);
+          if (optionKeys.length < 2) {
+            return res.status(400).json({ message: `Question ${num}: at least 2 options required` });
+          }
+          const answerKey = String(item.answer ?? "").trim().toUpperCase();
+          if (!answerKey || !item.options[answerKey]) {
+            return res.status(400).json({ message: `Question ${num}: "answer" must match one of the option keys (${optionKeys.join(", ")})` });
+          }
+          const question = await storage.createQuestion({
+            examId, type: "mcq",
+            content: String(item.question).trim(),
+            orderIndex: nextIndex++,
+            marks: parseInt(item.marks) || 1,
+            hasSubquestions: false,
+            explanation: item.explanation ? String(item.explanation).trim() : null,
+            imageCaption,
+          });
+          for (let i = 0; i < optionKeys.length; i++) {
+            const key = optionKeys[i];
+            await storage.createQuestionOption({
+              questionId: question.id,
+              content: String(item.options[key]).trim(),
+              isCorrect: key.toUpperCase() === answerKey,
+              orderIndex: i,
+            });
+          }
+          created.push({ ...question, options: await storage.getQuestionOptions(question.id) });
+        } else {
+          const hasSubs = !!item.hasSubquestions && Array.isArray(item.subquestions) && item.subquestions.length > 0;
+          const totalMarks = hasSubs
+            ? item.subquestions.reduce((s: number, sq: any) => s + (parseInt(sq.marks) || 1), 0)
+            : (parseInt(item.marks) || 1);
+          const question = await storage.createQuestion({
+            examId, type: "saq",
+            content: String(item.question).trim(),
+            orderIndex: nextIndex++,
+            marks: totalMarks,
+            hasSubquestions: hasSubs,
+            expectedAnswer: !hasSubs && item.expectedAnswer ? String(item.expectedAnswer).trim() : null,
+            imageCaption,
+          });
+          if (hasSubs) {
+            for (let i = 0; i < item.subquestions.length; i++) {
+              const sq = item.subquestions[i];
+              await storage.createSubquestion({
+                questionId: question.id,
+                content: String(sq.question || sq.content || "").trim(),
+                marks: parseInt(sq.marks) || 1,
+                expectedAnswer: sq.expectedAnswer ? String(sq.expectedAnswer).trim() : null,
+                orderIndex: i,
+              });
+            }
+          }
+          created.push({
+            ...question,
+            subquestions: hasSubs ? await storage.getSubquestions(question.id) : [],
           });
         }
-
-        created.push({ ...question, options: await storage.getQuestionOptions(question.id) });
       }
 
       invalidateExamCache(examId);
@@ -1335,8 +1371,7 @@ export async function registerRoutes(
 
       const student = await storage.getStudentByEmail(normalizedEmail);
       if (!student) {
-        // Don't reveal whether email exists — send generic success
-        return res.json({ message: "If this email is registered, a reset code has been sent." });
+        return res.status(404).json({ message: "This email does not exist in our system." });
       }
 
       const code = Math.floor(100000 + Math.random() * 900000).toString();
