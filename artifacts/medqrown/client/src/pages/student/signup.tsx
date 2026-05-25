@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
 import { UserPlus, ArrowLeft, Eye, EyeOff } from "lucide-react";
 import logoPath from "@assets/medqrown_logo.png";
 
@@ -23,6 +23,10 @@ export default function StudentSignup() {
   const [loading, setLoading] = useState(false);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+
+  const { data: universities } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["/api/admin/universities"],
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,8 +100,19 @@ export default function StudentSignup() {
 
                 <div className="space-y-2">
                   <Label htmlFor="university" className="text-sm font-medium">University / Institution</Label>
-                  <Input id="university" type="text" placeholder="Your university or institution" value={university}
-                    onChange={(e) => setUniversity(e.target.value)} required className="h-11" />
+                  <select
+                    id="university"
+                    value={university}
+                    onChange={(e) => setUniversity(e.target.value)}
+                    required
+                    className="h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  >
+                    <option value="" disabled>Select your university...</option>
+                    {(universities && universities.length > 0
+                      ? universities
+                      : [{ id: -1, name: "University of Nairobi" }, { id: -2, name: "Kenyatta University" }]
+                    ).map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                  </select>
                 </div>
 
                 <div className="space-y-2">

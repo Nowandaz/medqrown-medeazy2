@@ -45,17 +45,16 @@ function Router() {
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
   return (
-    <Button
-      variant="outline"
-      size="icon"
+    <button
       onClick={toggleTheme}
-      className="fixed bottom-5 right-5 z-50 h-10 w-10 rounded-full shadow-lg border-primary/20 bg-card hover:bg-muted"
+      style={{ position: "fixed", bottom: "20px", right: "20px", zIndex: 9999 }}
+      className="h-11 w-11 rounded-full shadow-xl border-2 border-primary/30 bg-card hover:bg-muted flex items-center justify-center transition-colors"
       title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
     >
       {theme === "dark"
-        ? <Sun className="w-4 h-4 text-primary" />
-        : <Moon className="w-4 h-4 text-primary" />}
-    </Button>
+        ? <Sun className="w-5 h-5 text-primary" />
+        : <Moon className="w-5 h-5 text-primary" />}
+    </button>
   );
 }
 

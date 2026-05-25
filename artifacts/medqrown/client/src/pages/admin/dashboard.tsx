@@ -14,15 +14,57 @@ import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   BookOpen, Plus, LogOut, Settings, Trash2, Play, Pause, Eye,
-  Clock, FileText, GraduationCap, Users, Building2, Mail, CheckCircle, AlertCircle
+  Clock, GraduationCap, Users, Mail, CheckCircle, AlertCircle, UserPlus
 } from "lucide-react";
 import type { Exam } from "@shared/schema";
 import logoPath from "@assets/medqrown_logo.png";
 import AdminSignups from "@/pages/admin/signups";
 
+function generatePassword() {
+  return Math.random().toString(36).slice(2, 10).toUpperCase();
+}
+
 function MasterStudentDatabase() {
   const { data: allStudents, isLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/all-students"],
+  });
+  const { data: exams } = useQuery<Exam[]>({ queryKey: ["/api/exams"] });
+  const { toast } = useToast();
+
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [addToExamStudent, setAddToExamStudent] = useState<any>(null);
+  const [addExamId, setAddExamId] = useState("");
+  const [addPassword, setAddPassword] = useState(generatePassword());
+
+  const deleteStudent = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/admin/students/${id}`);
+      if (!res.ok) throw new Error("Delete failed");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/all-students"] });
+      toast({ title: "Student deleted" });
+      setConfirmDeleteId(null);
+    },
+    onError: () => toast({ title: "Error", description: "Could not delete student", variant: "destructive" }),
+  });
+
+  const addToExam = useMutation({
+    mutationFn: async ({ studentId, examId, password }: { studentId: number; examId: number; password: string }) => {
+      const res = await apiRequest("POST", `/api/admin/students/${studentId}/add-to-exam`, { examId, password });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.message || "Failed");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/all-students"] });
+      toast({ title: "Student added to exam" });
+      setAddToExamStudent(null);
+      setAddExamId("");
+      setAddPassword(generatePassword());
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const statusColors: Record<string, string> = {
@@ -39,8 +81,22 @@ function MasterStudentDatabase() {
     );
   }
 
+  const YEAR_ORDER = ["Year 1", "Year 2", "Year 3", "Year 4", "Year 5", "Year 6", "Postgraduate", "Other", "Unknown"];
+
+  const grouped = new Map<string, any[]>();
+  for (const s of (allStudents || [])) {
+    const key = s.yearOfStudy || "Unknown";
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(s);
+  }
+  const sortedYears = Array.from(grouped.keys()).sort((a, b) => {
+    const ia = YEAR_ORDER.indexOf(a);
+    const ib = YEAR_ORDER.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  });
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold flex items-center gap-2">
           <Users className="w-5 h-5 text-primary" />
@@ -48,6 +104,7 @@ function MasterStudentDatabase() {
         </h2>
         <p className="text-sm text-muted-foreground mt-0.5">{allStudents?.length || 0} student{(allStudents?.length || 0) !== 1 ? "s" : ""} registered</p>
       </div>
+
       {!allStudents?.length ? (
         <Card className="border-dashed border-2 shadow-none">
           <CardContent className="py-14 text-center">
@@ -56,37 +113,129 @@ function MasterStudentDatabase() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-2">
-          {allStudents.map((student: any) => (
-            <Card key={student.id} className="shadow-sm">
-              <CardContent className="py-3 px-4">
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <div className="min-w-0">
-                    <p className="font-medium text-sm">{student.name}</p>
-                    <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                      <Mail className="w-3 h-3" />{student.email}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {student.exams.length === 0 ? (
-                      <Badge variant="outline" className="text-xs gap-1">
-                        <AlertCircle className="w-3 h-3" />No exams
-                      </Badge>
-                    ) : (
-                      student.exams.map((e: any, i: number) => (
-                        <Badge key={i} variant="secondary" className={`text-xs gap-1 ${statusColors[e.attemptStatus] || ""}`}>
-                          {e.attemptStatus === "submitted" && <CheckCircle className="w-3 h-3" />}
-                          {e.examTitle} · {e.attemptStatus?.replace("_", " ")}
-                        </Badge>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+        <div className="space-y-6">
+          {sortedYears.map(year => (
+            <div key={year}>
+              <div className="flex items-center gap-2 mb-3">
+                <GraduationCap className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">{year}</h3>
+                <Badge variant="secondary" className="text-xs">{grouped.get(year)!.length}</Badge>
+              </div>
+              <div className="space-y-2 pl-2 border-l-2 border-primary/20">
+                {grouped.get(year)!.map((student: any) => (
+                  <Card key={student.id} className="shadow-sm">
+                    <CardContent className="py-3 px-4">
+                      <div className="flex items-start justify-between gap-4 flex-wrap">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-sm">{student.name}</p>
+                          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                            <Mail className="w-3 h-3" />{student.email}
+                          </p>
+                          {student.university && (
+                            <p className="text-xs text-muted-foreground mt-0.5">{student.university}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {student.exams.length === 0 ? (
+                            <Badge variant="outline" className="text-xs gap-1">
+                              <AlertCircle className="w-3 h-3" />No exams
+                            </Badge>
+                          ) : (
+                            student.exams.map((e: any, i: number) => (
+                              <Badge key={i} variant="secondary" className={`text-xs gap-1 ${statusColors[e.attemptStatus] || ""}`}>
+                                {e.attemptStatus === "submitted" && <CheckCircle className="w-3 h-3" />}
+                                {e.examTitle} · {e.attemptStatus?.replace("_", " ")}
+                              </Badge>
+                            ))
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs gap-1"
+                            onClick={() => { setAddToExamStudent(student); setAddPassword(generatePassword()); }}
+                          >
+                            <UserPlus className="w-3 h-3" />Add to Exam
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => setConfirmDeleteId(student.id)}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}
+
+      {/* Delete student confirmation */}
+      <AlertDialog open={confirmDeleteId !== null} onOpenChange={(o) => { if (!o) setConfirmDeleteId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this student?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove the student and all their exam enrolments, attempts, and results. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (confirmDeleteId !== null) deleteStudent.mutate(confirmDeleteId); }}
+            >
+              Delete Student
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Add to exam dialog */}
+      <Dialog open={!!addToExamStudent} onOpenChange={(o) => { if (!o) { setAddToExamStudent(null); setAddExamId(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add {addToExamStudent?.name} to Exam</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label>Exam</Label>
+              <Select value={addExamId} onValueChange={setAddExamId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose an exam..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {(exams || []).map(e => (
+                    <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Exam Password</Label>
+              <div className="flex gap-2">
+                <Input value={addPassword} onChange={e => setAddPassword(e.target.value)} className="h-10" />
+                <Button type="button" variant="outline" size="sm" onClick={() => setAddPassword(generatePassword())} className="shrink-0">
+                  Regenerate
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Share this password with the student to access the exam.</p>
+            </div>
+            <Button
+              className="w-full h-10"
+              disabled={!addExamId || !addPassword || addToExam.isPending}
+              onClick={() => addToExam.mutate({ studentId: addToExamStudent.id, examId: parseInt(addExamId), password: addPassword })}
+            >
+              {addToExam.isPending ? "Adding..." : "Add to Exam"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

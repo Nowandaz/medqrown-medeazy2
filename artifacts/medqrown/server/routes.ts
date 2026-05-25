@@ -529,6 +529,60 @@ export async function registerRoutes(
     res.json(allStudents);
   });
 
+  // Delete student from master database
+  app.delete("/api/admin/students/:id", requireAdmin, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid student id" });
+    await storage.deleteStudent(id);
+    res.json({ ok: true });
+  });
+
+  // Update student (university / yearOfStudy)
+  app.patch("/api/admin/students/:id", requireAdmin, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid student id" });
+    const { university, yearOfStudy } = req.body;
+    await storage.updateStudent(id, { ...(university !== undefined ? { university } : {}), ...(yearOfStudy !== undefined ? { yearOfStudy } : {}) });
+    res.json({ ok: true });
+  });
+
+  // Add student to exam from master database
+  app.post("/api/admin/students/:id/add-to-exam", requireAdmin, async (req, res) => {
+    const studentId = parseInt(req.params.id);
+    if (isNaN(studentId)) return res.status(400).json({ message: "Invalid student id" });
+    const { examId, password } = req.body;
+    if (!examId || !password) return res.status(400).json({ message: "examId and password required" });
+    const existing = await storage.getExamStudent(examId, studentId);
+    if (existing) return res.status(409).json({ message: "Student already enrolled in this exam" });
+    await storage.createExamStudent({ examId, studentId, password, attemptStatus: "not_started", resetCount: 0, emailSent: false });
+    res.json({ ok: true });
+  });
+
+  // Universities management
+  app.get("/api/admin/universities", async (_req, res) => {
+    const list = await storage.getUniversities();
+    res.json(list);
+  });
+
+  app.post("/api/admin/universities", requireAdmin, async (req, res) => {
+    const { name } = req.body;
+    if (!name?.trim()) return res.status(400).json({ message: "University name required" });
+    try {
+      const uni = await storage.createUniversity(name);
+      res.status(201).json(uni);
+    } catch (e: any) {
+      if (e.code === "23505") return res.status(409).json({ message: "University already exists" });
+      throw e;
+    }
+  });
+
+  app.delete("/api/admin/universities/:id", requireAdmin, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+    await storage.deleteUniversity(id);
+    res.json({ ok: true });
+  });
+
   // AI Marking
   app.post("/api/exams/:examId/mark", requireAdmin, async (req, res) => {
     const examId = parseInt(req.params.examId);

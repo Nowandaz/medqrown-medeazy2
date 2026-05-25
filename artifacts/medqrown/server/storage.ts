@@ -4,7 +4,7 @@ import { deleteSupabaseStorageObject, deleteSupabaseStorageObjects } from "./sup
 import {
   admins, exams, students, examStudents, questions, questionOptions,
   subquestions, attempts, responses, aiProviders, emailTemplates,
-  emailLogs, studentFeedback, auditLogs, aiMarkingJobs, studentSignups,
+  emailLogs, studentFeedback, auditLogs, aiMarkingJobs, studentSignups, universities,
   type Admin, type InsertAdmin, type Exam, type InsertExam,
   type Student, type InsertStudent, type ExamStudent, type InsertExamStudent,
   type Question, type InsertQuestion, type QuestionOption, type InsertQuestionOption,
@@ -12,7 +12,7 @@ import {
   type ExamResponse, type InsertResponse, type AiProvider, type InsertAiProvider,
   type EmailTemplate, type InsertEmailTemplate, type StudentFeedbackType,
   type InsertStudentFeedback, type AuditLog, type AiMarkingJob,
-  type StudentSignup,
+  type StudentSignup, type University,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -105,6 +105,12 @@ export interface IStorage {
   getAllStudentSignups(): Promise<StudentSignup[]>;
   updateStudentSignup(id: number, data: Partial<StudentSignup>): Promise<StudentSignup>;
   deleteStudentSignup(id: number): Promise<void>;
+
+  getUniversities(): Promise<University[]>;
+  createUniversity(name: string): Promise<University>;
+  deleteUniversity(id: number): Promise<void>;
+  deleteStudent(id: number): Promise<void>;
+  updateStudent(id: number, data: Partial<{ university: string; yearOfStudy: string }>): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -473,6 +479,8 @@ export class DatabaseStorage implements IStorage {
         studentId: students.id,
         name: students.name,
         email: students.email,
+        university: students.university,
+        yearOfStudy: students.yearOfStudy,
         examId: examStudents.examId,
         examTitle: exams.title,
         attemptStatus: examStudents.attemptStatus,
@@ -483,10 +491,10 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(exams, eq(examStudents.examId, exams.id))
       .orderBy(asc(students.name));
 
-    const map = new Map<number, { id: number; name: string; email: string; exams: any[] }>();
+    const map = new Map<number, { id: number; name: string; email: string; university: string | null; yearOfStudy: string | null; exams: any[] }>();
     for (const row of result) {
       if (!map.has(row.studentId)) {
-        map.set(row.studentId, { id: row.studentId, name: row.name, email: row.email, exams: [] });
+        map.set(row.studentId, { id: row.studentId, name: row.name, email: row.email, university: row.university, yearOfStudy: row.yearOfStudy, exams: [] });
       }
       if (row.examId) {
         map.get(row.studentId)!.exams.push({
@@ -645,6 +653,27 @@ export class DatabaseStorage implements IStorage {
 
   async deleteStudentSignup(id: number) {
     await db.delete(studentSignups).where(eq(studentSignups.id, id));
+  }
+
+  async getUniversities() {
+    return db.select().from(universities).orderBy(asc(universities.name));
+  }
+
+  async createUniversity(name: string) {
+    const [row] = await db.insert(universities).values({ name: name.trim() }).returning();
+    return row;
+  }
+
+  async deleteUniversity(id: number) {
+    await db.delete(universities).where(eq(universities.id, id));
+  }
+
+  async deleteStudent(id: number) {
+    await db.delete(students).where(eq(students.id, id));
+  }
+
+  async updateStudent(id: number, data: Partial<{ university: string; yearOfStudy: string }>) {
+    await db.update(students).set(data).where(eq(students.id, id));
   }
 }
 

@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Brain, Mail, Users, Shield, Plus, Trash2, Save, Pencil, FlaskConical, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { ArrowLeft, Brain, Mail, Users, Shield, Plus, Trash2, Save, Pencil, FlaskConical, CheckCircle, XCircle, Loader2, Building2 } from "lucide-react";
 import logoPath from "@assets/medqrown_logo.png";
 
 export default function AdminSettings() {
@@ -24,6 +24,7 @@ export default function AdminSettings() {
   const { data: providers } = useQuery<any[]>({ queryKey: ["/api/ai-providers"] });
   const { data: templates } = useQuery<any[]>({ queryKey: ["/api/email-templates"] });
   const { data: admins } = useQuery<any[]>({ queryKey: ["/api/admins"] });
+  const { data: universities } = useQuery<any[]>({ queryKey: ["/api/admin/universities"] });
 
   if (!admin) {
     setLocation("/admin");
@@ -48,12 +49,14 @@ export default function AdminSettings() {
             <TabsTrigger value="ai" className="text-xs gap-1"><Brain className="w-3 h-3" />AI Providers</TabsTrigger>
             <TabsTrigger value="email" className="text-xs gap-1"><Mail className="w-3 h-3" />Email Templates</TabsTrigger>
             <TabsTrigger value="admins" className="text-xs gap-1"><Users className="w-3 h-3" />Admin Roles</TabsTrigger>
+            <TabsTrigger value="universities" className="text-xs gap-1"><Building2 className="w-3 h-3" />Universities</TabsTrigger>
             <TabsTrigger value="password" className="text-xs gap-1"><Shield className="w-3 h-3" />Password</TabsTrigger>
           </TabsList>
 
           <TabsContent value="ai"><AiProvidersSection providers={providers || []} /></TabsContent>
           <TabsContent value="email"><EmailTemplatesSection templates={templates || []} /></TabsContent>
           <TabsContent value="admins"><AdminsSection admins={admins || []} isSuperAdmin={admin.role === "super_admin"} /></TabsContent>
+          <TabsContent value="universities"><UniversitiesSection universities={universities || []} /></TabsContent>
           <TabsContent value="password"><ChangePasswordSection /></TabsContent>
         </Tabs>
       </main>
@@ -542,6 +545,79 @@ function AdminsSection({ admins, isSuperAdmin }: { admins: any[]; isSuperAdmin: 
           </CardContent>
         </Card>
       ))}
+    </div>
+  );
+}
+
+function UniversitiesSection({ universities }: { universities: any[] }) {
+  const { toast } = useToast();
+  const [newName, setNewName] = useState("");
+
+  const addUniversity = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/universities", { name: newName });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.message || "Failed");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/universities"] });
+      setNewName("");
+      toast({ title: "University added" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteUniversity = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/admin/universities/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/universities"] });
+      toast({ title: "University removed" });
+    },
+    onError: () => toast({ title: "Error", description: "Could not remove university", variant: "destructive" }),
+  });
+
+  return (
+    <div className="max-w-lg space-y-4">
+      <Card>
+        <CardHeader><h3 className="font-medium flex items-center gap-2"><Building2 className="w-4 h-4" />Manage Universities</h3></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2">
+            <Input
+              placeholder="University name..."
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && newName.trim()) addUniversity.mutate(); }}
+              className="h-9"
+            />
+            <Button size="sm" className="h-9 shrink-0" onClick={() => addUniversity.mutate()} disabled={!newName.trim() || addUniversity.isPending}>
+              <Plus className="w-4 h-4 mr-1" />Add
+            </Button>
+          </div>
+          {universities.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-2">No universities yet. Add some above — they'll appear in the student sign-up dropdown.</p>
+          ) : (
+            <div className="space-y-2">
+              {universities.map((u: any) => (
+                <div key={u.id} className="flex items-center justify-between gap-2 py-1.5 px-3 rounded-md bg-muted/50">
+                  <span className="text-sm">{u.name}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => deleteUniversity.mutate(u.id)}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

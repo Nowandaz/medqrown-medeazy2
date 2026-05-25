@@ -27,10 +27,18 @@ export const exams = pgTable("exams", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+export const universities = pgTable("universities", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
 export const students = pgTable("students", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull(),
+  university: text("university"),
+  yearOfStudy: text("year_of_study"),
   resetCode: text("reset_code"),
   resetExpiresAt: timestamp("reset_expires_at"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
@@ -190,6 +198,7 @@ export const studentSignups = pgTable("student_signups", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+export const insertUniversitySchema = createInsertSchema(universities).omit({ id: true, createdAt: true });
 export const insertAdminSchema = createInsertSchema(admins).omit({ id: true, createdAt: true });
 export const insertExamSchema = createInsertSchema(exams).omit({ id: true, createdAt: true });
 export const insertStudentSchema = createInsertSchema(students).omit({ id: true, createdAt: true });
@@ -227,6 +236,8 @@ export type EmailTemplate = typeof emailTemplates.$inferSelect;
 export type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;
 export type StudentFeedbackType = typeof studentFeedback.$inferSelect;
 export type InsertStudentFeedback = z.infer<typeof insertStudentFeedbackSchema>;
+export type University = typeof universities.$inferSelect;
+export type InsertUniversity = z.infer<typeof insertUniversitySchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type AiMarkingJob = typeof aiMarkingJobs.$inferSelect;
 export type StudentSignup = typeof studentSignups.$inferSelect;
