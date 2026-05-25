@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,6 +26,7 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<"exams" | "signups">("exams");
   const [showCreate, setShowCreate] = useState(false);
   const [newExam, setNewExam] = useState({ title: "", timerMode: "none", perQuestionSeconds: 60, fullExamSeconds: 3600 });
+  const [confirmDeleteExamId, setConfirmDeleteExamId] = useState<number | null>(null);
 
   const { data: admin, isLoading: adminLoading } = useQuery<any>({
     queryKey: ["/api/admin/me"],
@@ -306,7 +308,7 @@ export default function AdminDashboard() {
                         variant="ghost"
                         size="sm"
                         className="h-8 text-xs text-destructive hover:text-destructive ml-auto"
-                        onClick={(e) => { e.stopPropagation(); deleteExam.mutate(exam.id); }}
+                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteExamId(exam.id); }}
                         data-testid={`button-delete-${exam.id}`}
                       >
                         <Trash2 className="w-3 h-3" />
@@ -320,6 +322,27 @@ export default function AdminDashboard() {
         )}
         </>}
       </main>
+
+      <AlertDialog open={confirmDeleteExamId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteExamId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Permanently delete this exam?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">This will <strong>permanently delete</strong> the exam along with <strong>all questions, student enrolments, attempts, answers, and results</strong>.</span>
+              <span className="block text-destructive font-medium">This cannot be undone.</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (confirmDeleteExamId !== null) { deleteExam.mutate(confirmDeleteExamId); setConfirmDeleteExamId(null); } }}
+            >
+              Yes, delete everything
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
