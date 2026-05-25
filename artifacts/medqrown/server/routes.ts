@@ -150,10 +150,14 @@ export async function registerRoutes(
 
   // Exam Students
   app.get("/api/exams/:examId/students", requireAdmin, async (req, res) => {
-    const students = await storage.getStudentsByExam(parseInt(req.params.examId));
-    const studentsWithAttempts = await Promise.all(students.map(async (es) => {
+    const examIdNum = parseInt(req.params.examId);
+    const studentsList = await storage.getStudentsByExam(examIdNum);
+    const qs = await storage.getQuestionsByExam(examIdNum);
+    const studentsWithAttempts = await Promise.all(studentsList.map(async (es) => {
       const attempt = await storage.getAttemptByExamStudent(es.id);
-      return { ...es, attempt };
+      const currentQuestionType = (attempt && qs[attempt.currentQuestionIndex])
+        ? qs[attempt.currentQuestionIndex].type : null;
+      return { ...es, attempt, totalQuestions: qs.length, currentQuestionType };
     }));
     res.json(studentsWithAttempts);
   });
@@ -450,6 +454,79 @@ export async function registerRoutes(
   app.get("/api/exams/:examId/feedback", requireAdmin, async (req, res) => {
     const feedback = await storage.getStudentFeedback(parseInt(req.params.examId));
     res.json(feedback);
+  });
+
+  app.delete("/api/exams/:examId/feedback/:feedbackId", requireAdmin, async (req, res) => {
+    await storage.deleteStudentFeedback(parseInt(req.params.feedbackId));
+    res.json({ ok: true });
+  });
+
+  app.post("/api/exams/:examId/feedback/:feedbackId/ai-draft", requireAdmin, async (req, res) => {
+    const examId = parseInt(req.params.examId);
+    const feedbackId = parseInt(req.params.feedbackId);
+    const feedbacks = await storage.getStudentFeedback(examId);
+    const fb = feedbacks.find(f => f.id === feedbackId);
+    if (!fb) return res.status(404).json({ message: "Feedback not found" });
+    const exam = await storage.getExam(examId);
+    const providers = (await storage.getAiProviders()).filter(p => p.isActive);
+    if (providers.length === 0) return res.status(400).json({ message: "No active AI provider configured. Set one up in Settings → AI Providers." });
+    const provider = providers[0];
+    const apiKey = provider.apiKeyDirect || (provider.apiKeyEnv ? process.env[provider.apiKeyEnv] || "" : "");
+    const endpoint = provider.endpoint || (provider.baseUrlEnv ? process.env[provider.baseUrlEnv] : undefined);
+    const model = provider.model || (provider.type === "gemini" ? "gemini-2.0-flash" : provider.type === "anthropic" ? "claude-sonnet-4-5" : "gpt-4o");
+    const prompt = `You are a medical education administrator at MedQrown MedEazy. A student submitted feedback about their exam experience. Write a professional, warm, and helpful reply email body to the student.\n\nStudent Name: ${(fb as any).studentName || "Student"}\nExam: ${exam?.title || "the exam"}\nRating: ${(fb as any).rating ? `${(fb as any).rating}/5 stars` : "not rated"}\nFeedback: "${fb.content}"\n\nWrite a reply that thanks the student, addresses their specific points, is encouraging, and ends with "The MedQrown Team". Keep it to 3-4 sentences. Output only the email body, no subject line.`;
+    try {
+      let draft = "";
+      if (provider.type === "anthropic") {
+        const { default: Anthropic } = await import("@anthropic-ai/sdk");
+        const client = new Anthropic({ apiKey: apiKey || "dummy", baseURL: endpoint });
+        const resp = await client.messages.create({ model, max_tokens: 400, messages: [{ role: "user", content: prompt }] });
+        draft = resp.content[0]?.type === "text" ? resp.content[0].text : "";
+      } else {
+        const { default: OpenAI } = await import("openai");
+        const client = new OpenAI({ apiKey: apiKey || "dummy", baseURL: endpoint });
+        const resp = await client.chat.completions.create({ model, max_tokens: 400, messages: [{ role: "user", content: prompt }] });
+        draft = resp.choices[0]?.message?.content || "";
+      }
+      res.json({ draft });
+    } catch (e: any) {
+      res.status(500).json({ message: `AI error: ${e.message}` });
+    }
+  });
+
+  app.post("/api/exams/:examId/feedback/:feedbackId/send-reply", requireAdmin, async (req, res) => {
+    const { replyContent } = req.body;
+    if (!replyContent?.trim()) return res.status(400).json({ message: "Reply content is required" });
+    const examId = parseInt(req.params.examId);
+    const feedbackId = parseInt(req.params.feedbackId);
+    const feedbacks = await storage.getStudentFeedback(examId);
+    const fb = feedbacks.find(f => f.id === feedbackId);
+    if (!fb) return res.status(404).json({ message: "Feedback not found" });
+    if (!(fb as any).studentEmail) return res.status(400).json({ message: "No email address for this student" });
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return res.status(503).json({ message: "Email not configured. Set SMTP_USER and SMTP_PASS." });
+    const exam = await storage.getExam(examId);
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || "smtp.gmail.com",
+      port: parseInt(process.env.SMTP_PORT || "587"),
+      secure: false, family: 4,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      connectionTimeout: 15000, greetingTimeout: 10000, socketTimeout: 20000,
+    } as any);
+    try { await transporter.verify(); } catch (e: any) { return res.status(503).json({ message: `SMTP connection failed: ${e.message}` }); }
+    await transporter.sendMail({
+      from: `"${process.env.SMTP_FROM_NAME || "MedQrown MedEazy"}" <${process.env.SMTP_USER}>`,
+      to: (fb as any).studentEmail,
+      subject: `Re: Your feedback on ${exam?.title || "your exam"} — MedQrown`,
+      text: replyContent,
+      html: `<div style="font-family:Arial,sans-serif;max-width:600px;line-height:1.6">${replyContent.replace(/\n/g, "<br>")}</div>`,
+    });
+    res.json({ ok: true });
+  });
+
+  // All students (master database)
+  app.get("/api/admin/all-students", requireAdmin, async (req, res) => {
+    const allStudents = await storage.getAllStudentsWithExams();
+    res.json(allStudents);
   });
 
   // AI Marking
@@ -1544,6 +1621,42 @@ export async function registerRoutes(
       res.status(500).json({ message: "Enrolment failed: " + error.message });
     }
   });
+
+  // Background auto-submit: every 30 s, submit expired exams for students who left
+  const autoSubmitCheck = setInterval(async () => {
+    try {
+      const inProgress = await storage.getInProgressAttempts();
+      const now = Date.now();
+      for (const a of inProgress) {
+        if (a.timerMode === "full_exam" && a.fullExamSeconds && a.startedAt) {
+          const elapsed = (now - new Date(a.startedAt).getTime()) / 1000;
+          if (elapsed >= a.fullExamSeconds) {
+            await storage.updateAttempt(a.attemptId, { status: "submitted", submittedAt: new Date() });
+            await storage.updateExamStudent(a.examStudentId, { attemptStatus: "submitted" });
+            if (a.autoMarkEnabled) enqueueMarking(a.examId);
+          }
+        } else if (a.timerMode === "per_question" && a.perQuestionSeconds && a.questionStartedAt) {
+          const elapsed = (now - new Date(a.questionStartedAt).getTime()) / 1000;
+          if (elapsed >= a.perQuestionSeconds) {
+            const qs = await storage.getQuestionsByExam(a.examId);
+            if (a.currentQuestionIndex >= qs.length - 1) {
+              await storage.updateAttempt(a.attemptId, { status: "submitted", submittedAt: new Date() });
+              await storage.updateExamStudent(a.examStudentId, { attemptStatus: "submitted" });
+              if (a.autoMarkEnabled) enqueueMarking(a.examId);
+            } else {
+              await storage.updateAttempt(a.attemptId, {
+                currentQuestionIndex: a.currentQuestionIndex + 1,
+                questionStartedAt: new Date(),
+              });
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error("Auto-submit check error:", err.message);
+    }
+  }, 30000);
+  httpServer.on("close", () => clearInterval(autoSubmitCheck));
 
   return httpServer;
 }

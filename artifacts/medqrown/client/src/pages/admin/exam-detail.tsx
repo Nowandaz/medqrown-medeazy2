@@ -21,7 +21,7 @@ import {
   ArrowLeft, Users, FileText, Trophy, BarChart3, MessageSquare, Brain,
   Settings, Plus, Trash2, Send, RotateCcw, UserPlus, Eye, BookOpen,
   CheckCircle, Clock, AlertCircle, Mail, Upload, Image as ImageIcon,
-  Loader2, XCircle, Star, Pencil, AlertTriangle
+  Loader2, XCircle, Star, Pencil, AlertTriangle, Reply, Sparkles
 } from "lucide-react";
 import logoPath from "@assets/medqrown_logo.png";
 
@@ -149,7 +149,7 @@ export default function AdminExamDetail() {
             <OverviewTab stats={stats} examStudents={examStudents || []} examId={examId} exam={exam} />
           </TabsContent>
           <TabsContent value="students">
-            <StudentsTab examId={examId} examStudents={examStudents || []} />
+            <StudentsTab examId={examId} examStudents={examStudents || []} examQuestions={examQuestions || []} />
           </TabsContent>
           <TabsContent value="questions">
             <QuestionsTab examId={examId} questions={examQuestions || []} />
@@ -161,7 +161,7 @@ export default function AdminExamDetail() {
             <AnalyticsTab analytics={analytics || []} />
           </TabsContent>
           <TabsContent value="feedback">
-            <FeedbackTab feedback={feedback || []} />
+            <FeedbackTab feedback={feedback || []} examId={examId} />
           </TabsContent>
           <TabsContent value="marking">
             <MarkingTab examId={examId} responses={examResponses || []} stats={stats} />
@@ -284,7 +284,7 @@ function OverviewTab({ stats, examStudents, examId, exam }: any) {
   );
 }
 
-function StudentsTab({ examId, examStudents }: { examId: number; examStudents: any[] }) {
+function StudentsTab({ examId, examStudents, examQuestions }: { examId: number; examStudents: any[]; examQuestions: any[] }) {
   const { toast } = useToast();
   const [showAdd, setShowAdd] = useState(false);
   const [name, setName] = useState("");
@@ -354,10 +354,17 @@ function StudentsTab({ examId, examStudents }: { examId: number; examStudents: a
   };
   const unsentCount = examStudents.filter((es: any) => !es.emailSent).length;
 
-  const statusBadge = (s: string) => {
-    switch (s) {
+  const statusBadge = (es: any) => {
+    switch (es.attemptStatus) {
       case "submitted": return <Badge variant="default" className="text-xs gap-1"><CheckCircle className="w-3 h-3" />Submitted</Badge>;
-      case "in_progress": return <Badge variant="secondary" className="text-xs gap-1"><Clock className="w-3 h-3" />In Progress</Badge>;
+      case "in_progress": {
+        if (es.attempt && es.totalQuestions) {
+          const qNum = (es.attempt.currentQuestionIndex ?? 0) + 1;
+          const typeLabel = es.currentQuestionType === "mcq" ? "MCQ" : es.currentQuestionType === "saq" ? "SAQ" : "Q";
+          return <Badge variant="secondary" className="text-xs gap-1"><Clock className="w-3 h-3" />{typeLabel} {qNum}/{es.totalQuestions}</Badge>;
+        }
+        return <Badge variant="secondary" className="text-xs gap-1"><Clock className="w-3 h-3" />In Progress</Badge>;
+      }
       default: return <Badge variant="outline" className="text-xs gap-1"><AlertCircle className="w-3 h-3" />Not Started</Badge>;
     }
   };
@@ -422,7 +429,7 @@ function StudentsTab({ examId, examStudents }: { examId: number; examStudents: a
                   </p>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  {statusBadge(es.attemptStatus)}
+                  {statusBadge(es)}
                   {es.emailSent && <Badge variant="outline" className="text-xs gap-1"><Mail className="w-3 h-3" />Sent</Badge>}
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => resendSingle(es.id, es.student?.name)} title="Resend login email" data-testid={`button-resend-${es.id}`}>
                     <Mail className="w-3 h-3" />
@@ -1267,7 +1274,53 @@ function AnalyticsTab({ analytics }: { analytics: any[] }) {
   );
 }
 
-function FeedbackTab({ feedback }: { feedback: any[] }) {
+function FeedbackTab({ feedback, examId }: { feedback: any[]; examId: number }) {
+  const { toast } = useToast();
+  const [replyTarget, setReplyTarget] = useState<any | null>(null);
+  const [draftContent, setDraftContent] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+
+  const deleteFeedback = useMutation({
+    mutationFn: async (feedbackId: number) => {
+      const res = await apiRequest("DELETE", `/api/exams/${examId}/feedback/${feedbackId}`);
+      if (!res.ok) throw new Error("Failed");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/exams", examId, "feedback"] });
+      setConfirmDeleteId(null);
+      toast({ title: "Feedback deleted" });
+    },
+    onError: () => toast({ title: "Failed to delete feedback", variant: "destructive" }),
+  });
+
+  const sendReply = useMutation({
+    mutationFn: async ({ feedbackId, replyContent }: { feedbackId: number; replyContent: string }) => {
+      const res = await apiRequest("POST", `/api/exams/${examId}/feedback/${feedbackId}/send-reply`, { replyContent });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.message || "Failed"); }
+    },
+    onSuccess: () => {
+      setReplyTarget(null);
+      setDraftContent("");
+      toast({ title: "Reply sent successfully" });
+    },
+    onError: (e: any) => toast({ title: "Failed to send reply", description: e.message, variant: "destructive" }),
+  });
+
+  const generateAiDraft = async (fb: any) => {
+    setGenerating(true);
+    try {
+      const res = await apiRequest("POST", `/api/exams/${examId}/feedback/${fb.id}/ai-draft`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "AI failed");
+      setDraftContent(data.draft || "");
+    } catch (e: any) {
+      toast({ title: "AI draft failed", description: e.message, variant: "destructive" });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div>
@@ -1303,11 +1356,69 @@ function FeedbackTab({ feedback }: { feedback: any[] }) {
                   </div>
                 </div>
                 <p className="text-sm leading-relaxed text-muted-foreground">{fb.content}</p>
+                <div className="flex items-center gap-2 pt-1 border-t border-muted/50">
+                  <Button size="sm" variant="outline" className="text-xs h-7 gap-1"
+                    onClick={() => { setReplyTarget(fb); setDraftContent(""); }}>
+                    <Reply className="w-3 h-3" />Reply
+                  </Button>
+                  <Button size="sm" variant="ghost" className="text-xs h-7 text-destructive hover:text-destructive gap-1"
+                    onClick={() => setConfirmDeleteId(fb.id)}>
+                    <Trash2 className="w-3 h-3" />Delete
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      <Dialog open={!!replyTarget} onOpenChange={(open) => { if (!open) { setReplyTarget(null); setDraftContent(""); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Reply to {replyTarget?.studentName || "Student"}</DialogTitle></DialogHeader>
+          <div className="space-y-3 pt-1">
+            <div className="rounded-lg bg-muted/40 px-3 py-2 text-sm text-muted-foreground italic border">
+              &ldquo;{replyTarget?.content}&rdquo;
+            </div>
+            <div className="flex justify-end">
+              <Button size="sm" variant="outline" className="text-xs gap-1.5" disabled={generating}
+                onClick={() => replyTarget && generateAiDraft(replyTarget)}>
+                <Sparkles className="w-3 h-3" />
+                {generating ? "Generating…" : "Reply with AI"}
+              </Button>
+            </div>
+            <Textarea
+              value={draftContent}
+              onChange={(e) => setDraftContent(e.target.value)}
+              placeholder="Type your reply, or use 'Reply with AI' to generate a draft…"
+              className="min-h-[120px] text-sm"
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => { setReplyTarget(null); setDraftContent(""); }}>Cancel</Button>
+              <Button size="sm" disabled={!draftContent.trim() || sendReply.isPending}
+                onClick={() => replyTarget && sendReply.mutate({ feedbackId: replyTarget.id, replyContent: draftContent })}>
+                <Send className="w-3 h-3 mr-1.5" />
+                {sendReply.isPending ? "Sending…" : "Send Reply"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={confirmDeleteId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this feedback?</AlertDialogTitle>
+            <AlertDialogDescription>This will permanently remove this feedback entry and cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => confirmDeleteId !== null && deleteFeedback.mutate(confirmDeleteId)}>
+              {deleteFeedback.isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

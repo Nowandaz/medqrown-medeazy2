@@ -120,12 +120,10 @@ export default function StudentExam() {
 
   const handleTimerExpiry = useCallback(async () => {
     if (isAutoSubmittingRef.current) return;
-    // If a manual Next/Submit click is currently in flight, let it finish.
-    // For per_question timers, the user's click will advance the question anyway,
-    // so we'd just be racing the same /next-question call. Bail and let the next
-    // timer tick re-check (or, for per_question, the new question will reset the timer).
     if (advancingRef.current) return;
     isAutoSubmittingRef.current = true;
+    advancingRef.current = true;
+    setAdvancing(true);
     const data = attemptDataRef.current;
     if (!data) { isAutoSubmittingRef.current = false; return; }
 
@@ -199,7 +197,7 @@ export default function StudentExam() {
     const initial = computeRemaining();
     if (initial !== null) {
       setRemainingTime(initial);
-      if (initial <= 0) { handleTimerExpiry(); return; }
+      if (initial <= 0) { setAdvancing(true); handleTimerExpiry(); return; }
     }
 
     timerRef.current = setInterval(() => {
@@ -208,6 +206,7 @@ export default function StudentExam() {
         setRemainingTime(remaining);
         if (remaining <= 0) {
           if (timerRef.current) clearInterval(timerRef.current);
+          setAdvancing(true);
           handleTimerExpiry();
         }
       }

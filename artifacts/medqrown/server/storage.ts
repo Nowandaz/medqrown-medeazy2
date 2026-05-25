@@ -83,6 +83,9 @@ export interface IStorage {
 
   getStudentFeedback(examId: number): Promise<StudentFeedbackType[]>;
   createStudentFeedback(fb: InsertStudentFeedback): Promise<StudentFeedbackType>;
+  deleteStudentFeedback(id: number): Promise<void>;
+  getAllStudentsWithExams(): Promise<{ id: number; name: string; email: string; exams: { examId: number; examTitle: string; attemptStatus: string; enrolledAt: Date }[] }[]>;
+  getInProgressAttempts(): Promise<{ attemptId: number; examStudentId: number; examId: number; currentQuestionIndex: number; startedAt: Date; questionStartedAt: Date | null; timerMode: string | null; perQuestionSeconds: number | null; fullExamSeconds: number | null; autoMarkEnabled: boolean }[]>;
 
   createAuditLog(log: { adminId?: number; action: string; details?: string }): Promise<void>;
 
@@ -458,6 +461,62 @@ export class DatabaseStorage implements IStorage {
   async createStudentFeedback(fb: InsertStudentFeedback) {
     const [created] = await db.insert(studentFeedback).values(fb).returning();
     return created;
+  }
+
+  async deleteStudentFeedback(id: number) {
+    await db.delete(studentFeedback).where(eq(studentFeedback.id, id));
+  }
+
+  async getAllStudentsWithExams() {
+    const result = await db
+      .select({
+        studentId: students.id,
+        name: students.name,
+        email: students.email,
+        examId: examStudents.examId,
+        examTitle: exams.title,
+        attemptStatus: examStudents.attemptStatus,
+        enrolledAt: examStudents.createdAt,
+      })
+      .from(students)
+      .leftJoin(examStudents, eq(students.id, examStudents.studentId))
+      .leftJoin(exams, eq(examStudents.examId, exams.id))
+      .orderBy(asc(students.name));
+
+    const map = new Map<number, { id: number; name: string; email: string; exams: any[] }>();
+    for (const row of result) {
+      if (!map.has(row.studentId)) {
+        map.set(row.studentId, { id: row.studentId, name: row.name, email: row.email, exams: [] });
+      }
+      if (row.examId) {
+        map.get(row.studentId)!.exams.push({
+          examId: row.examId,
+          examTitle: row.examTitle,
+          attemptStatus: row.attemptStatus,
+          enrolledAt: row.enrolledAt,
+        });
+      }
+    }
+    return Array.from(map.values());
+  }
+
+  async getInProgressAttempts() {
+    return db.select({
+      attemptId: attempts.id,
+      examStudentId: attempts.examStudentId,
+      examId: examStudents.examId,
+      currentQuestionIndex: attempts.currentQuestionIndex,
+      startedAt: attempts.startedAt,
+      questionStartedAt: attempts.questionStartedAt,
+      timerMode: exams.timerMode,
+      perQuestionSeconds: exams.perQuestionSeconds,
+      fullExamSeconds: exams.fullExamSeconds,
+      autoMarkEnabled: exams.autoMarkEnabled,
+    })
+    .from(attempts)
+    .innerJoin(examStudents, eq(attempts.examStudentId, examStudents.id))
+    .innerJoin(exams, eq(examStudents.examId, exams.id))
+    .where(and(eq(attempts.status, "in_progress"), eq(examStudents.attemptStatus, "in_progress")));
   }
 
   async createAuditLog(log: { adminId?: number; action: string; details?: string }) {

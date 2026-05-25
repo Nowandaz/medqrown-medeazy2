@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, XCircle, Clock, GraduationCap, Mail, Building2, ShieldCheck, ShieldX, Trash2, UserPlus, PlusCircle } from "lucide-react";
+import { CheckCircle, XCircle, Clock, GraduationCap, Mail, Building2, ShieldCheck, ShieldX, Trash2, UserPlus, PlusCircle, Search } from "lucide-react";
 import type { Exam } from "@shared/schema";
 
 interface Signup {
@@ -42,6 +42,7 @@ export default function AdminSignups() {
   const [addExamSelected, setAddExamSelected] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   const [filter, setFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
 
   // Manual enrol form state
   const [enrolName, setEnrolName] = useState("");
@@ -127,8 +128,23 @@ export default function AdminSignups() {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const filtered = filter === "all" ? signups : signups.filter(s => s.status === filter);
+  const baseFiltered = filter === "all" ? signups : signups.filter(s => s.status === filter);
+  const filtered = search.trim()
+    ? baseFiltered.filter(s =>
+        s.name.toLowerCase().includes(search.toLowerCase()) ||
+        s.email.toLowerCase().includes(search.toLowerCase()) ||
+        s.university.toLowerCase().includes(search.toLowerCase())
+      )
+    : baseFiltered;
   const pendingCount = signups.filter(s => s.status === "pending_approval").length;
+
+  const byUniversity = Object.entries(
+    filtered.reduce<Record<string, Signup[]>>((acc, s) => {
+      const uni = s.university || "Unknown University";
+      (acc[uni] = acc[uni] || []).push(s);
+      return acc;
+    }, {})
+  ).sort(([a], [b]) => a.localeCompare(b));
 
   return (
     <div className="space-y-6">
@@ -160,79 +176,97 @@ export default function AdminSignups() {
         </Select>
       </div>
 
-      {/* Signup list */}
+      {/* Search */}
+      <div className="relative max-w-sm">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+        <Input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search by name, email or university…"
+          className="pl-9 h-9 text-sm"
+        />
+      </div>
+
+      {/* Signup list — grouped by university */}
       {isLoading ? (
         <div className="space-y-3">
           {[1, 2, 3].map(i => <div key={i} className="h-24 rounded-lg bg-muted/50 animate-pulse" />)}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : byUniversity.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="p-12 text-center">
             <GraduationCap className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-            <p className="text-muted-foreground text-sm">No sign-up requests yet.</p>
+            <p className="text-muted-foreground text-sm">{search ? "No results match your search." : "No sign-up requests yet."}</p>
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
-          {filtered.map(signup => {
-            const sc = statusConfig[signup.status] || statusConfig.pending_email;
-            return (
-              <Card key={signup.id} className="border-primary/10 hover:border-primary/20 transition-colors">
-                <CardContent className="p-5">
-                  <div className="flex items-start justify-between gap-4 flex-wrap">
-                    <div className="space-y-1.5 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold">{signup.name}</span>
-                        <Badge variant={sc.variant} className="flex items-center gap-1 text-xs">
-                          {sc.icon} {sc.label}
-                        </Badge>
-                        {signup.emailVerified && (
-                          <span className="flex items-center gap-1 text-green-600 text-xs font-medium">
-                            <ShieldCheck className="w-3 h-3" /> Email verified
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
-                        <span className="flex items-center gap-1"><Mail className="w-3.5 h-3.5" /> {signup.email}</span>
-                        <span className="flex items-center gap-1"><Building2 className="w-3.5 h-3.5" /> {signup.university}</span>
-                        {signup.yearOfStudy && <span className="text-xs bg-muted px-2 py-0.5 rounded-full">{signup.yearOfStudy}</span>}
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Applied {new Date(signup.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                      </p>
-                      {signup.rejectionReason && (
-                        <p className="text-xs text-red-500">Reason: {signup.rejectionReason}</p>
-                      )}
-                    </div>
-
-                    <div className="flex gap-2 shrink-0 flex-wrap">
-                      {signup.status === "pending_approval" && (
-                        <>
-                          <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 dark:hover:bg-red-900/20"
-                            onClick={() => setRejectTarget(signup)}>
-                            <ShieldX className="w-3.5 h-3.5 mr-1" /> Reject
+        <div className="space-y-6">
+          {byUniversity.map(([university, signupsInUni]) => (
+            <div key={university} className="space-y-2">
+              <div className="flex items-center gap-2 pb-1 border-b">
+                <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                <h3 className="text-sm font-semibold text-foreground">{university}</h3>
+                <span className="text-xs text-muted-foreground ml-auto">{signupsInUni.length} student{signupsInUni.length !== 1 ? "s" : ""}</span>
+              </div>
+              {signupsInUni.map(signup => {
+                const sc = statusConfig[signup.status] || statusConfig.pending_email;
+                return (
+                  <Card key={signup.id} className="border-primary/10 hover:border-primary/20 transition-colors">
+                    <CardContent className="p-5">
+                      <div className="flex items-start justify-between gap-4 flex-wrap">
+                        <div className="space-y-1.5 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold">{signup.name}</span>
+                            <Badge variant={sc.variant} className="flex items-center gap-1 text-xs">
+                              {sc.icon} {sc.label}
+                            </Badge>
+                            {signup.emailVerified && (
+                              <span className="flex items-center gap-1 text-green-600 text-xs font-medium">
+                                <ShieldCheck className="w-3 h-3" /> Email verified
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
+                            <span className="flex items-center gap-1"><Mail className="w-3.5 h-3.5" /> {signup.email}</span>
+                            {signup.yearOfStudy && <span className="text-xs bg-muted px-2 py-0.5 rounded-full">{signup.yearOfStudy}</span>}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Applied {new Date(signup.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          </p>
+                          {signup.rejectionReason && (
+                            <p className="text-xs text-red-500">Reason: {signup.rejectionReason}</p>
+                          )}
+                        </div>
+                        <div className="flex gap-2 shrink-0 flex-wrap">
+                          {signup.status === "pending_approval" && (
+                            <>
+                              <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                onClick={() => setRejectTarget(signup)}>
+                                <ShieldX className="w-3.5 h-3.5 mr-1" /> Reject
+                              </Button>
+                              <Button size="sm" onClick={() => setApproveTarget(signup)}>
+                                <CheckCircle className="w-3.5 h-3.5 mr-1" /> Approve
+                              </Button>
+                            </>
+                          )}
+                          {signup.status === "approved" && (
+                            <Button size="sm" variant="outline" className="text-primary border-primary/30 hover:bg-primary/5"
+                              onClick={() => { setAddExamTarget(signup); setAddExamSelected(""); }}>
+                              <PlusCircle className="w-3.5 h-3.5 mr-1" /> Add to Exam
+                            </Button>
+                          )}
+                          <Button size="sm" variant="outline" className="text-red-500 border-red-200 hover:bg-red-50 dark:hover:bg-red-900/20"
+                            onClick={() => setDeleteTarget(signup)}>
+                            <Trash2 className="w-3.5 h-3.5" />
                           </Button>
-                          <Button size="sm" onClick={() => setApproveTarget(signup)}>
-                            <CheckCircle className="w-3.5 h-3.5 mr-1" /> Approve
-                          </Button>
-                        </>
-                      )}
-                      {signup.status === "approved" && (
-                        <Button size="sm" variant="outline" className="text-primary border-primary/30 hover:bg-primary/5"
-                          onClick={() => { setAddExamTarget(signup); setAddExamSelected(""); }}>
-                          <PlusCircle className="w-3.5 h-3.5 mr-1" /> Add to Exam
-                        </Button>
-                      )}
-                      <Button size="sm" variant="outline" className="text-red-500 border-red-200 hover:bg-red-50 dark:hover:bg-red-900/20"
-                        onClick={() => setDeleteTarget(signup)}>
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          ))}
         </div>
       )}
 

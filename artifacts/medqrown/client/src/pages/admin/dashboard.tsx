@@ -14,16 +14,87 @@ import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   BookOpen, Plus, LogOut, Settings, Trash2, Play, Pause, Eye,
-  Clock, FileText, GraduationCap
+  Clock, FileText, GraduationCap, Users, Building2, Mail, CheckCircle, AlertCircle
 } from "lucide-react";
 import type { Exam } from "@shared/schema";
 import logoPath from "@assets/medqrown_logo.png";
 import AdminSignups from "@/pages/admin/signups";
 
+function MasterStudentDatabase() {
+  const { data: allStudents, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/all-students"],
+  });
+
+  const statusColors: Record<string, string> = {
+    submitted: "text-green-600",
+    in_progress: "text-amber-600",
+    not_started: "text-muted-foreground",
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-xl font-bold flex items-center gap-2">
+          <Users className="w-5 h-5 text-primary" />
+          Master Student Database
+        </h2>
+        <p className="text-sm text-muted-foreground mt-0.5">{allStudents?.length || 0} student{(allStudents?.length || 0) !== 1 ? "s" : ""} registered</p>
+      </div>
+      {!allStudents?.length ? (
+        <Card className="border-dashed border-2 shadow-none">
+          <CardContent className="py-14 text-center">
+            <Users className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+            <p className="text-sm text-muted-foreground">No students yet. They appear here when added to any exam or approved via sign-up.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {allStudents.map((student: any) => (
+            <Card key={student.id} className="shadow-sm">
+              <CardContent className="py-3 px-4">
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm">{student.name}</p>
+                    <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                      <Mail className="w-3 h-3" />{student.email}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {student.exams.length === 0 ? (
+                      <Badge variant="outline" className="text-xs gap-1">
+                        <AlertCircle className="w-3 h-3" />No exams
+                      </Badge>
+                    ) : (
+                      student.exams.map((e: any, i: number) => (
+                        <Badge key={i} variant="secondary" className={`text-xs gap-1 ${statusColors[e.attemptStatus] || ""}`}>
+                          {e.attemptStatus === "submitted" && <CheckCircle className="w-3 h-3" />}
+                          {e.examTitle} · {e.attemptStatus?.replace("_", " ")}
+                        </Badge>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"exams" | "signups">("exams");
+  const [activeTab, setActiveTab] = useState<"exams" | "signups" | "students">("exams");
   const [showCreate, setShowCreate] = useState(false);
   const [newExam, setNewExam] = useState({ title: "", timerMode: "none", perQuestionSeconds: 60, fullExamSeconds: 3600 });
   const [confirmDeleteExamId, setConfirmDeleteExamId] = useState<number | null>(null);
@@ -149,9 +220,21 @@ export default function AdminDashboard() {
             <GraduationCap className="w-4 h-4" />
             Sign-Up Requests
           </button>
+          <button
+            onClick={() => setActiveTab("students")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              activeTab === "students"
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            All Students
+          </button>
         </div>
 
         {activeTab === "signups" && <AdminSignups />}
+        {activeTab === "students" && <MasterStudentDatabase />}
 
         {activeTab === "exams" && <>
         <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
