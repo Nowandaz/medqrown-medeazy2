@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { CheckCircle, XCircle, Clock, GraduationCap, Mail, Building2, ShieldCheck, ShieldX, Trash2, UserPlus, PlusCircle, Search } from "lucide-react";
 import type { Exam } from "@shared/schema";
 
@@ -43,6 +44,7 @@ export default function AdminSignups() {
   const [rejectReason, setRejectReason] = useState("");
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
 
   // Manual enrol form state
   const [enrolName, setEnrolName] = useState("");
@@ -94,6 +96,20 @@ export default function AdminSignups() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/signups"] });
       setDeleteTarget(null);
       toast({ title: "Record deleted" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const clearAllMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", "/api/admin/signups/processed");
+      if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/signups"] });
+      setConfirmClearAll(false);
+      toast({ title: "Cleared", description: `${data.count} processed request${data.count !== 1 ? "s" : ""} deleted.` });
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -162,18 +178,31 @@ export default function AdminSignups() {
           </h2>
           <p className="text-muted-foreground text-sm mt-0.5">Review, approve or reject student applications</p>
         </div>
-        <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All ({signups.length})</SelectItem>
-            <SelectItem value="pending_approval">Pending ({signups.filter(s => s.status === "pending_approval").length})</SelectItem>
-            <SelectItem value="approved">Approved</SelectItem>
-            <SelectItem value="rejected">Rejected</SelectItem>
-            <SelectItem value="pending_email">Unverified Email</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          {signups.some(s => s.status === "approved" || s.status === "rejected") && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 text-xs text-destructive border-destructive/30 hover:bg-destructive/10 gap-1.5"
+              onClick={() => setConfirmClearAll(true)}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Clear Processed
+            </Button>
+          )}
+          <Select value={filter} onValueChange={setFilter}>
+            <SelectTrigger className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All ({signups.length})</SelectItem>
+              <SelectItem value="pending_approval">Pending ({signups.filter(s => s.status === "pending_approval").length})</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="rejected">Rejected</SelectItem>
+              <SelectItem value="pending_email">Unverified Email</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Search */}
@@ -400,6 +429,28 @@ export default function AdminSignups() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Clear all processed confirmation */}
+      <AlertDialog open={confirmClearAll} onOpenChange={setConfirmClearAll}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear all processed requests?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete all <strong>approved</strong> and <strong>rejected</strong> signup records ({signups.filter(s => s.status === "approved" || s.status === "rejected").length} total).
+              Pending requests are not affected. Students who were approved remain fully registered with their exam access — only the application log is cleared.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => clearAllMutation.mutate()}
+            >
+              {clearAllMutation.isPending ? "Clearing…" : "Clear All Processed"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>

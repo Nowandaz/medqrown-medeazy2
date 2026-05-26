@@ -662,6 +662,13 @@ export class DatabaseStorage implements IStorage {
     await db.delete(studentSignups).where(eq(studentSignups.email, email.trim().toLowerCase()));
   }
 
+  async deleteProcessedStudentSignups() {
+    const result = await db.delete(studentSignups)
+      .where(inArray(studentSignups.status, ["approved", "rejected"]))
+      .returning({ id: studentSignups.id });
+    return result.length;
+  }
+
   async getUniversities() {
     return db.select().from(universities).orderBy(asc(universities.name));
   }

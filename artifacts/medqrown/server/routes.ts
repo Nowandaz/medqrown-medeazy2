@@ -1653,6 +1653,16 @@ export async function registerRoutes(
     }
   });
 
+  app.delete("/api/admin/signups/processed", requireAdmin, async (req, res) => {
+    try {
+      const count = await storage.deleteProcessedStudentSignups();
+      await storage.createAuditLog({ adminId: (req as any).admin.id, action: "bulk_delete_signups", details: `Deleted ${count} processed signup records` });
+      res.json({ ok: true, count });
+    } catch (error: any) {
+      res.status(500).json({ message: "Bulk delete failed: " + error.message });
+    }
+  });
+
   app.delete("/api/admin/signups/:id", requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
