@@ -552,7 +552,7 @@ export async function registerRoutes(
     if (isNaN(studentId)) return res.status(400).json({ message: "Invalid student id" });
     const { examId, password } = req.body;
     if (!examId || !password) return res.status(400).json({ message: "examId and password required" });
-    const existing = await storage.getExamStudent(examId, studentId);
+    const existing = await storage.getExamStudentByExamAndStudent(examId, studentId);
     if (existing) return res.status(409).json({ message: "Student already enrolled in this exam" });
     await storage.createExamStudent({ examId, studentId, password, attemptStatus: "not_started", resetCount: 0, emailSent: false });
     res.json({ ok: true });

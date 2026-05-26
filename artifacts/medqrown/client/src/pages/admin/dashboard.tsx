@@ -20,10 +20,6 @@ import type { Exam } from "@shared/schema";
 import logoPath from "@assets/medqrown_logo.png";
 import AdminSignups from "@/pages/admin/signups";
 
-function generatePassword() {
-  return Math.random().toString(36).slice(2, 10).toUpperCase();
-}
-
 function MasterStudentDatabase() {
   const { data: allStudents, isLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/all-students"],
@@ -31,10 +27,11 @@ function MasterStudentDatabase() {
   const { data: exams } = useQuery<Exam[]>({ queryKey: ["/api/exams"] });
   const { toast } = useToast();
 
+  const [search, setSearch] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [addToExamStudent, setAddToExamStudent] = useState<any>(null);
   const [addExamId, setAddExamId] = useState("");
-  const [addPassword, setAddPassword] = useState(generatePassword());
+  const [addPassword, setAddPassword] = useState("");
 
   const deleteStudent = useMutation({
     mutationFn: async (id: number) => {
@@ -62,7 +59,6 @@ function MasterStudentDatabase() {
       toast({ title: "Student added to exam" });
       setAddToExamStudent(null);
       setAddExamId("");
-      setAddPassword(generatePassword());
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -82,9 +78,16 @@ function MasterStudentDatabase() {
   }
 
   const YEAR_ORDER = ["Year 1", "Year 2", "Year 3", "Year 4", "Year 5", "Year 6", "Postgraduate", "Other", "Unknown"];
+  const q = search.trim().toLowerCase();
+
+  const filtered = (allStudents || []).filter(s =>
+    !q || s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q) ||
+    (s.university || "").toLowerCase().includes(q) ||
+    s.exams.some((e: any) => (e.examTitle || "").toLowerCase().includes(q))
+  );
 
   const grouped = new Map<string, any[]>();
-  for (const s of (allStudents || [])) {
+  for (const s of filtered) {
     const key = s.yearOfStudy || "Unknown";
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key)!.push(s);
@@ -96,74 +99,97 @@ function MasterStudentDatabase() {
   });
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold flex items-center gap-2">
-          <Users className="w-5 h-5 text-primary" />
-          Master Student Database
-        </h2>
-        <p className="text-sm text-muted-foreground mt-0.5">{allStudents?.length || 0} student{(allStudents?.length || 0) !== 1 ? "s" : ""} registered</p>
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div>
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <Users className="w-5 h-5 text-primary" />
+            Master Student Database
+          </h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {filtered.length} of {allStudents?.length || 0} student{(allStudents?.length || 0) !== 1 ? "s" : ""}
+          </p>
+        </div>
+        <div className="sm:ml-auto w-full sm:w-64">
+          <Input
+            placeholder="Search name, email, exam…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="h-9 text-sm"
+          />
+        </div>
       </div>
 
-      {!allStudents?.length ? (
+      {!filtered.length ? (
         <Card className="border-dashed border-2 shadow-none">
           <CardContent className="py-14 text-center">
             <Users className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-            <p className="text-sm text-muted-foreground">No students yet. They appear here when added to any exam or approved via sign-up.</p>
+            <p className="text-sm text-muted-foreground">
+              {q ? "No students match your search." : "No students yet."}
+            </p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-6">
           {sortedYears.map(year => (
             <div key={year}>
-              <div className="flex items-center gap-2 mb-3">
-                <GraduationCap className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-semibold text-foreground">{year}</h3>
+              <div className="flex items-center gap-2 mb-2">
+                <GraduationCap className="w-4 h-4 text-primary shrink-0" />
+                <h3 className="text-sm font-semibold">{year}</h3>
                 <Badge variant="secondary" className="text-xs">{grouped.get(year)!.length}</Badge>
               </div>
               <div className="space-y-2 pl-2 border-l-2 border-primary/20">
                 {grouped.get(year)!.map((student: any) => (
                   <Card key={student.id} className="shadow-sm">
-                    <CardContent className="py-3 px-4">
-                      <div className="flex items-start justify-between gap-4 flex-wrap">
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-sm">{student.name}</p>
-                          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                            <Mail className="w-3 h-3" />{student.email}
-                          </p>
-                          {student.university && (
-                            <p className="text-xs text-muted-foreground mt-0.5">{student.university}</p>
-                          )}
+                    <CardContent className="py-3 px-3 sm:px-4">
+                      <div className="flex flex-col gap-2">
+                        {/* Top row: name + actions */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm truncate">{student.name}</p>
+                            <p className="text-xs text-muted-foreground truncate">{student.email}</p>
+                            {student.university && (
+                              <p className="text-xs text-muted-foreground truncate">{student.university}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs gap-1"
+                              onClick={() => {
+                                setAddToExamStudent(student);
+                                setAddPassword(student.existingPassword || "");
+                                setAddExamId("");
+                              }}
+                            >
+                              <UserPlus className="w-3 h-3" />
+                              <span className="hidden sm:inline">Add to Exam</span>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => setConfirmDeleteId(student.id)}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 flex-wrap">
+                        {/* Exam badges row */}
+                        <div className="flex flex-wrap gap-1.5">
                           {student.exams.length === 0 ? (
                             <Badge variant="outline" className="text-xs gap-1">
                               <AlertCircle className="w-3 h-3" />No exams
                             </Badge>
                           ) : (
                             student.exams.map((e: any, i: number) => (
-                              <Badge key={i} variant="secondary" className={`text-xs gap-1 ${statusColors[e.attemptStatus] || ""}`}>
-                                {e.attemptStatus === "submitted" && <CheckCircle className="w-3 h-3" />}
-                                {e.examTitle} · {e.attemptStatus?.replace("_", " ")}
+                              <Badge key={i} variant="secondary" className={`text-xs gap-1 max-w-full truncate ${statusColors[e.attemptStatus] || ""}`}>
+                                {e.attemptStatus === "submitted" && <CheckCircle className="w-3 h-3 shrink-0" />}
+                                <span className="truncate">{e.examTitle} · {e.attemptStatus?.replace("_", " ")}</span>
                               </Badge>
                             ))
                           )}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-xs gap-1"
-                            onClick={() => { setAddToExamStudent(student); setAddPassword(generatePassword()); }}
-                          >
-                            <UserPlus className="w-3 h-3" />Add to Exam
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                            onClick={() => setConfirmDeleteId(student.id)}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
                         </div>
                       </div>
                     </CardContent>
@@ -210,21 +236,31 @@ function MasterStudentDatabase() {
                   <SelectValue placeholder="Choose an exam..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {(exams || []).map(e => (
-                    <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>
-                  ))}
+                  {(exams || [])
+                    .filter(e => !addToExamStudent?.exams?.some((x: any) => x.examId === e.id))
+                    .map(e => (
+                      <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Exam Password</Label>
-              <div className="flex gap-2">
-                <Input value={addPassword} onChange={e => setAddPassword(e.target.value)} className="h-10" />
-                <Button type="button" variant="outline" size="sm" onClick={() => setAddPassword(generatePassword())} className="shrink-0">
-                  Regenerate
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">Share this password with the student to access the exam.</p>
+              <Label>Student Password</Label>
+              <Input
+                value={addPassword}
+                onChange={e => setAddPassword(e.target.value)}
+                className="h-10 font-mono"
+                placeholder="Enter password…"
+              />
+              {addToExamStudent?.existingPassword ? (
+                <p className="text-xs text-muted-foreground">
+                  Using this student's existing password. Change only if needed.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Set the password this student will use to access the exam.
+                </p>
+              )}
             </div>
             <Button
               className="w-full h-10"

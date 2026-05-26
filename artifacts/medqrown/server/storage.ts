@@ -110,7 +110,6 @@ export interface IStorage {
   createUniversity(name: string): Promise<University>;
   deleteUniversity(id: number): Promise<void>;
   deleteStudent(id: number): Promise<void>;
-  updateStudent(id: number, data: Partial<{ university: string; yearOfStudy: string }>): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -165,6 +164,8 @@ export class DatabaseStorage implements IStorage {
     // Collect image URLs first so we can clean up bucket files after the cascade
     const qs = await db.select({ imageUrl: questions.imageUrl }).from(questions).where(eq(questions.examId, id));
     const imageUrls = qs.map(q => q.imageUrl).filter((u): u is string => !!u);
+    // Null out approved_exam_id references to avoid FK NO ACTION constraint
+    await db.update(studentSignups).set({ approvedExamId: null }).where(eq(studentSignups.approvedExamId, id));
     await db.delete(exams).where(eq(exams.id, id));
     if (imageUrls.length > 0) {
       // Fire-and-forget — don't block the response on bucket cleanup
@@ -483,6 +484,7 @@ export class DatabaseStorage implements IStorage {
         yearOfStudy: students.yearOfStudy,
         examId: examStudents.examId,
         examTitle: exams.title,
+        examPassword: examStudents.password,
         attemptStatus: examStudents.attemptStatus,
         enrolledAt: examStudents.createdAt,
       })
@@ -491,10 +493,10 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(exams, eq(examStudents.examId, exams.id))
       .orderBy(asc(students.name));
 
-    const map = new Map<number, { id: number; name: string; email: string; university: string | null; yearOfStudy: string | null; exams: any[] }>();
+    const map = new Map<number, { id: number; name: string; email: string; university: string | null; yearOfStudy: string | null; existingPassword: string | null; exams: any[] }>();
     for (const row of result) {
       if (!map.has(row.studentId)) {
-        map.set(row.studentId, { id: row.studentId, name: row.name, email: row.email, university: row.university, yearOfStudy: row.yearOfStudy, exams: [] });
+        map.set(row.studentId, { id: row.studentId, name: row.name, email: row.email, university: row.university, yearOfStudy: row.yearOfStudy, existingPassword: row.examPassword ?? null, exams: [] });
       }
       if (row.examId) {
         map.get(row.studentId)!.exams.push({
@@ -666,14 +668,6 @@ export class DatabaseStorage implements IStorage {
 
   async deleteUniversity(id: number) {
     await db.delete(universities).where(eq(universities.id, id));
-  }
-
-  async deleteStudent(id: number) {
-    await db.delete(students).where(eq(students.id, id));
-  }
-
-  async updateStudent(id: number, data: Partial<{ university: string; yearOfStudy: string }>) {
-    await db.update(students).set(data).where(eq(students.id, id));
   }
 }
 
