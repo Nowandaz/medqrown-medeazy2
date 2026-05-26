@@ -105,6 +105,7 @@ export interface IStorage {
   getAllStudentSignups(): Promise<StudentSignup[]>;
   updateStudentSignup(id: number, data: Partial<StudentSignup>): Promise<StudentSignup>;
   deleteStudentSignup(id: number): Promise<void>;
+  deleteStudentSignupsByEmail(email: string): Promise<void>;
 
   getUniversities(): Promise<University[]>;
   createUniversity(name: string): Promise<University>;
@@ -655,6 +656,10 @@ export class DatabaseStorage implements IStorage {
 
   async deleteStudentSignup(id: number) {
     await db.delete(studentSignups).where(eq(studentSignups.id, id));
+  }
+
+  async deleteStudentSignupsByEmail(email: string) {
+    await db.delete(studentSignups).where(eq(studentSignups.email, email.trim().toLowerCase()));
   }
 
   async getUniversities() {

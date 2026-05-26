@@ -203,7 +203,10 @@ export async function registerRoutes(
   // Permanently delete a student record (and all their exam history via cascade)
   app.delete("/api/students/:id", requireAdmin, async (req, res) => {
     try {
-      await storage.deleteStudent(parseInt(req.params.id));
+      const id = parseInt(req.params.id);
+      const student = await storage.getStudent(id);
+      await storage.deleteStudent(id);
+      if (student?.email) await storage.deleteStudentSignupsByEmail(student.email);
       res.json({ ok: true });
     } catch (error: any) {
       console.error("Delete student error:", error);
@@ -533,7 +536,9 @@ export async function registerRoutes(
   app.delete("/api/admin/students/:id", requireAdmin, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid student id" });
+    const student = await storage.getStudent(id);
     await storage.deleteStudent(id);
+    if (student?.email) await storage.deleteStudentSignupsByEmail(student.email);
     res.json({ ok: true });
   });
 
