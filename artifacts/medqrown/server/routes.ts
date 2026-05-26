@@ -1602,7 +1602,20 @@ export async function registerRoutes(
       const normalizedEmail = signup.email.trim().toLowerCase();
       let student = await storage.getStudentByEmail(normalizedEmail);
       if (!student) {
-        student = await storage.createStudent({ name: signup.name, email: normalizedEmail });
+        student = await storage.createStudent({
+          name: signup.name,
+          email: normalizedEmail,
+          university: signup.university || null,
+          yearOfStudy: signup.yearOfStudy || null,
+        });
+      } else {
+        // Backfill missing profile fields from signup data
+        const updates: Record<string, string | null> = {};
+        if (!student.university && signup.university) updates.university = signup.university;
+        if (!student.yearOfStudy && signup.yearOfStudy) updates.yearOfStudy = signup.yearOfStudy;
+        if (Object.keys(updates).length) {
+          student = await storage.updateStudent(student.id, updates) ?? student;
+        }
       }
 
       const existing = await storage.getExamStudentByExamAndStudent(examId, student.id);
