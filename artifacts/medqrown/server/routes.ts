@@ -901,10 +901,17 @@ export async function registerRoutes(
 
   app.post("/api/student/login", async (req, res) => {
     const { examId, email, password } = req.body;
-    const es = await storage.getExamStudentByCredentials(parseInt(examId), email, password);
+    if (!examId || !email || !password) {
+      return res.status(400).json({ message: "Exam, email and password are required" });
+    }
+    const parsedExamId = Number.parseInt(String(examId), 10);
+    if (!Number.isFinite(parsedExamId)) {
+      return res.status(400).json({ message: "A valid exam is required" });
+    }
+    const es = await storage.getExamStudentByCredentials(parsedExamId, email, password);
     if (!es) return res.status(401).json({ message: "Invalid credentials" });
     (req.session as any).examStudentId = es.id;
-    (req.session as any).studentExamId = parseInt(examId);
+    (req.session as any).studentExamId = parsedExamId;
     res.json({
       examStudentId: es.id,
       studentName: es.student.name,

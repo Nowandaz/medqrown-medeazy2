@@ -1,0 +1,1 @@
+- [Deployment verification](deployment-verification.md) — Replit secrets and Render environment variables are separate; verify SMTP auth and storage with non-destructive smoke tests.
