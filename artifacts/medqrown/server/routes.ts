@@ -522,7 +522,7 @@ export async function registerRoutes(
       subject: `Re: Your feedback on ${exam?.title || "your exam"} — MedQrown`,
       text: replyContent,
       html: `<div style="font-family:Arial,sans-serif;max-width:600px;line-height:1.6">${replyContent.replace(/\n/g, "<br>")}</div>`,
-    });
+    } as any);
     res.json({ ok: true });
   });
 
@@ -773,7 +773,7 @@ export async function registerRoutes(
       connectionTimeout: 15000,
       greetingTimeout: 10000,
       socketTimeout: 20000,
-    });
+    } as any);
 
     // Verify SMTP connection before looping — fail fast with clear error
     try {
@@ -1359,7 +1359,7 @@ export async function registerRoutes(
       connectionTimeout: 15000,
       greetingTimeout: 10000,
       socketTimeout: 20000,
-    });
+    } as any);
   }
 
   app.post("/api/student/signup", async (req, res) => {

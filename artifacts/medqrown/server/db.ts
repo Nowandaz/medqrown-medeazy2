@@ -17,4 +17,6 @@ export const pool = new pg.Pool({
     : undefined,
 });
 
-export const db = drizzle({ client: pool, schema });
+// The workspace currently resolves two compatible pg type versions; the runtime
+// client is still the node-postgres Pool expected by Drizzle.
+export const db = drizzle(pool as any, { schema });

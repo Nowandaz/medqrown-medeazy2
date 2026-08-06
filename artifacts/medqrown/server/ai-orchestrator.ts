@@ -64,7 +64,7 @@ function getGeminiClient(provider: AiProvider): GoogleGenerativeAI {
   const key = getProviderKey(provider) || "dummy";
   const endpoint = getProviderEndpoint(provider);
   return endpoint
-    ? new GoogleGenerativeAI(key, { apiEndpoint: endpoint } as any)
+    ? new (GoogleGenerativeAI as any)(key, { apiEndpoint: endpoint })
     : new GoogleGenerativeAI(key);
 }
 
