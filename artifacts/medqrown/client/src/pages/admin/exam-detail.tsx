@@ -23,7 +23,7 @@ import {
   CheckCircle, Clock, AlertCircle, Mail, Upload, Image as ImageIcon,
   Loader2, XCircle, Star, Pencil, AlertTriangle, Reply, Sparkles
 } from "lucide-react";
-import logoPath from "@assets/medqrown_logo.png";
+import medqrownIcon from "@/assets/medqrown-icon.png";
 
 export default function AdminExamDetail() {
   const [, params] = useRoute("/admin/exams/:id");
@@ -82,8 +82,7 @@ export default function AdminExamDetail() {
     <div className="min-h-screen bg-gradient-to-b from-background to-primary/3">
       <header className="border-b bg-card/80 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
-          <img src={logoPath} alt="MedQrown" className="h-10 w-auto object-contain shrink-0" data-testid="img-logo" />
-          <Link href="/admin/dashboard">
+          <img src={medqrownIcon} alt="MedQrown" className="h-8 w-8 object-contain" /><Link href="/admin/dashboard">
             <Button variant="ghost" size="icon" data-testid="button-back">
               <ArrowLeft className="w-4 h-4" />
             </Button>

@@ -10,6 +10,7 @@ import { enqueueMarking } from "./marking-queue";
 import { getExamStructure, invalidateExamCache } from "./exam-cache";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { listBucketObjects, deleteSupabaseStorageObjects, urlForObjectPath } from "./supabase-storage";
+import { pool } from "./db";
 
 function generatePassword(email: string): string {
   const prefix = email.split("@")[0].slice(0, 4).toLowerCase();
@@ -42,6 +43,32 @@ export async function registerRoutes(
   registerObjectStorageRoutes(app);
 
   // Health check (used by Render deployment)
+  // ── Demo tables migration (runs once at startup) ──────────────────────────
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS demo_exams (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        display_order INTEGER NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        timer_seconds INTEGER NOT NULL DEFAULT 60,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS demo_questions (
+        id SERIAL PRIMARY KEY,
+        demo_exam_id INTEGER NOT NULL REFERENCES demo_exams(id) ON DELETE CASCADE,
+        type TEXT NOT NULL,
+        content TEXT NOT NULL,
+        image_url TEXT,
+        options JSONB,
+        explanation TEXT,
+        order_index INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+  } catch (err: any) {
+    console.error("Demo table migration error:", err.message);
+  }
+
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", ts: Date.now() });
   });
@@ -1702,6 +1729,103 @@ export async function registerRoutes(
   });
 
   // Manual enrol: admin picks any student (existing or new) + exam
+  // ── Demo exam public routes ───────────────────────────────────────────────
+  app.get("/api/demo/exams", async (_req, res) => {
+    try {
+      const exams = await storage.getDemoExams();
+      res.json(exams);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/demo/exams/:id/questions", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const questions = await storage.getDemoQuestions(id);
+      res.json(questions);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Demo exam admin routes ────────────────────────────────────────────────
+  app.get("/api/admin/demo-exams", requireAdmin, async (_req, res) => {
+    try {
+      res.json(await storage.getAllDemoExams());
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/demo-exams", requireAdmin, async (req, res) => {
+    try {
+      const { title, displayOrder, timerSeconds } = req.body;
+      if (!title) return res.status(400).json({ message: "Title required" });
+      const exam = await storage.createDemoExam({ title, displayOrder: displayOrder ?? 0, timerSeconds: timerSeconds ?? 60 });
+      res.json(exam);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/demo-exams/:id", requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updated = await storage.updateDemoExam(id, req.body);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/admin/demo-exams/:id", requireAdmin, async (req, res) => {
+    try {
+      await storage.deleteDemoExam(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/demo-exams/:id/questions", requireAdmin, async (req, res) => {
+    try {
+      res.json(await storage.getDemoQuestions(parseInt(req.params.id)));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/demo-exams/:id/questions", requireAdmin, async (req, res) => {
+    try {
+      const demoExamId = parseInt(req.params.id);
+      const { type, content, imageUrl, options, explanation, orderIndex } = req.body;
+      if (!type || !content) return res.status(400).json({ message: "type and content required" });
+      const q = await storage.createDemoQuestion({ demoExamId, type, content, imageUrl: imageUrl || null, options: options || null, explanation: explanation || null, orderIndex: orderIndex ?? 0 });
+      res.json(q);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/demo-questions/:id", requireAdmin, async (req, res) => {
+    try {
+      const updated = await storage.updateDemoQuestion(parseInt(req.params.id), req.body);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/admin/demo-questions/:id", requireAdmin, async (req, res) => {
+    try {
+      await storage.deleteDemoQuestion(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/admin/students/enrol", requireAdmin, async (req, res) => {
     try {
       const { name, email, examId } = req.body;

@@ -8,7 +8,8 @@ import {
   Clock, Timer, AlertTriangle, ChevronRight, FileText,
   HelpCircle, CheckCircle2, ArrowRight, Ban
 } from "lucide-react";
-import logoPath from "@assets/medqrown_logo.png";
+import { AppHeader } from "@/components/AppHeader";
+import medqrownIcon from "@/assets/medqrown-icon.png";
 
 function formatSeconds(secs: number): string {
   if (secs >= 3600) {

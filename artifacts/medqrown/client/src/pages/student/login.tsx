@@ -10,7 +10,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Eye, EyeOff, LogIn, Phone, MessageSquare, Mail as MailIcon, UserPlus } from "lucide-react";
-import logoPath from "@assets/medqrown_logo.png";
+import { AppHeader } from "@/components/AppHeader";
+import medqrownIcon from "@/assets/medqrown-icon.png";
 
 export default function StudentLogin() {
   const [examId, setExamId] = useState("");
@@ -49,14 +50,12 @@ export default function StudentLogin() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex flex-col">
-      <header className="px-4 sm:px-6 py-4">
-        <img src={logoPath} alt="MedQrown Logo" className="h-12 w-auto object-contain" data-testid="img-logo" />
-      </header>
+      <AppHeader />
 
       <div className="flex-1 flex items-center justify-center px-4 pb-8">
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
-            <img src={logoPath} alt="MedQrown" className="h-44 w-auto mx-auto mb-4 object-contain" />
+            <img src={medqrownIcon} alt="MedQrown" className="h-28 w-28 mx-auto mb-3 object-contain" />
             <h1 className="text-2xl font-bold tracking-tight" data-testid="text-title">MedQrown MedEazy</h1>
             <p className="text-muted-foreground mt-1 text-sm">Student Exam Portal</p>
           </div>

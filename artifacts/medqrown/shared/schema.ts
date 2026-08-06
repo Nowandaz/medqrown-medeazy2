@@ -198,6 +198,27 @@ export const studentSignups = pgTable("student_signups", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+// ── Demo exam system ──────────────────────────────────────────────────────────
+export const demoExams = pgTable("demo_exams", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  displayOrder: integer("display_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  timerSeconds: integer("timer_seconds").notNull().default(60),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const demoQuestions = pgTable("demo_questions", {
+  id: serial("id").primaryKey(),
+  demoExamId: integer("demo_exam_id").notNull().references(() => demoExams.id, { onDelete: "cascade" }),
+  type: text("type").notNull(), // 'mcq' or 'saq'
+  content: text("content").notNull(),
+  imageUrl: text("image_url"),
+  options: jsonb("options").$type<{ content: string; isCorrect: boolean }[]>(),
+  explanation: text("explanation"),
+  orderIndex: integer("order_index").notNull().default(0),
+});
+
 export const insertUniversitySchema = createInsertSchema(universities).omit({ id: true, createdAt: true });
 export const insertAdminSchema = createInsertSchema(admins).omit({ id: true, createdAt: true });
 export const insertExamSchema = createInsertSchema(exams).omit({ id: true, createdAt: true });
@@ -243,4 +264,6 @@ export type AiMarkingJob = typeof aiMarkingJobs.$inferSelect;
 export type StudentSignup = typeof studentSignups.$inferSelect;
 export const insertStudentSignupSchema = createInsertSchema(studentSignups).omit({ id: true, createdAt: true });
 export type InsertStudentSignup = z.infer<typeof insertStudentSignupSchema>;
+export type DemoExam = typeof demoExams.$inferSelect;
+export type DemoQuestion = typeof demoQuestions.$inferSelect;
 

@@ -12,6 +12,7 @@ import AdminLogin from "@/pages/admin/login";
 import AdminDashboard from "@/pages/admin/dashboard";
 import AdminExamDetail from "@/pages/admin/exam-detail";
 import AdminSettings from "@/pages/admin/settings";
+import AdminDemoExams from "@/pages/admin/demo-exams";
 import StudentLogin from "@/pages/student/login";
 import StudentSignup from "@/pages/student/signup";
 import StudentVerifyEmail from "@/pages/student/verify-email";
@@ -31,6 +32,7 @@ function Router() {
       <Route path="/admin/dashboard" component={AdminDashboard} />
       <Route path="/admin/exams/:id" component={AdminExamDetail} />
       <Route path="/admin/settings" component={AdminSettings} />
+      <Route path="/admin/demo-exams" component={AdminDemoExams} />
       <Route path="/student/signup" component={StudentSignup} />
       <Route path="/student/verify" component={StudentVerifyEmail} />
       <Route path="/student/awaiting" component={StudentAwaiting} />

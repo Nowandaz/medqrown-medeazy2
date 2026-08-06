@@ -5,6 +5,7 @@ import {
   admins, exams, students, examStudents, questions, questionOptions,
   subquestions, attempts, responses, aiProviders, emailTemplates,
   emailLogs, studentFeedback, auditLogs, aiMarkingJobs, studentSignups, universities,
+  demoExams, demoQuestions,
   type Admin, type InsertAdmin, type Exam, type InsertExam,
   type Student, type InsertStudent, type ExamStudent, type InsertExamStudent,
   type Question, type InsertQuestion, type QuestionOption, type InsertQuestionOption,
@@ -12,7 +13,7 @@ import {
   type ExamResponse, type InsertResponse, type AiProvider, type InsertAiProvider,
   type EmailTemplate, type InsertEmailTemplate, type StudentFeedbackType,
   type InsertStudentFeedback, type AuditLog, type AiMarkingJob,
-  type StudentSignup, type University,
+  type StudentSignup, type University, type DemoExam, type DemoQuestion,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -680,6 +681,43 @@ export class DatabaseStorage implements IStorage {
 
   async deleteUniversity(id: number) {
     await db.delete(universities).where(eq(universities.id, id));
+  }
+
+  // ── Demo exam system ────────────────────────────────────────────────────────
+  async getDemoExams() {
+    return db.select().from(demoExams).where(eq(demoExams.isActive, true)).orderBy(asc(demoExams.displayOrder));
+  }
+  async getAllDemoExams() {
+    return db.select().from(demoExams).orderBy(asc(demoExams.displayOrder));
+  }
+  async getDemoExam(id: number) {
+    const [row] = await db.select().from(demoExams).where(eq(demoExams.id, id));
+    return row;
+  }
+  async createDemoExam(data: { title: string; displayOrder?: number; timerSeconds?: number }) {
+    const [row] = await db.insert(demoExams).values({ ...data }).returning();
+    return row;
+  }
+  async updateDemoExam(id: number, data: Partial<DemoExam>) {
+    const [row] = await db.update(demoExams).set(data).where(eq(demoExams.id, id)).returning();
+    return row;
+  }
+  async deleteDemoExam(id: number) {
+    await db.delete(demoExams).where(eq(demoExams.id, id));
+  }
+  async getDemoQuestions(demoExamId: number) {
+    return db.select().from(demoQuestions).where(eq(demoQuestions.demoExamId, demoExamId)).orderBy(asc(demoQuestions.orderIndex));
+  }
+  async createDemoQuestion(data: Omit<DemoQuestion, 'id'>) {
+    const [row] = await db.insert(demoQuestions).values(data).returning();
+    return row;
+  }
+  async updateDemoQuestion(id: number, data: Partial<DemoQuestion>) {
+    const [row] = await db.update(demoQuestions).set(data).where(eq(demoQuestions.id, id)).returning();
+    return row;
+  }
+  async deleteDemoQuestion(id: number) {
+    await db.delete(demoQuestions).where(eq(demoQuestions.id, id));
   }
 }
 

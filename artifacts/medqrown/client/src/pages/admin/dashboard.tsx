@@ -17,7 +17,7 @@ import {
   Clock, GraduationCap, Users, Mail, CheckCircle, AlertCircle, UserPlus
 } from "lucide-react";
 import type { Exam } from "@shared/schema";
-import logoPath from "@assets/medqrown_logo.png";
+import medqrownIcon from "@/assets/medqrown-icon.png";
 import AdminSignups from "@/pages/admin/signups";
 
 function MasterStudentDatabase() {
@@ -362,14 +362,16 @@ export default function AdminDashboard() {
       <header className="border-b bg-card/80 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <img src={logoPath} alt="MedQrown" className="h-10 w-auto object-contain" data-testid="img-logo" />
-            <div>
+            <img src={medqrownIcon} alt="MedQrown" className="h-8 w-8 object-contain" /><div>
               <h1 className="text-lg font-bold" data-testid="text-dashboard-title">MedQrown MedEazy</h1>
               <p className="text-xs text-muted-foreground">Welcome, {admin.name}</p>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <Badge variant="outline" className="text-xs font-medium">{admin.role.replace("_", " ")}</Badge>
+            <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => setLocation("/admin/demo-exams")} title="Demo Exam Manager">
+              <Play className="w-3.5 h-3.5" /> Demo
+            </Button>
             <Button variant="ghost" size="icon" onClick={() => setLocation("/admin/settings")} data-testid="button-settings">
               <Settings className="w-4 h-4" />
             </Button>

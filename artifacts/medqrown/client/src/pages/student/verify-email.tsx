@@ -7,7 +7,8 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { ShieldCheck, RefreshCw } from "lucide-react";
-import logoPath from "@assets/medqrown_logo.png";
+import { AppHeader } from "@/components/AppHeader";
+import medqrownIcon from "@/assets/medqrown-icon.png";
 
 export default function StudentVerifyEmail() {
   const search = useSearch();

@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { UserPlus, ArrowLeft, Eye, EyeOff } from "lucide-react";
-import logoPath from "@assets/medqrown_logo.png";
+import { AppHeader } from "@/components/AppHeader";
+import medqrownIcon from "@/assets/medqrown-icon.png";
 
 const YEAR_OPTIONS = ["Year 1", "Year 2", "Year 3", "Year 4", "Year 5", "Year 6", "Postgraduate", "Other"];
 
@@ -55,7 +56,7 @@ export default function StudentSignup() {
         }
         if (res.status === 409 && data.hasAccount) {
           toast({ title: "Email already registered", description: "This email already has an account. Please sign in instead.", variant: "destructive" });
-          setLocation("/");
+          setLocation("/portal");
           return;
         }
         toast({ title: "Signup failed", description: data.message || "Something went wrong. Please try again.", variant: "destructive" });
