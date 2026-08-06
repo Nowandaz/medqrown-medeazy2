@@ -313,3 +313,8 @@
     padding-bottom: 1rem !important;
   }
 }
+
+/* Hide horizontal scrollbar on the demo slider track */
+#demo-section .snap-x::-webkit-scrollbar {
+  display: none;
+}

@@ -13,6 +13,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import medqrownIcon from "@/assets/medqrown-icon.png";
+import demoStudents from "@/assets/demo-students.jpg";
 
 type DemoExamData = { id: number; title: string; timerSeconds: number };
 type DemoQuestionData = {
@@ -379,7 +380,6 @@ function InteractiveDemoCard() {
   const mcqQ = questions.find((q) => q.type === "mcq");
   const saqQ = questions.find((q) => q.type === "saq");
 
-  // Timer
   useEffect(() => {
     if (!timerActive) return;
     if (timeLeft <= 0) {
@@ -430,7 +430,7 @@ function InteractiveDemoCard() {
 
   const mins = Math.floor(timeLeft / 60).toString().padStart(2, "0");
   const secs = (timeLeft % 60).toString().padStart(2, "0");
-  const timerColor = timeLeft > 30 ? "text-white" : timeLeft > 10 ? "text-amber-300" : "text-red-400 animate-pulse";
+  const timerUrgent = timeLeft <= 10;
 
   const isCorrect =
     phase === "mcq_result" &&
@@ -438,39 +438,55 @@ function InteractiveDemoCard() {
     !!(mcqQ?.options?.[selectedOption]?.isCorrect);
 
   return (
-    <div
-      className="snap-start shrink-0 rounded-2xl overflow-hidden border border-primary/20 shadow-xl flex flex-col bg-card"
-      style={{ width: "min(620px, 92vw)" }}
+    <motion.div
+      initial={{ opacity: 0, y: 30, scale: 0.96 }}
+      whileInView={{ opacity: 1, y: 0, scale: 1 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+      className="w-full max-w-xl mx-auto rounded-3xl bg-card/95 backdrop-blur-xl border border-border/60 shadow-[0_24px_80px_-16px_rgba(0,0,0,0.25)] overflow-hidden"
     >
-      {/* Exam-style header */}
-      <div className="bg-primary px-5 py-3 flex items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <img src={medqrownIcon} alt="" className="h-6 w-6 shrink-0 object-contain" />
-          <span className="text-white font-bold text-sm truncate">
-            {phase === "select" ? "MedQrown MedEazy · Demo" : `Demo: ${selectedExam?.title ?? "Challenge"}`}
+      {/* Popup-style top bar */}
+      <div className="px-6 pt-5 pb-4 flex items-center justify-between gap-3 border-b border-border/50">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex gap-1.5 shrink-0">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-400/70" />
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400/70" />
+            <span className="w-2.5 h-2.5 rounded-full bg-green-400/70" />
+          </div>
+          <span className="text-muted-foreground text-xs font-medium truncate">
+            {phase === "select" ? "demo · medqrown.com" : selectedExam?.title ?? "Challenge"}
           </span>
         </div>
-        {(phase === "mcq" || phase === "saq") && (
-          <div className={`flex items-center gap-1 font-mono font-bold text-sm shrink-0 ${timerColor}`}>
-            <Clock className="w-4 h-4" /> {mins}:{secs}
-          </div>
+        {(phase === "mcq" || phase === "saq") ? (
+          <motion.div
+            animate={timerUrgent ? { scale: [1, 1.08, 1] } : {}}
+            transition={{ repeat: Infinity, duration: 0.8 }}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1 font-mono font-bold text-xs shrink-0 border ${
+              timerUrgent
+                ? "bg-red-500/10 text-red-500 border-red-500/30"
+                : "bg-primary/10 text-primary border-primary/20"
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" /> {mins}:{secs}
+          </motion.div>
+        ) : (
+          <img src={medqrownIcon} alt="" className="h-6 w-6 object-contain opacity-80" />
         )}
       </div>
 
       {/* Content */}
-      <div className="p-6 flex-1 overflow-y-auto">
-        {/* SELECT */}
+      <div className="p-6 sm:p-8 min-h-[380px] flex flex-col justify-center">
+        <AnimatePresence mode="wait">
         {phase === "select" && (
-          <div className="text-center py-2">
-            <div className="text-5xl mb-4">🏆</div>
-            <h3 className="text-xl font-black text-foreground mb-2 leading-tight">
-              Think you can answer these in record time?
+          <motion.div key="select" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} className="text-center">
+            <h3 className="text-2xl sm:text-3xl font-black text-foreground mb-3 leading-tight">
+              Think you can answer these<br className="hidden sm:block" /> in record time?
             </h3>
-            <p className="text-muted-foreground text-sm mb-6">
-              Pick a subject and put your clinical reasoning to the test — timed, just like the real exam.
+            <p className="text-muted-foreground text-sm mb-8 max-w-sm mx-auto">
+              One timed MCQ. One short answer. Same pressure as the real thing.
             </p>
             {demoExams.length === 0 ? (
-              <div className="bg-muted/40 rounded-xl p-8 text-center">
+              <div className="bg-muted/40 rounded-2xl p-8">
                 <FlaskConical className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
                 <p className="text-muted-foreground text-sm">Demo questions coming soon — check back later!</p>
               </div>
@@ -479,50 +495,50 @@ function InteractiveDemoCard() {
                 <select
                   value={selectedExamId}
                   onChange={(e) => setSelectedExamId(e.target.value ? Number(e.target.value) : "")}
-                  className="w-full bg-background border border-input rounded-lg px-4 py-3 text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+                  className="w-full bg-background border border-input rounded-xl px-4 py-3.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 cursor-pointer"
                 >
                   <option value="">Choose a subject…</option>
                   {demoExams.map((e) => (
                     <option key={e.id} value={e.id}>{e.title}</option>
                   ))}
                 </select>
-                <Button onClick={handleStart} disabled={!selectedExamId} className="w-full gap-2 font-bold">
+                <Button onClick={handleStart} disabled={!selectedExamId} size="lg" className="w-full gap-2 font-bold rounded-xl h-12">
                   Start Challenge <Zap className="w-4 h-4" />
                 </Button>
               </div>
             )}
-          </div>
+          </motion.div>
         )}
 
-        {/* MCQ */}
         {(phase === "mcq" || phase === "mcq_result") && (
           mcqQ ? (
-            <div className="space-y-4">
+            <motion.div key="mcq" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Q1 of 2 · Multiple Choice</span>
-                <span className="bg-primary/10 text-primary text-[10px] font-bold px-2 py-0.5 rounded-full border border-primary/20">MCQ</span>
+                <span className="text-[11px] text-muted-foreground font-semibold uppercase tracking-widest">Question 1 of 2</span>
+                <span className="bg-primary/10 text-primary text-[10px] font-bold px-2.5 py-1 rounded-full">MCQ</span>
               </div>
               {mcqQ.imageUrl && (
-                <img src={mcqQ.imageUrl} alt="Question" className="w-full rounded-lg object-cover max-h-40" />
+                <img src={mcqQ.imageUrl} alt="Question" className="w-full rounded-xl object-cover max-h-40" />
               )}
-              <p className="text-foreground font-semibold leading-relaxed text-sm">{mcqQ.content}</p>
+              <p className="text-foreground font-semibold leading-relaxed">{mcqQ.content}</p>
               <div className="space-y-2">
                 {mcqQ.options?.map((opt, idx) => {
-                  let cls = "border-border bg-background hover:border-primary/40";
+                  let cls = "border-border/70 bg-background hover:border-primary/50 hover:bg-primary/[0.03]";
                   if (phase === "mcq_result") {
                     if (opt.isCorrect) cls = "border-green-500 bg-green-50 dark:bg-green-950/30";
                     else if (selectedOption === idx) cls = "border-red-400 bg-red-50 dark:bg-red-950/30";
+                    else cls = "border-border/40 bg-background opacity-60";
                   } else if (selectedOption === idx) {
-                    cls = "border-primary bg-primary/10";
+                    cls = "border-primary bg-primary/10 ring-1 ring-primary/30";
                   }
                   return (
                     <button
                       key={idx}
                       onClick={() => phase === "mcq" && setSelectedOption(idx)}
                       disabled={phase === "mcq_result"}
-                      className={`w-full text-left px-4 py-2.5 rounded-lg border text-sm transition-colors ${cls}`}
+                      className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all duration-150 ${cls}`}
                     >
-                      <span className="font-bold text-primary mr-2">{String.fromCharCode(65 + idx)}.</span>
+                      <span className="font-bold text-primary mr-2.5">{String.fromCharCode(65 + idx)}</span>
                       {opt.content}
                       {phase === "mcq_result" && opt.isCorrect && <span className="ml-2 text-green-600 font-bold">✓</span>}
                       {phase === "mcq_result" && selectedOption === idx && !opt.isCorrect && <span className="ml-2 text-red-500 font-bold">✗</span>}
@@ -531,13 +547,13 @@ function InteractiveDemoCard() {
                 })}
               </div>
               {phase === "mcq" && (
-                <Button onClick={handleMcqSubmit} disabled={selectedOption === null} className="w-full">
+                <Button onClick={handleMcqSubmit} disabled={selectedOption === null} className="w-full rounded-xl h-11 font-bold">
                   Submit Answer
                 </Button>
               )}
               {phase === "mcq_result" && (
                 <div className="space-y-3">
-                  <div className={`rounded-lg py-2.5 px-4 text-center text-sm font-bold ${
+                  <div className={`rounded-xl py-2.5 px-4 text-center text-sm font-bold ${
                     isCorrect
                       ? "bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400"
                       : "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400"
@@ -545,192 +561,250 @@ function InteractiveDemoCard() {
                     {isCorrect ? "✓ Correct! Well done." : "✗ Not quite — see explanation below."}
                   </div>
                   {mcqQ.explanation && (
-                    <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
-                      <p className="text-[10px] font-bold text-primary uppercase tracking-wider mb-1">Explanation</p>
+                    <div className="bg-primary/5 border border-primary/15 rounded-xl p-4">
+                      <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1">Explanation</p>
                       <p className="text-sm text-foreground leading-relaxed">{mcqQ.explanation}</p>
                     </div>
                   )}
                   <div className="flex justify-end">
-                    <Button onClick={handleNextToSaq} size="sm" className="gap-1.5">
+                    <Button onClick={handleNextToSaq} className="gap-1.5 rounded-xl font-bold">
                       {saqQ ? "Next Question" : "Finish"} <ArrowRight className="w-4 h-4" />
                     </Button>
                   </div>
                 </div>
               )}
-            </div>
+            </motion.div>
           ) : (
-            <div className="text-center py-10 text-muted-foreground text-sm">Loading question…</div>
+            <div key="mcq-loading" className="text-center py-10 text-muted-foreground text-sm">Loading question…</div>
           )
         )}
 
-        {/* SAQ */}
         {(phase === "saq" || phase === "saq_result") && (
           saqQ ? (
-            <div className="space-y-4">
+            <motion.div key="saq" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Q2 of 2 · Short Answer</span>
-                <span className="bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-500/20">SAQ</span>
+                <span className="text-[11px] text-muted-foreground font-semibold uppercase tracking-widest">Question 2 of 2</span>
+                <span className="bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-bold px-2.5 py-1 rounded-full">SAQ</span>
               </div>
               {saqQ.imageUrl && (
-                <img src={saqQ.imageUrl} alt="Question" className="w-full rounded-lg object-cover max-h-40" />
+                <img src={saqQ.imageUrl} alt="Question" className="w-full rounded-xl object-cover max-h-40" />
               )}
-              <p className="text-foreground font-semibold leading-relaxed text-sm">{saqQ.content}</p>
+              <p className="text-foreground font-semibold leading-relaxed">{saqQ.content}</p>
               <textarea
                 value={saqText}
                 onChange={(e) => setSaqText(e.target.value)}
                 placeholder="Type your answer here…"
                 rows={4}
                 disabled={phase === "saq_result"}
-                className="w-full bg-background border border-input rounded-lg px-4 py-3 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                className="w-full bg-background border border-input rounded-xl px-4 py-3 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
               />
               {phase === "saq" && (
-                <Button onClick={handleSaqSubmit} disabled={!saqText.trim()} className="w-full">
+                <Button onClick={handleSaqSubmit} disabled={!saqText.trim()} className="w-full rounded-xl h-11 font-bold">
                   Submit Answer
                 </Button>
               )}
               {phase === "saq_result" && (
-                <div className="relative rounded-xl overflow-hidden">
-                  {/* Blurred placeholder */}
-                  <div className="border border-primary/20 rounded-xl p-5 select-none pointer-events-none" aria-hidden>
-                    <p className="text-[10px] font-bold text-primary uppercase tracking-wider mb-2">AI Analysis & Model Answer</p>
+                <div className="relative rounded-2xl overflow-hidden">
+                  <div className="border border-primary/15 rounded-2xl p-5 select-none pointer-events-none" aria-hidden>
+                    <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2">AI Analysis & Model Answer</p>
                     <p className="text-sm text-foreground mb-2">Your answer demonstrates a solid understanding of the primary pathway. You correctly identified the mechanism but missed the compensatory feedback loop. <strong>Score: 7/10.</strong></p>
-                    <p className="text-xs text-muted-foreground">Model answer: The correct sequence involves activation of the renin–angiotensin–aldosterone system, leading to sodium retention and secondary hypertension. Key points: (1) renin release from juxtaglomerular cells; (2) angiotensin II vasoconstriction; (3) aldosterone-mediated Na⁺ reabsorption.</p>
+                    <p className="text-xs text-muted-foreground">Model answer: The correct sequence involves activation of the renin–angiotensin–aldosterone system, leading to sodium retention and secondary hypertension.</p>
                   </div>
-                  {/* Blur overlay */}
-                  <div className="absolute inset-0 backdrop-blur-md bg-background/50 rounded-xl flex flex-col items-center justify-center text-center px-5">
+                  <div className="absolute inset-0 backdrop-blur-md bg-background/55 flex flex-col items-center justify-center text-center px-5">
                     <Crown className="w-8 h-8 text-primary mb-2" />
                     <p className="font-black text-foreground text-sm mb-1">Unlock AI Analysis &amp; Feedback</p>
-                    <p className="text-muted-foreground text-xs mb-4 max-w-[200px] leading-relaxed">
-                      Create a free account to see your score, model answer, and full AI explanation.
+                    <p className="text-muted-foreground text-xs mb-4 max-w-[220px] leading-relaxed">
+                      Create an account to see your score, model answer, and full AI explanation.
                     </p>
                     <div className="flex gap-2">
                       <Link href="/student/signup">
-                        <Button size="sm" className="font-bold text-xs">Create Account</Button>
+                        <Button size="sm" className="font-bold text-xs rounded-lg">Create Account</Button>
                       </Link>
-                      <Button size="sm" variant="outline" onClick={handleReset} className="text-xs">Try Again</Button>
+                      <Button size="sm" variant="outline" onClick={handleReset} className="text-xs rounded-lg">Try Again</Button>
                     </div>
                   </div>
                 </div>
               )}
-            </div>
+            </motion.div>
           ) : (
-            <div className="text-center py-10 text-muted-foreground text-sm">Loading question…</div>
+            <div key="saq-loading" className="text-center py-10 text-muted-foreground text-sm">Loading question…</div>
           )
         )}
 
-        {/* Done (no SAQ available) */}
         {phase === "done" && (
-          <div className="text-center py-6">
+          <motion.div key="done" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="text-center">
             <div className="text-5xl mb-3">🎯</div>
-            <h3 className="font-black text-foreground text-lg mb-2">Challenge complete!</h3>
-            <p className="text-muted-foreground text-sm mb-5">Create an account to compete on the real platform, track your Elo, and get AI-powered feedback.</p>
+            <h3 className="font-black text-foreground text-xl mb-2">Challenge complete!</h3>
+            <p className="text-muted-foreground text-sm mb-6">Create an account to compete for real, track your Elo, and get AI-powered feedback.</p>
             <div className="flex gap-3 justify-center">
-              <Link href="/student/signup"><Button className="font-bold">Create Account</Button></Link>
-              <Button variant="outline" onClick={handleReset}>Try Again</Button>
+              <Link href="/student/signup"><Button className="font-bold rounded-xl">Create Account</Button></Link>
+              <Button variant="outline" onClick={handleReset} className="rounded-xl">Try Again</Button>
             </div>
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
 function DemoSection() {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [slide, setSlide] = useState(0);
+  const SLIDES = 3;
+
+  const goTo = (i: number) => {
+    const el = trackRef.current;
+    if (!el) return;
+    const clamped = Math.max(0, Math.min(SLIDES - 1, i));
+    el.scrollTo({ left: clamped * el.clientWidth, behavior: "smooth" });
+  };
+
+  const onScroll = () => {
+    const el = trackRef.current;
+    if (!el) return;
+    setSlide(Math.round(el.scrollLeft / el.clientWidth));
+  };
+
   return (
-    <section id="demo-section" className="bg-muted/30 py-24 px-4 overflow-hidden">
-      <div className="max-w-7xl mx-auto">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="text-center mb-12"
+    <section id="demo-section" className="relative bg-background py-24 overflow-hidden">
+      {/* Section header */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        className="text-center mb-12 px-4"
+      >
+        <p className="text-primary text-xs font-semibold uppercase tracking-widest mb-2">Try It Now</p>
+        <h2 className="text-3xl sm:text-4xl font-black text-foreground">
+          See what exam day actually feels like.
+        </h2>
+        <p className="text-muted-foreground mt-3 max-w-xl mx-auto">
+          A real timed question from our bank. No signup needed.
+        </p>
+      </motion.div>
+
+      {/* Full-width slider */}
+      <div className="relative">
+        <div
+          ref={trackRef}
+          onScroll={onScroll}
+          className="flex overflow-x-auto snap-x snap-mandatory scroll-smooth"
+          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
-          <p className="text-primary text-xs font-semibold uppercase tracking-widest mb-2">Try It Now</p>
-          <h2 className="text-3xl sm:text-4xl font-black text-foreground">
-            See what exam day actually feels like.
-          </h2>
-          <p className="text-muted-foreground mt-3 max-w-xl mx-auto">
-            A real timed question from our bank. No signup needed — just swipe and try.
-          </p>
-        </motion.div>
-
-        {/* Horizontal scroll */}
-        <div className="flex gap-5 overflow-x-auto pb-6 snap-x snap-mandatory -mx-4 px-4" style={{ scrollbarWidth: "thin", scrollbarColor: "var(--primary) transparent" }}>
-          {/* Card 1: Interactive quiz */}
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true }}
-            className="snap-start shrink-0"
-          >
-            <InteractiveDemoCard />
-          </motion.div>
-
-          {/* Card 2: Video placeholder */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: 0.1 }}
-            className="snap-start shrink-0 rounded-2xl border border-primary/10 bg-card overflow-hidden shadow-lg flex flex-col"
-            style={{ width: "min(420px, 82vw)" }}
-          >
-            <div className="bg-primary/5 border-b border-primary/10 px-5 py-3 flex items-center gap-2">
-              <Play className="w-4 h-4 text-primary" />
-              <span className="text-sm font-bold text-foreground">Platform Walkthrough</span>
+          {/* ── Slide 1: quiz popup on ambient backdrop ── */}
+          <div className="w-full shrink-0 snap-center relative px-4 sm:px-8 py-14 flex items-center justify-center min-h-[620px]">
+            {/* Ambient backdrop */}
+            <div className="absolute inset-0 bg-gradient-to-b from-primary/[0.06] via-primary/[0.10] to-primary/[0.05]" aria-hidden />
+            <div
+              className="absolute inset-0 opacity-[0.35]"
+              aria-hidden
+              style={{
+                backgroundImage:
+                  "radial-gradient(ellipse 60% 50% at 50% 40%, hsl(var(--primary) / 0.18), transparent 70%)",
+              }}
+            />
+            <div
+              className="absolute inset-0 opacity-[0.05]"
+              aria-hidden
+              style={{
+                backgroundImage:
+                  "linear-gradient(hsl(var(--foreground)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--foreground)) 1px, transparent 1px)",
+                backgroundSize: "44px 44px",
+              }}
+            />
+            <div className="relative z-10 w-full">
+              <InteractiveDemoCard />
             </div>
-            <div className="flex-1 flex flex-col items-center justify-center p-8 gap-4 bg-gradient-to-br from-primary/5 to-background min-h-[300px]">
-              <div className="w-20 h-20 rounded-full bg-primary/10 border-2 border-primary/20 flex items-center justify-center">
-                <Play className="w-8 h-8 text-primary ml-1 fill-primary" />
-              </div>
-              <div className="text-center">
-                <p className="font-bold text-foreground text-sm mb-1">Demo video coming soon</p>
-                <p className="text-muted-foreground text-xs max-w-[200px]">See how students prepare, compete, and climb the leaderboard.</p>
-              </div>
-            </div>
-          </motion.div>
+          </div>
 
-          {/* Card 3: Feature highlights */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: 0.2 }}
-            className="snap-start shrink-0 rounded-2xl border border-primary/10 bg-card overflow-hidden shadow-lg"
-            style={{ width: "min(320px, 82vw)" }}
-          >
-            <div className="bg-primary px-5 py-3">
-              <span className="text-white font-bold text-sm">Why MedQrown MedEazy?</span>
-            </div>
-            <div className="p-5 space-y-4">
-              {[
-                { icon: Brain, title: "AI-Powered Marking", desc: "Instant feedback on SAQs with detailed explanations — not just right/wrong." },
-                { icon: Swords, title: "Real-Time Standoffs", desc: "Challenge classmates head-to-head. Your Elo rating updates after every duel." },
-                { icon: Trophy, title: "Global Leaderboards", desc: "See where you rank against medical students worldwide." },
-                { icon: Clock, title: "Timed Practice", desc: "Every question mirrors real exam pressure — build speed and confidence." },
-                { icon: GraduationCap, title: "University-Curated", desc: "Question banks built and approved by your institution's faculty." },
-              ].map(({ icon: Icon, title, desc }) => (
-                <div key={title} className="flex gap-3 items-start">
-                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
-                    <Icon className="w-4 h-4 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-foreground leading-tight">{title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </motion.div>
+          {/* ── Slide 2: video ── */}
+          <div className="w-full shrink-0 snap-center relative flex items-center justify-center min-h-[620px] px-4 sm:px-8 py-14">
+            <div className="absolute inset-0 bg-gradient-to-br from-[#06251f] via-[#0a3a30] to-[#06251f]" aria-hidden />
+            <div
+              className="absolute inset-0 opacity-30"
+              aria-hidden
+              style={{
+                backgroundImage:
+                  "radial-gradient(ellipse 50% 60% at 50% 50%, hsl(var(--primary) / 0.35), transparent 70%)",
+              }}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              whileInView={{ opacity: 1, scale: 1 }}
+              viewport={{ once: true }}
+              className="relative z-10 text-center max-w-lg mx-auto"
+            >
+              <motion.button
+                whileHover={{ scale: 1.06 }}
+                whileTap={{ scale: 0.97 }}
+                className="w-24 h-24 rounded-full bg-white/10 backdrop-blur border border-white/25 flex items-center justify-center mx-auto mb-8 shadow-[0_0_60px_rgba(255,255,255,0.12)]"
+              >
+                <Play className="w-9 h-9 text-white ml-1.5 fill-white" />
+              </motion.button>
+              <h3 className="text-white text-2xl sm:text-3xl font-black mb-3">Watch the platform in action</h3>
+              <p className="text-white/70 text-sm max-w-sm mx-auto leading-relaxed">
+                From first question to leaderboard glory — a full walkthrough is coming soon.
+              </p>
+            </motion.div>
+          </div>
 
-          {/* Spacer at end for scroll breathing room */}
-          <div className="snap-start shrink-0 w-4" aria-hidden />
+          {/* ── Slide 3: photo ── */}
+          <div className="w-full shrink-0 snap-center relative flex items-end min-h-[620px]">
+            <img
+              src={demoStudents}
+              alt="Medical students studying together"
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-black/10" aria-hidden />
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              className="relative z-10 w-full max-w-3xl mx-auto text-center px-6 pb-16"
+            >
+              <h3 className="text-white text-3xl sm:text-4xl font-black mb-3 leading-tight">
+                Study less. Rank higher.
+              </h3>
+              <p className="text-white/80 text-sm sm:text-base max-w-lg mx-auto mb-7 leading-relaxed">
+                Thousands of questions, AI feedback in seconds, and classmates to outscore. This is how the top of your class prepares.
+              </p>
+              <Link href="/student/signup">
+                <Button size="lg" className="px-8 h-12 font-bold rounded-xl gap-2">
+                  Join Them <ArrowRight className="w-5 h-5" />
+                </Button>
+              </Link>
+            </motion.div>
+          </div>
         </div>
 
-        {/* Scroll hint */}
-        <p className="text-center text-xs text-muted-foreground mt-4 flex items-center justify-center gap-1.5">
-          <ChevronLeft className="w-3.5 h-3.5" /> Scroll to explore more <ChevronRight className="w-3.5 h-3.5" />
-        </p>
+        {/* Arrows */}
+        <button
+          onClick={() => goTo(slide - 1)}
+          aria-label="Previous slide"
+          className={`hidden sm:flex absolute left-4 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full items-center justify-center bg-background/80 backdrop-blur border border-border shadow-lg hover:bg-background transition-all ${slide === 0 ? "opacity-0 pointer-events-none" : "opacity-100"}`}
+        >
+          <ChevronLeft className="w-5 h-5 text-foreground" />
+        </button>
+        <button
+          onClick={() => goTo(slide + 1)}
+          aria-label="Next slide"
+          className={`hidden sm:flex absolute right-4 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full items-center justify-center bg-background/80 backdrop-blur border border-border shadow-lg hover:bg-background transition-all ${slide === SLIDES - 1 ? "opacity-0 pointer-events-none" : "opacity-100"}`}
+        >
+          <ChevronRight className="w-5 h-5 text-foreground" />
+        </button>
+      </div>
+
+      {/* Dots */}
+      <div className="flex items-center justify-center gap-2.5 mt-8">
+        {Array.from({ length: SLIDES }).map((_, i) => (
+          <button
+            key={i}
+            onClick={() => goTo(i)}
+            aria-label={`Go to slide ${i + 1}`}
+            className={`rounded-full transition-all duration-300 ${slide === i ? "w-8 h-2.5 bg-primary" : "w-2.5 h-2.5 bg-muted-foreground/25 hover:bg-muted-foreground/50"}`}
+          />
+        ))}
       </div>
     </section>
   );
