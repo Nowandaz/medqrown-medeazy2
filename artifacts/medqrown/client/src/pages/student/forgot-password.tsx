@@ -40,9 +40,7 @@ export default function ForgotPassword() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex flex-col">
-      <header className="px-4 sm:px-6 py-4">
-        <img src={logoPath} alt="MedQrown Logo" className="h-12 w-auto object-contain" />
-      </header>
+      <AppHeader />
 
       <div className="flex-1 flex items-center justify-center px-4 pb-8">
         <div className="w-full max-w-md">

@@ -72,14 +72,12 @@ export default function StudentSignup() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex flex-col">
-      <header className="px-4 sm:px-6 py-4">
-        <img src={logoPath} alt="MedQrown Logo" className="h-12 w-auto object-contain" />
-      </header>
+      <AppHeader />
 
       <div className="flex-1 flex items-center justify-center px-4 pb-8">
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
-            <img src={logoPath} alt="MedQrown" className="h-24 w-auto mx-auto mb-4 object-contain" />
+            <img src={medqrownIcon} alt="MedQrown" className="h-28 w-28 mx-auto mb-3 object-contain" />
             <h1 className="text-2xl font-bold tracking-tight">Create Your Account</h1>
             <p className="text-muted-foreground mt-1 text-sm">MedQrown MedEazy — Student Portal</p>
           </div>

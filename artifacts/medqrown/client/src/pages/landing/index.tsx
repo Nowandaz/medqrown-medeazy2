@@ -13,7 +13,6 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import medqrownIcon from "@/assets/medqrown-icon.png";
-import logoPath from "@assets/medqrown_logo.png";
 
 type DemoExamData = { id: number; title: string; timerSeconds: number };
 type DemoQuestionData = {
