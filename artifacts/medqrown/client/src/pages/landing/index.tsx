@@ -5,10 +5,13 @@ import {
   Brain, Zap, Trophy, Users, Star, Activity,
   ChevronDown, Menu, X, Play, Mail, MessageCircle,
   Instagram, Twitter, Linkedin, ArrowRight, Crown,
-  Rocket, FlaskConical, Target, Sparkles, Clock,
-  Send, ExternalLink,
+  Rocket, FlaskConical, Target, Sparkles, Send,
+  ExternalLink, GraduationCap, Clock,
 } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import medqrownIcon from "@/assets/medqrown-icon.png";
+import logoPath from "@assets/medqrown_logo.png";
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -17,42 +20,42 @@ const features = [
     icon: Brain,
     title: "AI Clinical Scenarios",
     description:
-      "Never just memorize a muscle again. Our AI frames basic sciences within high-yield patient presentations to build your clinical instincts from day one.",
-    badge: "LIVE",
+      "Clinical case questions framed around real patient presentations to sharpen your diagnostic instincts.",
+    badge: "COMING SOON",
   },
   {
     icon: Zap,
     title: "Standoffs — Rapid Fire",
     description:
-      "Go head-to-head. Challenge a friend to a 1v1 or 2v2 clinical duel with a 60-second clock. Think tactical chess, but for clinical reasoning.",
+      "Go head-to-head with a friend in a 1v1 or 2v2 clinical duel with a 60-second clock per question.",
     badge: "COMING SOON",
   },
   {
     icon: Trophy,
     title: "Competitive Elo Ratings",
     description:
-      "Track your clinical reasoning over time. Watch your rating climb as you master complex mechanisms, conquer your cohort, and dominate the global leaderboard.",
+      "Track your clinical reasoning over time and watch your rating climb as you master complex topics.",
     badge: "COMING SOON",
   },
   {
     icon: Users,
     title: "Peer-Hosted Lobbies",
     description:
-      "Create private exam rooms, set your own time limits, and test your knowledge against your specific study group — no admin required.",
+      "Create private exam rooms, set your own time limits, and compete with your specific study group.",
     badge: "COMING SOON",
   },
   {
     icon: Star,
     title: "The XP Grind",
     description:
-      "Win Standoffs and dominate lobbies to earn Clinical XP. Unlock advanced specialty cases, extra AI exam generations, and exclusive dashboard themes.",
+      "Earn Clinical XP by winning Standoffs and dominating lobbies. Unlock specialty cases and exclusive themes.",
     badge: "COMING SOON",
   },
   {
     icon: Activity,
     title: "Instant Results & AI Feedback",
     description:
-      "Don't just see your score. Get per-question AI explanations telling you exactly why your answer was right or wrong, in clinical language.",
+      "After every exam, get per-question AI-written explanations detailing exactly why each answer was right or wrong.",
     badge: "LIVE",
   },
 ];
@@ -61,22 +64,22 @@ const premiumPerks = [
   {
     icon: Rocket,
     title: "Unlimited AI Exams",
-    description: "Remove the monthly cap. Generate as many custom, targeted practice exams as you need to survive finals.",
+    description: "Remove the monthly cap and generate as many custom practice exams as you need.",
   },
   {
     icon: Target,
     title: "Deep Tactical Analysis",
-    description: "Get a post-game breakdown of exactly which mechanisms you misdiagnosed and why — not just a final score.",
+    description: "Post-exam breakdowns of every mechanism you misdiagnosed and why — not just a final score.",
   },
   {
     icon: Users,
     title: "Massive Lobbies",
-    description: "Host cohort-wide exams without player caps. Stress-test your whole class at once.",
+    description: "Host cohort-wide exams without player caps.",
   },
   {
     icon: Star,
     title: "XP Store Access",
-    description: "Instantly purchase Clinical XP to unlock premium scenario packs, AI utility, or exclusive visual customizations.",
+    description: "Unlock premium scenario packs, advanced AI features, and exclusive visual customizations.",
   },
 ];
 
@@ -85,13 +88,13 @@ const horizonFeatures = [
     icon: FlaskConical,
     title: "Viva / Oral Assessment Simulator",
     description:
-      "High-yield, multi-step clinical scenarios fired at you dynamically — prep for the pressure of oral exams without the white coat sweat.",
+      "Multi-step clinical scenarios fired at you dynamically to prepare for the pressure of oral exams.",
   },
   {
     icon: Sparkles,
     title: "WARD-E: Your AI Companion",
     description:
-      "Your personalized, floating dashboard companion that actively guides you through difficult concepts and drives autonomous study sessions.",
+      "Your personalized dashboard companion that guides you through difficult concepts and drives autonomous study sessions.",
   },
 ];
 
@@ -128,7 +131,7 @@ function Navbar() {
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
         scrolled
-          ? "bg-[#0a1a12]/95 backdrop-blur-md border-b border-[#1a3a22]/60 shadow-lg"
+          ? "bg-background/95 backdrop-blur-md border-b border-border shadow-sm"
           : "bg-transparent"
       }`}
     >
@@ -136,73 +139,69 @@ function Navbar() {
         {/* Logo */}
         <a href="/" className="flex items-center gap-2 shrink-0">
           <img src={medqrownIcon} alt="MedQrown" className="h-9 w-9 object-contain" />
-          <span className="font-bold text-white text-lg leading-none">
-            MedQrown <span className="text-[#4ade9a]">MedEazy</span>
+          <span className="font-bold text-foreground text-lg leading-none">
+            MedQrown <span className="text-primary">MedEazy</span>
           </span>
         </a>
 
         {/* Desktop center nav */}
-        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-white/70">
-          <button onClick={() => scrollTo("features")} className="hover:text-[#4ade9a] transition-colors">
+        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-muted-foreground">
+          <button onClick={() => scrollTo("features")} className="hover:text-primary transition-colors">
             Features
           </button>
-          <button onClick={() => scrollTo("study-hub")} className="hover:text-[#4ade9a] transition-colors">
+          <button onClick={() => scrollTo("study-hub")} className="hover:text-primary transition-colors">
             Study Hub
           </button>
-          <button onClick={() => scrollTo("leaderboards")} className="hover:text-[#4ade9a] transition-colors">
+          <button onClick={() => scrollTo("leaderboards")} className="hover:text-primary transition-colors">
             Leaderboards
           </button>
         </nav>
 
         {/* Desktop right actions */}
         <div className="hidden md:flex items-center gap-3">
-          {/* Portal dropdown */}
           <div className="relative" ref={portalRef}>
             <button
               onClick={() => setPortalOpen((v) => !v)}
-              className="flex items-center gap-1.5 text-sm font-medium text-white/80 hover:text-white border border-white/20 hover:border-white/40 rounded-lg px-4 py-2 transition-all"
+              className="flex items-center gap-1.5 text-sm font-medium text-foreground border border-border hover:border-primary/40 rounded-lg px-4 py-2 transition-all bg-card hover:bg-muted"
             >
               Portal <ChevronDown className={`w-3.5 h-3.5 transition-transform ${portalOpen ? "rotate-180" : ""}`} />
             </button>
             <AnimatePresence>
               {portalOpen && (
                 <motion.div
-                  initial={{ opacity: 0, y: 6, scale: 0.96 }}
+                  initial={{ opacity: 0, y: 6, scale: 0.97 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 6, scale: 0.96 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute right-0 mt-2 w-52 bg-[#0d2218] border border-[#1f4a2e] rounded-xl shadow-2xl overflow-hidden"
+                  exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                  transition={{ duration: 0.12 }}
+                  className="absolute right-0 mt-2 w-56 bg-card border border-border rounded-xl shadow-lg overflow-hidden"
                 >
                   <Link
                     href="/portal"
-                    className="flex items-center gap-2 px-4 py-3 text-sm text-white/80 hover:text-white hover:bg-[#1a3a2a] transition-colors"
+                    className="flex items-center gap-2 px-4 py-3 text-sm text-foreground hover:bg-muted transition-colors"
                     onClick={() => setPortalOpen(false)}
                   >
-                    <Users className="w-4 h-4 text-[#4ade9a]" /> Student Portal
+                    <GraduationCap className="w-4 h-4 text-primary" /> Student Portal
                   </Link>
                   <Link
                     href="/admin"
-                    className="flex items-center gap-2 px-4 py-3 text-sm text-white/80 hover:text-white hover:bg-[#1a3a2a] transition-colors border-t border-[#1f4a2e]"
+                    className="flex items-center gap-2 px-4 py-3 text-sm text-foreground hover:bg-muted transition-colors border-t border-border"
                     onClick={() => setPortalOpen(false)}
                   >
-                    <Crown className="w-4 h-4 text-[#4ade9a]" /> Admin · Institution Login
+                    <Crown className="w-4 h-4 text-primary" /> Admin · Institution Login
                   </Link>
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
 
-          <Link
-            href="/portal"
-            className="bg-[#22c55e] hover:bg-[#16a34a] text-black font-bold text-sm px-5 py-2 rounded-lg transition-colors shadow-lg shadow-green-900/40"
-          >
-            Start Free
+          <Link href="/student/signup">
+            <Button size="sm" className="font-semibold px-5">Start Free</Button>
           </Link>
         </div>
 
         {/* Mobile hamburger */}
         <button
-          className="md:hidden text-white/80 hover:text-white p-1"
+          className="md:hidden text-foreground p-1"
           onClick={() => setMenuOpen((v) => !v)}
         >
           {menuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -216,16 +215,18 @@ function Navbar() {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="md:hidden bg-[#0a1a12]/98 border-t border-[#1a3a22]/60"
+            className="md:hidden bg-background border-t border-border"
           >
-            <div className="px-4 py-4 flex flex-col gap-3">
-              <button onClick={() => scrollTo("features")} className="text-left text-white/80 hover:text-[#4ade9a] py-2 text-sm font-medium">Features</button>
-              <button onClick={() => scrollTo("study-hub")} className="text-left text-white/80 hover:text-[#4ade9a] py-2 text-sm font-medium">Study Hub</button>
-              <button onClick={() => scrollTo("leaderboards")} className="text-left text-white/80 hover:text-[#4ade9a] py-2 text-sm font-medium">Leaderboards</button>
-              <hr className="border-[#1f4a2e]" />
-              <Link href="/portal" onClick={() => setMenuOpen(false)} className="text-white/80 hover:text-white py-2 text-sm font-medium">Student Portal</Link>
-              <Link href="/admin" onClick={() => setMenuOpen(false)} className="text-white/80 hover:text-white py-2 text-sm font-medium">Admin / Institution Login</Link>
-              <Link href="/portal" onClick={() => setMenuOpen(false)} className="bg-[#22c55e] hover:bg-[#16a34a] text-black font-bold text-sm px-5 py-3 rounded-lg text-center transition-colors mt-1">Start Free</Link>
+            <div className="px-4 py-4 flex flex-col gap-2">
+              <button onClick={() => scrollTo("features")} className="text-left text-foreground hover:text-primary py-2 text-sm font-medium">Features</button>
+              <button onClick={() => scrollTo("study-hub")} className="text-left text-foreground hover:text-primary py-2 text-sm font-medium">Study Hub</button>
+              <button onClick={() => scrollTo("leaderboards")} className="text-left text-foreground hover:text-primary py-2 text-sm font-medium">Leaderboards</button>
+              <hr className="border-border my-1" />
+              <Link href="/portal" onClick={() => setMenuOpen(false)} className="text-foreground hover:text-primary py-2 text-sm font-medium">Student Portal</Link>
+              <Link href="/admin" onClick={() => setMenuOpen(false)} className="text-foreground hover:text-primary py-2 text-sm font-medium">Admin / Institution Login</Link>
+              <Link href="/student/signup" onClick={() => setMenuOpen(false)}>
+                <Button className="w-full mt-1">Start Free</Button>
+              </Link>
             </div>
           </motion.div>
         )}
@@ -238,92 +239,70 @@ function Navbar() {
 
 function HeroSection() {
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-[#060f0a]">
-      {/* Animated gradient background */}
-      <div className="absolute inset-0">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#0a1f12] via-[#060f0a] to-[#080f14]" />
-        {/* Green glow blobs */}
-        <div
-          className="absolute top-1/4 left-1/3 w-[500px] h-[500px] rounded-full opacity-20"
-          style={{ background: "radial-gradient(circle, #22c55e 0%, transparent 70%)", filter: "blur(80px)" }}
-        />
-        <div
-          className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] rounded-full opacity-10"
-          style={{ background: "radial-gradient(circle, #16a34a 0%, transparent 70%)", filter: "blur(60px)" }}
-        />
-        {/* Grid pattern overlay */}
-        <div
-          className="absolute inset-0 opacity-5"
-          style={{
-            backgroundImage:
-              "linear-gradient(#22c55e 1px, transparent 1px), linear-gradient(90deg, #22c55e 1px, transparent 1px)",
-            backgroundSize: "60px 60px",
-          }}
-        />
-      </div>
-
-      <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 text-center pt-20 pb-16">
-        {/* Badge */}
+    <section className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex items-center justify-center pt-16">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 text-center py-20">
+        {/* Logo */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5 }}
-          className="inline-flex items-center gap-2 bg-[#22c55e]/10 border border-[#22c55e]/30 rounded-full px-4 py-1.5 text-[#4ade9a] text-xs font-semibold uppercase tracking-widest mb-6"
+          className="flex flex-col items-center mb-8 gap-3"
         >
-          <span className="w-1.5 h-1.5 bg-[#22c55e] rounded-full animate-pulse" />
-          The Competitive Clinical Training Ground
+          <img src={medqrownIcon} alt="MedQrown" className="h-28 w-28 object-contain" />
+          <div className="text-center">
+            <p className="text-2xl font-black text-foreground tracking-tight">
+              MedQrown <span className="text-primary">MedEazy</span>
+            </p>
+          </div>
         </motion.div>
 
         {/* Headline */}
         <motion.h1
-          initial={{ opacity: 0, y: 30 }}
+          initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.1 }}
-          className="text-5xl sm:text-6xl md:text-7xl font-black text-white leading-tight tracking-tight mb-6"
+          transition={{ duration: 0.5, delay: 0.1 }}
+          className="text-5xl sm:text-6xl md:text-7xl font-black text-foreground leading-tight tracking-tight mb-6"
         >
           Master Medical{" "}
-          <span
-            className="text-transparent bg-clip-text"
-            style={{ backgroundImage: "linear-gradient(135deg, #4ade9a 0%, #22c55e 50%, #16a34a 100%)" }}
-          >
-            School.
-          </span>
+          <span className="text-primary">School.</span>
           <br />
           Together.
         </motion.h1>
 
         {/* Subheadline */}
         <motion.p
-          initial={{ opacity: 0, y: 30 }}
+          initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-          className="text-lg sm:text-xl text-white/60 max-w-3xl mx-auto mb-10 leading-relaxed"
+          transition={{ duration: 0.5, delay: 0.2 }}
+          className="text-lg sm:text-xl text-muted-foreground max-w-3xl mx-auto mb-10 leading-relaxed"
         >
-          Generate targeted AI practice exams, conquer real-world clinical scenarios, challenge your friends in rapid-fire duels, and see how your clinical reasoning ranks — guided by your AI study companion,{" "}
-          <span className="text-[#4ade9a] font-semibold">WARD-E</span>.
+          Generate targeted AI practice exams, conquer real-world clinical scenarios,
+          challenge your friends in rapid-fire duels, and see how your clinical reasoning ranks.
+          Take Timed Exams and see how you perform!
         </motion.p>
 
         {/* CTAs */}
         <motion.div
-          initial={{ opacity: 0, y: 30 }}
+          initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.3 }}
+          transition={{ duration: 0.5, delay: 0.3 }}
           className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-6"
         >
-          <Link
-            href="/portal"
-            className="flex items-center gap-2 bg-[#22c55e] hover:bg-[#16a34a] text-black font-bold text-base px-8 py-4 rounded-xl transition-all shadow-xl shadow-green-900/50 hover:shadow-green-900/70 hover:scale-105"
-          >
-            Start Practicing for Free <ArrowRight className="w-5 h-5" />
+          <Link href="/student/signup">
+            <Button size="lg" className="px-8 h-12 text-base font-semibold gap-2">
+              Start Practicing for Free <ArrowRight className="w-5 h-5" />
+            </Button>
           </Link>
           <div className="relative">
-            <button
-              className="flex items-center gap-2 text-white/60 font-semibold text-base px-8 py-4 rounded-xl border border-white/10 cursor-not-allowed opacity-60"
+            <Button
+              size="lg"
+              variant="outline"
               disabled
+              className="px-8 h-12 text-base font-semibold opacity-60 cursor-not-allowed"
             >
               Host a Group Exam
-            </button>
-            <span className="absolute -top-2.5 -right-2 bg-amber-500 text-black text-[10px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+            </Button>
+            <span className="absolute -top-2.5 -right-2 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider">
               Soon
             </span>
           </div>
@@ -333,65 +312,30 @@ function HeroSection() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
-          className="text-white/35 text-sm"
+          className="text-muted-foreground text-sm"
         >
           Sign up or log in to take exams, host lobbies, and climb the leaderboard.
         </motion.p>
 
-        {/* Stats row */}
+        {/* Stats */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
-          className="mt-16 grid grid-cols-3 gap-6 max-w-lg mx-auto border-t border-white/10 pt-10"
+          transition={{ delay: 0.6 }}
+          className="mt-16 grid grid-cols-3 gap-6 max-w-lg mx-auto border-t border-border pt-10"
         >
           {[
             { value: "AI-Powered", label: "Clinical Marking" },
-            { value: "Real-Time", label: "Leaderboards" },
+            { value: "Timed", label: "Exam Mode" },
             { value: "Free", label: "To Start" },
           ].map((stat) => (
             <div key={stat.label} className="text-center">
-              <div className="text-xl font-black text-[#4ade9a]">{stat.value}</div>
-              <div className="text-xs text-white/40 mt-0.5">{stat.label}</div>
+              <div className="text-lg font-black text-primary">{stat.value}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{stat.label}</div>
             </div>
           ))}
         </motion.div>
       </div>
-
-      {/* Scroll indicator */}
-      <motion.div
-        animate={{ y: [0, 8, 0] }}
-        transition={{ repeat: Infinity, duration: 2 }}
-        className="absolute bottom-8 left-1/2 -translate-x-1/2 text-white/30"
-      >
-        <ChevronDown className="w-6 h-6" />
-      </motion.div>
-    </section>
-  );
-}
-
-// ─── Hook block ───────────────────────────────────────────────────────────────
-
-function HookSection() {
-  return (
-    <section className="bg-[#0a1a12] py-20 px-4">
-      <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.7 }}
-        className="max-w-4xl mx-auto text-center"
-      >
-        <div className="w-12 h-0.5 bg-[#22c55e] mx-auto mb-8" />
-        <p className="text-2xl sm:text-3xl md:text-4xl font-bold text-white leading-snug">
-          Stop cramming in the dark.{" "}
-          <span className="text-[#4ade9a]">
-            Turn basic anatomy and biochemistry into real-world clinical patient presentations
-          </span>{" "}
-          from day one. Active recall meets competitive learning.
-        </p>
-        <div className="w-12 h-0.5 bg-[#22c55e] mx-auto mt-8" />
-      </motion.div>
     </section>
   );
 }
@@ -402,7 +346,7 @@ function DemoSection() {
   const [hovered, setHovered] = useState(false);
 
   return (
-    <section className="bg-[#060f0a] py-24 px-4">
+    <section className="bg-muted/30 py-24 px-4">
       <div className="max-w-4xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -410,41 +354,30 @@ function DemoSection() {
           viewport={{ once: true }}
           className="text-center mb-10"
         >
-          <span className="text-[#4ade9a] text-xs font-semibold uppercase tracking-widest">See It In Action</span>
-          <h2 className="text-3xl sm:text-4xl font-black text-white mt-3">
+          <p className="text-primary text-xs font-semibold uppercase tracking-widest mb-2">See It In Action</p>
+          <h2 className="text-3xl sm:text-4xl font-black text-foreground">
             Watch how we turn a basic textbook fact into a high-yield clinical standoff.
           </h2>
         </motion.div>
 
         <motion.div
-          initial={{ opacity: 0, scale: 0.97 }}
+          initial={{ opacity: 0, scale: 0.98 }}
           whileInView={{ opacity: 1, scale: 1 }}
           viewport={{ once: true }}
-          transition={{ duration: 0.6 }}
-          className="relative rounded-2xl overflow-hidden border border-[#1f4a2e]/60 shadow-2xl shadow-black/60 aspect-video bg-[#0d2218] cursor-pointer group"
+          transition={{ duration: 0.5 }}
+          className="relative rounded-2xl overflow-hidden border border-border shadow-lg aspect-video bg-muted cursor-pointer group"
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
         >
-          {/* Placeholder thumbnail */}
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <div className="absolute inset-0 bg-gradient-to-br from-[#0a2a18] via-[#0d2218] to-[#060f0a]" />
-            {/* Grid overlay */}
-            <div
-              className="absolute inset-0 opacity-10"
-              style={{
-                backgroundImage:
-                  "linear-gradient(#22c55e 1px, transparent 1px), linear-gradient(90deg, #22c55e 1px, transparent 1px)",
-                backgroundSize: "40px 40px",
-              }}
-            />
             <motion.div
-              animate={{ scale: hovered ? 1.1 : 1 }}
+              animate={{ scale: hovered ? 1.08 : 1 }}
               transition={{ duration: 0.2 }}
-              className="relative z-10 w-20 h-20 rounded-full bg-[#22c55e]/20 border-2 border-[#22c55e]/40 flex items-center justify-center backdrop-blur-sm"
+              className="w-20 h-20 rounded-full bg-primary/10 border-2 border-primary/30 flex items-center justify-center"
             >
-              <Play className="w-8 h-8 text-[#4ade9a] ml-1 fill-[#4ade9a]" />
+              <Play className="w-8 h-8 text-primary ml-1 fill-primary" />
             </motion.div>
-            <p className="relative z-10 mt-5 text-white/40 text-sm font-medium">Demo video coming soon</p>
+            <p className="mt-4 text-muted-foreground text-sm font-medium">Demo video coming soon</p>
           </div>
         </motion.div>
       </div>
@@ -456,7 +389,7 @@ function DemoSection() {
 
 function FeaturesSection() {
   return (
-    <section id="features" className="bg-[#080f0a] py-24 px-4">
+    <section id="features" className="bg-background py-24 px-4">
       <div className="max-w-6xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -464,11 +397,8 @@ function FeaturesSection() {
           viewport={{ once: true }}
           className="text-center mb-14"
         >
-          <span className="text-[#4ade9a] text-xs font-semibold uppercase tracking-widest">The Arsenal</span>
-          <h2 className="text-3xl sm:text-4xl font-black text-white mt-3">Built for competitive clinical thinkers.</h2>
-          <p className="text-white/50 mt-3 max-w-xl mx-auto">
-            Six tools engineered to transform passive revision into active, competitive mastery.
-          </p>
+          <p className="text-primary text-xs font-semibold uppercase tracking-widest mb-2">What We Offer</p>
+          <h2 className="text-3xl sm:text-4xl font-black text-foreground">Core Features</h2>
         </motion.div>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -478,28 +408,31 @@ function FeaturesSection() {
             return (
               <motion.div
                 key={feat.title}
-                initial={{ opacity: 0, y: 30 }}
+                initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                transition={{ delay: i * 0.08 }}
-                className="relative bg-[#0d2218]/60 border border-[#1f4a2e]/50 rounded-2xl p-6 hover:border-[#22c55e]/40 hover:bg-[#0d2218]/80 transition-all group"
+                transition={{ delay: i * 0.07 }}
               >
-                {/* Badge */}
-                <span
-                  className={`absolute top-4 right-4 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                    isLive
-                      ? "bg-[#22c55e]/15 text-[#4ade9a] border border-[#22c55e]/30"
-                      : "bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                  }`}
-                >
-                  {feat.badge}
-                </span>
-
-                <div className="w-11 h-11 rounded-xl bg-[#22c55e]/10 border border-[#22c55e]/20 flex items-center justify-center mb-4 group-hover:bg-[#22c55e]/15 transition-colors">
-                  <Icon className="w-5 h-5 text-[#4ade9a]" />
-                </div>
-                <h3 className="text-white font-bold text-base mb-2">{feat.title}</h3>
-                <p className="text-white/50 text-sm leading-relaxed">{feat.description}</p>
+                <Card className="h-full border-primary/10 hover:border-primary/30 transition-colors hover:shadow-md">
+                  <CardContent className="p-6 flex flex-col h-full">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                        <Icon className="w-5 h-5 text-primary" />
+                      </div>
+                      <span
+                        className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                          isLive
+                            ? "bg-primary/10 text-primary border-primary/20"
+                            : "bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400"
+                        }`}
+                      >
+                        {feat.badge}
+                      </span>
+                    </div>
+                    <h3 className="text-foreground font-bold text-base mb-2">{feat.title}</h3>
+                    <p className="text-muted-foreground text-sm leading-relaxed flex-1">{feat.description}</p>
+                  </CardContent>
+                </Card>
               </motion.div>
             );
           })}
@@ -509,7 +442,7 @@ function FeaturesSection() {
   );
 }
 
-// ─── Fake leaderboard teaser ──────────────────────────────────────────────────
+// ─── Leaderboard teaser ───────────────────────────────────────────────────────
 
 const fakeLeaders = [
   { rank: 1, name: "Amara K.", specialty: "Internal Medicine", xp: "2,340 XP", elo: "1,842" },
@@ -521,7 +454,7 @@ const fakeLeaders = [
 
 function LeaderboardTeaser() {
   return (
-    <section id="leaderboards" className="bg-[#060f0a] py-24 px-4">
+    <section id="leaderboards" className="bg-muted/30 py-24 px-4">
       <div className="max-w-3xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -529,13 +462,13 @@ function LeaderboardTeaser() {
           viewport={{ once: true }}
           className="text-center mb-10"
         >
-          <span className="text-[#4ade9a] text-xs font-semibold uppercase tracking-widest">Leaderboards</span>
-          <h2 className="text-3xl sm:text-4xl font-black text-white mt-3">Where do you rank globally?</h2>
-          <p className="text-white/50 mt-3">
+          <p className="text-primary text-xs font-semibold uppercase tracking-widest mb-2">Leaderboards</p>
+          <h2 className="text-3xl sm:text-4xl font-black text-foreground">Where do you rank globally?</h2>
+          <p className="text-muted-foreground mt-3 max-w-md mx-auto">
             Compete with medical students worldwide. Your Elo rating updates in real time after every Standoff.
           </p>
-          <span className="inline-block mt-3 bg-amber-500/15 border border-amber-500/30 text-amber-400 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full">
-            Coming Soon — Sample Data
+          <span className="inline-block mt-3 bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full">
+            Coming Soon
           </span>
         </motion.div>
 
@@ -543,39 +476,40 @@ function LeaderboardTeaser() {
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          className="bg-[#0d2218]/60 border border-[#1f4a2e]/50 rounded-2xl overflow-hidden"
         >
-          <div className="px-5 py-3 border-b border-[#1f4a2e]/50 flex items-center justify-between">
-            <span className="text-white/70 text-xs font-semibold uppercase tracking-widest">Global Elo Rankings</span>
-            <Trophy className="w-4 h-4 text-[#4ade9a]" />
-          </div>
-          {fakeLeaders.map((leader, i) => (
-            <div
-              key={leader.rank}
-              className={`flex items-center gap-4 px-5 py-3.5 border-b border-[#1f4a2e]/30 last:border-0 ${
-                i === 0 ? "bg-[#22c55e]/5" : ""
-              }`}
-            >
-              <span
-                className={`text-sm font-black w-5 text-center ${
-                  i === 0 ? "text-yellow-400" : i === 1 ? "text-gray-400" : i === 2 ? "text-amber-600" : "text-white/30"
+          <Card className="border-primary/10 overflow-hidden">
+            <div className="px-5 py-3 border-b border-border flex items-center justify-between bg-muted/40">
+              <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">Global Elo Rankings</span>
+              <Trophy className="w-4 h-4 text-primary" />
+            </div>
+            {fakeLeaders.map((leader, i) => (
+              <div
+                key={leader.rank}
+                className={`flex items-center gap-4 px-5 py-3.5 border-b border-border last:border-0 ${
+                  i === 0 ? "bg-primary/5" : ""
                 }`}
               >
-                #{leader.rank}
-              </span>
-              <div className="w-8 h-8 rounded-full bg-[#22c55e]/15 border border-[#22c55e]/20 flex items-center justify-center text-[#4ade9a] text-xs font-bold">
-                {leader.name[0]}
+                <span
+                  className={`text-sm font-black w-5 text-center ${
+                    i === 0 ? "text-yellow-500" : i === 1 ? "text-muted-foreground" : i === 2 ? "text-amber-600" : "text-muted-foreground/40"
+                  }`}
+                >
+                  #{leader.rank}
+                </span>
+                <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary text-xs font-bold">
+                  {leader.name[0]}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-foreground text-sm font-semibold">{leader.name}</p>
+                  <p className="text-muted-foreground text-xs truncate">{leader.specialty}</p>
+                </div>
+                <div className="text-right hidden sm:block">
+                  <p className="text-primary text-xs font-bold">{leader.xp}</p>
+                  <p className="text-muted-foreground text-xs">Elo {leader.elo}</p>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-white text-sm font-semibold">{leader.name}</p>
-                <p className="text-white/40 text-xs truncate">{leader.specialty}</p>
-              </div>
-              <div className="text-right hidden sm:block">
-                <p className="text-[#4ade9a] text-xs font-bold">{leader.xp}</p>
-                <p className="text-white/40 text-xs">Elo {leader.elo}</p>
-              </div>
-            </div>
-          ))}
+            ))}
+          </Card>
         </motion.div>
       </div>
     </section>
@@ -595,7 +529,7 @@ function PremiumSection() {
   };
 
   return (
-    <section className="bg-[#080f0a] py-24 px-4">
+    <section className="bg-background py-24 px-4">
       <div className="max-w-5xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -603,11 +537,8 @@ function PremiumSection() {
           viewport={{ once: true }}
           className="text-center mb-14"
         >
-          <span className="text-[#4ade9a] text-xs font-semibold uppercase tracking-widest">Premium</span>
-          <h2 className="text-3xl sm:text-4xl font-black text-white mt-3">Take Your Prep to the Next Level.</h2>
-          <p className="text-white/50 mt-3 max-w-xl mx-auto">
-            Free gets you started. Premium removes every limit.
-          </p>
+          <p className="text-primary text-xs font-semibold uppercase tracking-widest mb-2">Premium</p>
+          <h2 className="text-3xl sm:text-4xl font-black text-foreground">Take Your Prep to the Next Level.</h2>
         </motion.div>
 
         <div className="grid sm:grid-cols-2 gap-5 mb-12">
@@ -616,54 +547,55 @@ function PremiumSection() {
             return (
               <motion.div
                 key={perk.title}
-                initial={{ opacity: 0, x: i % 2 === 0 ? -20 : 20 }}
+                initial={{ opacity: 0, x: i % 2 === 0 ? -15 : 15 }}
                 whileInView={{ opacity: 1, x: 0 }}
                 viewport={{ once: true }}
-                transition={{ delay: i * 0.1 }}
-                className="flex gap-4 bg-[#0d2218]/40 border border-[#1f4a2e]/40 rounded-2xl p-5"
+                transition={{ delay: i * 0.08 }}
               >
-                <div className="w-10 h-10 rounded-xl bg-[#22c55e]/10 border border-[#22c55e]/20 flex items-center justify-center shrink-0">
-                  <Icon className="w-5 h-5 text-[#4ade9a]" />
-                </div>
-                <div>
-                  <h3 className="text-white font-bold text-sm mb-1">{perk.title}</h3>
-                  <p className="text-white/50 text-sm leading-relaxed">{perk.description}</p>
-                </div>
+                <Card className="h-full border-primary/10">
+                  <CardContent className="p-5 flex gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                      <Icon className="w-5 h-5 text-primary" />
+                    </div>
+                    <div>
+                      <h3 className="text-foreground font-bold text-sm mb-1">{perk.title}</h3>
+                      <p className="text-muted-foreground text-sm leading-relaxed">{perk.description}</p>
+                    </div>
+                  </CardContent>
+                </Card>
               </motion.div>
             );
           })}
         </div>
 
-        {/* Notify me block */}
+        {/* Notify me */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          className="bg-gradient-to-br from-[#0d2218] to-[#0a1a12] border border-[#22c55e]/20 rounded-2xl p-8 text-center max-w-lg mx-auto"
         >
-          <Crown className="w-8 h-8 text-[#4ade9a] mx-auto mb-3" />
-          <h3 className="text-white font-black text-lg mb-1">Premium is almost here.</h3>
-          <p className="text-white/50 text-sm mb-6">Be the first to know when it launches.</p>
-          {submitted ? (
-            <p className="text-[#4ade9a] font-semibold text-sm">✓ You're on the list — we'll notify you!</p>
-          ) : (
-            <form onSubmit={handleNotify} className="flex gap-2">
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="your@email.com"
-                className="flex-1 bg-[#060f0a] border border-[#1f4a2e]/60 rounded-lg px-4 py-2.5 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#22c55e]/60"
-                required
-              />
-              <button
-                type="submit"
-                className="bg-[#22c55e] hover:bg-[#16a34a] text-black font-bold text-sm px-5 py-2.5 rounded-lg transition-colors whitespace-nowrap"
-              >
-                Notify Me
-              </button>
-            </form>
-          )}
+          <Card className="border-primary/20 max-w-lg mx-auto">
+            <CardContent className="p-8 text-center">
+              <Crown className="w-7 h-7 text-primary mx-auto mb-3" />
+              <h3 className="text-foreground font-black text-lg mb-1">Premium is almost here.</h3>
+              <p className="text-muted-foreground text-sm mb-6">Be the first to know when it launches.</p>
+              {submitted ? (
+                <p className="text-primary font-semibold text-sm">✓ You're on the list — we'll notify you!</p>
+              ) : (
+                <form onSubmit={handleNotify} className="flex gap-2">
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="your@email.com"
+                    className="flex-1 bg-background border border-input rounded-lg px-4 py-2.5 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    required
+                  />
+                  <Button type="submit" size="sm" className="px-4 whitespace-nowrap">Notify Me</Button>
+                </form>
+              )}
+            </CardContent>
+          </Card>
         </motion.div>
       </div>
     </section>
@@ -683,7 +615,7 @@ function HorizonSection() {
   };
 
   return (
-    <section id="study-hub" className="bg-[#060f0a] py-24 px-4">
+    <section id="study-hub" className="bg-muted/30 py-24 px-4">
       <div className="max-w-5xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -691,12 +623,12 @@ function HorizonSection() {
           viewport={{ once: true }}
           className="text-center mb-14"
         >
-          <span className="inline-flex items-center gap-1.5 bg-purple-500/10 border border-purple-500/30 text-purple-400 text-xs font-semibold uppercase tracking-widest px-3 py-1 rounded-full mb-4">
+          <span className="inline-flex items-center gap-1.5 bg-primary/10 border border-primary/20 text-primary text-xs font-semibold uppercase tracking-widest px-3 py-1 rounded-full mb-4">
             <Rocket className="w-3 h-3" /> On the Horizon
           </span>
-          <h2 className="text-3xl sm:text-4xl font-black text-white mt-3">The platform is just getting started.</h2>
-          <p className="text-white/50 mt-3 max-w-xl mx-auto">
-            Two next-level features in development. Join the waitlist to get early access.
+          <h2 className="text-3xl sm:text-4xl font-black text-foreground mt-3">The platform is just getting started.</h2>
+          <p className="text-muted-foreground mt-3 max-w-xl mx-auto">
+            Two next-level features in active development.
           </p>
         </motion.div>
 
@@ -706,20 +638,25 @@ function HorizonSection() {
             return (
               <motion.div
                 key={feat.title}
-                initial={{ opacity: 0, y: 30 }}
+                initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                transition={{ delay: i * 0.15 }}
-                className="relative bg-gradient-to-br from-[#100a2a]/80 to-[#0d2218]/60 border border-purple-500/20 rounded-2xl p-7"
+                transition={{ delay: i * 0.1 }}
               >
-                <span className="absolute top-4 right-4 bg-purple-500/15 border border-purple-500/30 text-purple-400 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">
-                  In Development
-                </span>
-                <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mb-4">
-                  <Icon className="w-6 h-6 text-purple-400" />
-                </div>
-                <h3 className="text-white font-black text-lg mb-2">{feat.title}</h3>
-                <p className="text-white/50 text-sm leading-relaxed">{feat.description}</p>
+                <Card className="h-full border-primary/10">
+                  <CardContent className="p-7">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                        <Icon className="w-6 h-6 text-primary" />
+                      </div>
+                      <span className="bg-primary/10 border border-primary/20 text-primary text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full">
+                        In Development
+                      </span>
+                    </div>
+                    <h3 className="text-foreground font-black text-lg mb-2">{feat.title}</h3>
+                    <p className="text-muted-foreground text-sm leading-relaxed">{feat.description}</p>
+                  </CardContent>
+                </Card>
               </motion.div>
             );
           })}
@@ -733,24 +670,22 @@ function HorizonSection() {
           className="text-center"
         >
           {waitlistDone ? (
-            <p className="text-[#4ade9a] font-semibold">✓ You're on the waitlist — first in line!</p>
+            <p className="text-primary font-semibold">✓ You're on the waitlist — first in line!</p>
           ) : (
-            <form onSubmit={handleWaitlist} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
-              <input
-                type="email"
-                value={waitlistEmail}
-                onChange={(e) => setWaitlistEmail(e.target.value)}
-                placeholder="Join the waitlist — your@email.com"
-                className="flex-1 bg-[#0d2218]/60 border border-[#1f4a2e]/60 rounded-xl px-5 py-3 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#22c55e]/60"
-                required
-              />
-              <button
-                type="submit"
-                className="bg-purple-600 hover:bg-purple-500 text-white font-bold text-sm px-6 py-3 rounded-xl transition-colors whitespace-nowrap"
-              >
-                Join Waitlist
-              </button>
-            </form>
+            <>
+              <p className="text-muted-foreground text-sm mb-4 font-medium">Join our waitlist for these features</p>
+              <form onSubmit={handleWaitlist} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
+                <input
+                  type="email"
+                  value={waitlistEmail}
+                  onChange={(e) => setWaitlistEmail(e.target.value)}
+                  placeholder="your@email.com"
+                  className="flex-1 bg-background border border-input rounded-xl px-5 py-3 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  required
+                />
+                <Button type="submit" className="whitespace-nowrap">Join Waitlist</Button>
+              </form>
+            </>
           )}
         </motion.div>
       </div>
@@ -771,7 +706,7 @@ function ContactSection() {
   };
 
   return (
-    <section id="contact" className="bg-[#080f0a] py-24 px-4">
+    <section id="contact" className="bg-background py-24 px-4">
       <div className="max-w-5xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -779,124 +714,133 @@ function ContactSection() {
           viewport={{ once: true }}
           className="text-center mb-14"
         >
-          <span className="text-[#4ade9a] text-xs font-semibold uppercase tracking-widest">Get in Touch</span>
-          <h2 className="text-3xl sm:text-4xl font-black text-white mt-3">We'd love to hear from you.</h2>
-          <p className="text-white/50 mt-3 max-w-md mx-auto">
-            Questions, feedback, or just want to say hello — reach us directly.
+          <p className="text-primary text-xs font-semibold uppercase tracking-widest mb-2">Get in Touch</p>
+          <h2 className="text-3xl sm:text-4xl font-black text-foreground">We'd love to hear from you.</h2>
+          <p className="text-muted-foreground mt-3 max-w-md mx-auto">
+            Questions, feedback, or want to say hello — reach us directly.
           </p>
         </motion.div>
 
-        <div className="grid md:grid-cols-2 gap-10">
+        <div className="grid md:grid-cols-2 gap-8">
           {/* Direct contact */}
           <motion.div
-            initial={{ opacity: 0, x: -20 }}
+            initial={{ opacity: 0, x: -15 }}
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true }}
-            className="flex flex-col gap-5"
+            className="flex flex-col gap-4"
           >
             <a
               href="mailto:norysndachule@gmail.com"
-              className="flex items-center gap-4 bg-[#0d2218]/60 border border-[#1f4a2e]/50 rounded-2xl p-5 hover:border-[#22c55e]/40 transition-colors group"
+              className="group"
             >
-              <div className="w-11 h-11 rounded-xl bg-[#22c55e]/10 border border-[#22c55e]/20 flex items-center justify-center shrink-0">
-                <Mail className="w-5 h-5 text-[#4ade9a]" />
-              </div>
-              <div>
-                <p className="text-white/50 text-xs mb-0.5">Email us</p>
-                <p className="text-white font-semibold text-sm group-hover:text-[#4ade9a] transition-colors">
-                  norysndachule@gmail.com
-                </p>
-              </div>
-              <ExternalLink className="w-4 h-4 text-white/30 group-hover:text-[#4ade9a] ml-auto transition-colors" />
+              <Card className="border-primary/10 hover:border-primary/30 transition-colors hover:shadow-md">
+                <CardContent className="p-5 flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                    <Mail className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-muted-foreground text-xs mb-0.5">Email us</p>
+                    <p className="text-foreground font-semibold text-sm group-hover:text-primary transition-colors truncate">
+                      norysndachule@gmail.com
+                    </p>
+                  </div>
+                  <ExternalLink className="w-4 h-4 text-muted-foreground/50 group-hover:text-primary transition-colors shrink-0" />
+                </CardContent>
+              </Card>
             </a>
 
             <a
               href="https://wa.me/254702797977"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-4 bg-[#0d2218]/60 border border-[#1f4a2e]/50 rounded-2xl p-5 hover:border-[#22c55e]/40 transition-colors group"
+              className="group"
             >
-              <div className="w-11 h-11 rounded-xl bg-[#22c55e]/10 border border-[#22c55e]/20 flex items-center justify-center shrink-0">
-                <MessageCircle className="w-5 h-5 text-[#4ade9a]" />
-              </div>
-              <div>
-                <p className="text-white/50 text-xs mb-0.5">WhatsApp</p>
-                <p className="text-white font-semibold text-sm group-hover:text-[#4ade9a] transition-colors">
-                  +254 702 797 977
-                </p>
-              </div>
-              <ExternalLink className="w-4 h-4 text-white/30 group-hover:text-[#4ade9a] ml-auto transition-colors" />
+              <Card className="border-primary/10 hover:border-primary/30 transition-colors hover:shadow-md">
+                <CardContent className="p-5 flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                    <MessageCircle className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-muted-foreground text-xs mb-0.5">WhatsApp</p>
+                    <p className="text-foreground font-semibold text-sm group-hover:text-primary transition-colors">
+                      +254 702 797 977
+                    </p>
+                  </div>
+                  <ExternalLink className="w-4 h-4 text-muted-foreground/50 group-hover:text-primary transition-colors shrink-0" />
+                </CardContent>
+              </Card>
             </a>
 
-            {/* Social placeholders */}
-            <div className="bg-[#0d2218]/40 border border-[#1f4a2e]/30 rounded-2xl p-5">
-              <p className="text-white/50 text-xs mb-3 uppercase tracking-wider font-semibold">Follow Us</p>
-              <div className="flex gap-3">
-                {[
-                  { Icon: Instagram, label: "Instagram" },
-                  { Icon: Twitter, label: "X / Twitter" },
-                  { Icon: Linkedin, label: "LinkedIn" },
-                ].map(({ Icon, label }) => (
-                  <button
-                    key={label}
-                    title={`${label} — coming soon`}
-                    className="w-10 h-10 rounded-xl bg-[#0a1a12] border border-[#1f4a2e]/50 flex items-center justify-center text-white/30 cursor-not-allowed"
-                  >
-                    <Icon className="w-4 h-4" />
-                  </button>
-                ))}
-              </div>
-              <p className="text-white/25 text-xs mt-2">Social handles coming soon.</p>
-            </div>
+            <Card className="border-primary/10">
+              <CardContent className="p-5">
+                <p className="text-muted-foreground text-xs mb-3 uppercase tracking-wider font-semibold">Follow Us</p>
+                <div className="flex gap-3">
+                  {[
+                    { Icon: Instagram, label: "Instagram" },
+                    { Icon: Twitter, label: "X / Twitter" },
+                    { Icon: Linkedin, label: "LinkedIn" },
+                  ].map(({ Icon, label }) => (
+                    <button
+                      key={label}
+                      title={`${label} — coming soon`}
+                      className="w-10 h-10 rounded-xl bg-muted border border-border flex items-center justify-center text-muted-foreground cursor-not-allowed"
+                    >
+                      <Icon className="w-4 h-4" />
+                    </button>
+                  ))}
+                </div>
+                <p className="text-muted-foreground/60 text-xs mt-2">Social handles coming soon.</p>
+              </CardContent>
+            </Card>
           </motion.div>
 
           {/* Contact form */}
           <motion.form
-            initial={{ opacity: 0, x: 20 }}
+            initial={{ opacity: 0, x: 15 }}
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true }}
             onSubmit={handleSubmit}
-            className="bg-[#0d2218]/60 border border-[#1f4a2e]/50 rounded-2xl p-6 flex flex-col gap-4"
           >
-            <div>
-              <label className="text-white/50 text-xs font-semibold uppercase tracking-wider block mb-1.5">Name</label>
-              <input
-                type="text"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="Your name"
-                className="w-full bg-[#060f0a] border border-[#1f4a2e]/60 rounded-lg px-4 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-[#22c55e]/60"
-                required
-              />
-            </div>
-            <div>
-              <label className="text-white/50 text-xs font-semibold uppercase tracking-wider block mb-1.5">Email</label>
-              <input
-                type="email"
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-                placeholder="your@email.com"
-                className="w-full bg-[#060f0a] border border-[#1f4a2e]/60 rounded-lg px-4 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-[#22c55e]/60"
-                required
-              />
-            </div>
-            <div className="flex-1">
-              <label className="text-white/50 text-xs font-semibold uppercase tracking-wider block mb-1.5">Message</label>
-              <textarea
-                value={form.message}
-                onChange={(e) => setForm({ ...form, message: e.target.value })}
-                placeholder="Tell us what's on your mind…"
-                rows={5}
-                className="w-full bg-[#060f0a] border border-[#1f4a2e]/60 rounded-lg px-4 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-[#22c55e]/60 resize-none"
-                required
-              />
-            </div>
-            <button
-              type="submit"
-              className="flex items-center justify-center gap-2 bg-[#22c55e] hover:bg-[#16a34a] text-black font-bold text-sm px-6 py-3 rounded-xl transition-colors"
-            >
-              <Send className="w-4 h-4" /> Send Message
-            </button>
+            <Card className="border-primary/10 h-full">
+              <CardContent className="p-6 flex flex-col gap-4 h-full">
+                <div>
+                  <label className="text-muted-foreground text-xs font-semibold uppercase tracking-wider block mb-1.5">Name</label>
+                  <input
+                    type="text"
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    placeholder="Your name"
+                    className="w-full bg-background border border-input rounded-lg px-4 py-2.5 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-muted-foreground text-xs font-semibold uppercase tracking-wider block mb-1.5">Email</label>
+                  <input
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    placeholder="your@email.com"
+                    className="w-full bg-background border border-input rounded-lg px-4 py-2.5 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    required
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="text-muted-foreground text-xs font-semibold uppercase tracking-wider block mb-1.5">Message</label>
+                  <textarea
+                    value={form.message}
+                    onChange={(e) => setForm({ ...form, message: e.target.value })}
+                    placeholder="Tell us what's on your mind…"
+                    rows={5}
+                    className="w-full bg-background border border-input rounded-lg px-4 py-2.5 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                    required
+                  />
+                </div>
+                <Button type="submit" className="w-full gap-2">
+                  <Send className="w-4 h-4" /> Send Message
+                </Button>
+              </CardContent>
+            </Card>
           </motion.form>
         </div>
       </div>
@@ -908,28 +852,23 @@ function ContactSection() {
 
 function FinalCTASection() {
   return (
-    <section className="relative bg-[#060f0a] py-28 px-4 overflow-hidden">
-      <div
-        className="absolute inset-0 opacity-15"
-        style={{ background: "radial-gradient(ellipse 80% 60% at 50% 100%, #22c55e, transparent)" }}
-      />
+    <section className="bg-gradient-to-br from-background via-background to-primary/5 py-28 px-4">
       <motion.div
-        initial={{ opacity: 0, y: 30 }}
+        initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true }}
-        className="relative z-10 text-center max-w-3xl mx-auto"
+        className="text-center max-w-3xl mx-auto"
       >
-        <h2 className="text-4xl sm:text-5xl md:text-6xl font-black text-white leading-tight mb-6">
+        <h2 className="text-4xl sm:text-5xl font-black text-foreground leading-tight mb-6">
           Ready to dominate your next block?
         </h2>
-        <p className="text-white/50 text-lg mb-10">
+        <p className="text-muted-foreground text-lg mb-10">
           Join medical students already sharpening their clinical edge with MedQrown MedEazy.
         </p>
-        <Link
-          href="/portal"
-          className="inline-flex items-center gap-2 bg-[#22c55e] hover:bg-[#16a34a] text-black font-black text-lg px-10 py-4 rounded-2xl transition-all shadow-2xl shadow-green-900/50 hover:scale-105"
-        >
-          Start Practicing for Free <ArrowRight className="w-5 h-5" />
+        <Link href="/student/signup">
+          <Button size="lg" className="px-10 h-14 text-lg font-bold gap-2">
+            Start Practicing for Free <ArrowRight className="w-5 h-5" />
+          </Button>
         </Link>
       </motion.div>
     </section>
@@ -940,50 +879,53 @@ function FinalCTASection() {
 
 function Footer() {
   return (
-    <footer className="bg-[#040b06] border-t border-[#1f4a2e]/30 py-14 px-4">
+    <footer className="bg-card border-t border-border py-14 px-4">
       <div className="max-w-6xl mx-auto">
         <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-10 mb-12">
-          {/* Brand */}
           <div className="md:col-span-2">
             <div className="flex items-center gap-2 mb-3">
               <img src={medqrownIcon} alt="MedQrown" className="h-8 w-8 object-contain" />
-              <span className="font-black text-white text-base">
-                MedQrown <span className="text-[#4ade9a]">MedEazy</span>
+              <span className="font-black text-foreground text-base">
+                MedQrown <span className="text-primary">MedEazy</span>
               </span>
             </div>
-            <p className="text-white/40 text-sm leading-relaxed max-w-xs">
+            <p className="text-muted-foreground text-sm leading-relaxed max-w-xs">
               The competitive clinical training ground for the next generation of medical professionals.
             </p>
           </div>
 
-          {/* Links */}
           <div>
-            <p className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-4">Platform</p>
+            <p className="text-foreground text-xs font-semibold uppercase tracking-wider mb-4">Platform</p>
             <div className="flex flex-col gap-2.5">
-              <button onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })} className="text-white/40 hover:text-white/70 text-sm text-left transition-colors">Features</button>
-              <button onClick={() => document.getElementById("study-hub")?.scrollIntoView({ behavior: "smooth" })} className="text-white/40 hover:text-white/70 text-sm text-left transition-colors">Study Hub</button>
-              <button onClick={() => document.getElementById("leaderboards")?.scrollIntoView({ behavior: "smooth" })} className="text-white/40 hover:text-white/70 text-sm text-left transition-colors">Leaderboards</button>
-              <button onClick={() => document.getElementById("contact")?.scrollIntoView({ behavior: "smooth" })} className="text-white/40 hover:text-white/70 text-sm text-left transition-colors">Contact</button>
+              {["features", "study-hub", "leaderboards", "contact"].map((id) => (
+                <button
+                  key={id}
+                  onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" })}
+                  className="text-muted-foreground hover:text-primary text-sm text-left transition-colors capitalize"
+                >
+                  {id === "study-hub" ? "Study Hub" : id.charAt(0).toUpperCase() + id.slice(1)}
+                </button>
+              ))}
             </div>
           </div>
 
           <div>
-            <p className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-4">Legal</p>
+            <p className="text-foreground text-xs font-semibold uppercase tracking-wider mb-4">Legal</p>
             <div className="flex flex-col gap-2.5">
-              <span className="text-white/25 text-sm cursor-not-allowed">Terms of Service</span>
-              <span className="text-white/25 text-sm cursor-not-allowed">Privacy Policy</span>
-              <span className="text-white/25 text-sm cursor-not-allowed">FAQ</span>
+              {["Terms of Service", "Privacy Policy", "FAQ"].map((item) => (
+                <span key={item} className="text-muted-foreground/50 text-sm cursor-not-allowed">{item}</span>
+              ))}
             </div>
           </div>
         </div>
 
-        <div className="border-t border-[#1f4a2e]/30 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-white/25 text-xs">
+        <div className="border-t border-border pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p className="text-muted-foreground text-xs">
             © {new Date().getFullYear()} MedQrown MedEazy. All rights reserved.
           </p>
           <Link
             href="/admin"
-            className="text-white/25 hover:text-white/50 text-xs underline underline-offset-2 transition-colors"
+            className="text-muted-foreground hover:text-primary text-xs underline underline-offset-2 transition-colors"
           >
             Are you a University Administrator? Click here for MedQrown Institutions →
           </Link>
@@ -997,10 +939,9 @@ function Footer() {
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen font-sans" style={{ fontFamily: "Open Sans, sans-serif" }}>
+    <div className="min-h-screen">
       <Navbar />
       <HeroSection />
-      <HookSection />
       <DemoSection />
       <FeaturesSection />
       <LeaderboardTeaser />
