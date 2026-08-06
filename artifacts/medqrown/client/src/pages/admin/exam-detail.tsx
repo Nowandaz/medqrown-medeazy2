@@ -1790,7 +1790,7 @@ function EmailsTab({ examId, examStudents, templates }: { examId: number; examSt
       const data = await res.json();
       setResults(data);
       queryClient.invalidateQueries({ queryKey: ["/api/exams", examId, "students"] });
-      toast({ title: `Emails sent: ${data.sent} delivered, ${data.failed} failed` });
+       toast({ title: `Emails accepted: ${data.sent}, ${data.failed} failed`, description: data.deliveryNote });
     } catch (e: any) {
       const msg = e?.message?.includes("{") ? JSON.parse(e.message.replace(/^\d+: /, ""))?.message : e?.message;
       toast({ title: "Email failed", description: msg || "Could not connect to mail server. Check SMTP settings.", variant: "destructive" });
@@ -1933,11 +1933,14 @@ function EmailsTab({ examId, examStudents, templates }: { examId: number; examSt
           {results && (
             <Card className="mt-2 shadow-sm border-primary/10">
               <CardContent className="py-3 px-4">
-                <div className="flex items-center gap-3 mb-3 flex-wrap">
-                  <Badge variant="default" className="text-xs">{results.sent} sent</Badge>
+                 <div className="flex items-center gap-3 mb-3 flex-wrap">
+                   <Badge variant="default" className="text-xs">{results.sent} accepted by mail server</Badge>
                   {results.failed > 0 && <Badge variant="destructive" className="text-xs">{results.failed} failed</Badge>}
                   <span className="text-xs text-muted-foreground">{results.total} total</span>
                 </div>
+                 <p className="text-xs text-muted-foreground mb-2">
+                   Accepted by Gmail does not guarantee inbox placement. Check Spam, Promotions, filters, and the recipient mailbox quota.
+                 </p>
                 <div className="space-y-1 max-h-40 overflow-y-auto">
                   {results.emails?.map((em: any, i: number) => (
                     <div key={i} className="flex items-center justify-between text-xs py-1.5 border-b last:border-0">

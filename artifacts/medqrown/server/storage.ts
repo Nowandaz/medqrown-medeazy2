@@ -444,7 +444,7 @@ export class DatabaseStorage implements IStorage {
     await db.update(emailTemplates).set(data).where(eq(emailTemplates.id, id));
   }
 
-  async createEmailLog(log: { templateId?: number; recipientEmail: string; subject: string; status: string }) {
+  async createEmailLog(log: { templateId?: number; recipientEmail: string; subject: string; status: string; sentAt?: Date }) {
     await db.insert(emailLogs).values(log);
   }
 

@@ -789,6 +789,8 @@ export async function registerRoutes(
     const results = [];
     let successCount = 0;
     let failCount = 0;
+    let smtpAcceptedCount = 0;
+    let smtpRejectedCount = 0;
 
     for (const es of targets) {
       let subject = subjectTemplate
@@ -811,7 +813,7 @@ export async function registerRoutes(
 
       let status = "failed";
       try {
-        await transporter.sendMail({
+        const delivery = await transporter.sendMail({
           from: `"${process.env.SMTP_FROM_NAME || "MedQrown MedEazy"}" <${process.env.SMTP_USER}>`,
           to: es.student.email,
           subject,
@@ -819,19 +821,27 @@ export async function registerRoutes(
         });
         status = "sent";
         successCount++;
+        smtpAcceptedCount += delivery.accepted?.length || 0;
+        smtpRejectedCount += delivery.rejected?.length || 0;
         await storage.updateExamStudent(es.id, { emailSent: true });
+        await storage.createEmailLog({
+          templateId: template?.id,
+          recipientEmail: es.student.email,
+          subject,
+          status,
+          sentAt: new Date(),
+        });
       } catch (err: any) {
         console.error(`Email to ${es.student.email} failed:`, err.message);
         status = "failed";
         failCount++;
+        await storage.createEmailLog({
+          templateId: template?.id,
+          recipientEmail: es.student.email,
+          subject,
+          status,
+        });
       }
-
-      await storage.createEmailLog({
-        templateId: template?.id,
-        recipientEmail: es.student.email,
-        subject,
-        status,
-      });
 
       results.push({
         studentName: es.student.name,
@@ -840,7 +850,15 @@ export async function registerRoutes(
       });
     }
 
-    res.json({ total: results.length, sent: successCount, failed: failCount, emails: results });
+    res.json({
+      total: results.length,
+      sent: successCount,
+      failed: failCount,
+      smtpAccepted: smtpAcceptedCount,
+      smtpRejected: smtpRejectedCount,
+      deliveryNote: "Accepted by the configured mail server; inbox delivery can still be affected by spam filters or recipient-side rules.",
+      emails: results,
+    });
   });
 
   // Get exam responses for marking view
