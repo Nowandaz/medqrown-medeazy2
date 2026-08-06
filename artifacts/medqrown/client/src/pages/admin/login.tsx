@@ -95,7 +95,7 @@ export default function AdminLogin() {
           </Card>
 
           <p className="text-center text-xs text-muted-foreground mt-5">
-            <a href="/" className="hover:text-primary transition-colors underline underline-offset-2" data-testid="link-student-portal">Go to Student Portal</a>
+            <a href="/portal" className="hover:text-primary transition-colors underline underline-offset-2" data-testid="link-student-portal">Go to Student Portal</a>
           </p>
         </div>
       </div>

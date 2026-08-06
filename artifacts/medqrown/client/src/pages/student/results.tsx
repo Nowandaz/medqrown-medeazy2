@@ -48,7 +48,7 @@ export default function StudentResults() {
 
   const handleLogout = async () => {
     await apiRequest("POST", "/api/student/logout");
-    setLocation("/");
+    setLocation("/portal");
   };
 
   const handlePrint = () => {
@@ -68,7 +68,7 @@ export default function StudentResults() {
   }
 
   if (!session) {
-    setLocation("/");
+    setLocation("/portal");
     return null;
   }
 

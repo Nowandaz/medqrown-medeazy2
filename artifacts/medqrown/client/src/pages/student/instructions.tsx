@@ -63,7 +63,7 @@ export default function StudentInstructions() {
             <AlertTriangle className="w-10 h-10 text-destructive mx-auto mb-3" />
             <p className="font-semibold">Unable to load exam</p>
             <p className="text-sm text-muted-foreground mt-1">Please log in again.</p>
-            <Button className="mt-4 w-full" onClick={() => setLocation("/")}>Back to Login</Button>
+            <Button className="mt-4 w-full" onClick={() => setLocation("/portal")}>Back to Login</Button>
           </CardContent>
         </Card>
       </div>

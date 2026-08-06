@@ -7,6 +7,7 @@ import { ThemeProvider, useTheme } from "@/contexts/theme-context";
 import { Button } from "@/components/ui/button";
 import { Moon, Sun } from "lucide-react";
 import NotFound from "@/pages/not-found";
+import LandingPage from "@/pages/landing";
 import AdminLogin from "@/pages/admin/login";
 import AdminDashboard from "@/pages/admin/dashboard";
 import AdminExamDetail from "@/pages/admin/exam-detail";
@@ -24,7 +25,8 @@ import StudentResults from "@/pages/student/results";
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={StudentLogin} />
+      <Route path="/" component={LandingPage} />
+      <Route path="/portal" component={StudentLogin} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
       <Route path="/admin/exams/:id" component={AdminExamDetail} />

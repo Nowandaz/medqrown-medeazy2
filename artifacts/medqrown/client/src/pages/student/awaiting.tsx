@@ -105,7 +105,7 @@ export default function StudentAwaiting() {
                   Hi <strong>{data?.name}</strong>, your application has been approved.
                   You can now sign in to the exam portal. Check your email for your login credentials.
                 </p>
-                <Button className="w-full h-11" onClick={() => setLocation("/")}>
+                <Button className="w-full h-11" onClick={() => setLocation("/portal")}>
                   Go to Sign In
                 </Button>
               </CardContent>
