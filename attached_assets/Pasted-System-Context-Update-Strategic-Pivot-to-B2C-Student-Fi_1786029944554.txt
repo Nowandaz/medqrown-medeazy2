@@ -1,0 +1,93 @@
+System Context Update: Strategic Pivot to B2C (Student-First)
+For this current task, we are executing a major strategic pivot for MedQrown MedEazy. Previously, the platform was being built as a B2B, administrator-focused tool (institutional exam management). We are now pivoting to a B2C, student-first, product-led growth model.
+
+We want to attract medical students directly by offering a gamified, competitive clinical study hub. Institutions will be targeted later. The entire psychology of the landing page must change from "functional B2B administrative software" to a "high-energy, competitive clinical training ground."
+
+Design & Vibe:
+Keep the current theme
+
+The MedQrown MedEazy Landing Page Blueprint
+1. The Global Navigation (Nav Bar)
+Clean, minimal, and mobile-friendly.
+
+Left: MedQrown Logo + "MedEazy"
+
+Center Links: Features | Study Hub | Leaderboards
+
+Right (Actions):
+
+[Portal ▾]: A clean dropdown menu containing "Student Portal" and "Admin/Institution Login" (keeps the UI uncluttered on mobile and desktop).
+
+[Start Free]: Primary CTA button, high contrast.
+
+2. The Hero Section
+The highest-converting real estate on the page. Built to immediately hook a medical student.
+
+Headline: Master Medical School. Together.
+
+Subheadline: Generate targeted AI practice exams, conquer real-world clinical scenarios, challenge your friends in rapid-fire duels, and see how your clinical reasoning ranks. Your ultimate medical study hub.
+
+Primary CTA: [Start Practicing for Free]
+
+Secondary CTA: [Host a Group Exam]
+
+Subtext below CTAs: Sign Up or Log In to view all features, take exams, host lobbies, and climb the leaderboard.
+
+3. The Hook (The "So What?" Factor)
+A standalone, punchy transition block right below the fold.
+
+Text: "Stop cramming in the dark. Turn basic anatomy and biochemistry into real-world clinical patient presentations from day one. Active recall meets competitive learning."
+
+4. The Demo (See It In Action)
+A high-visibility section right after the hook to visually prove the platform's value.
+
+Visual: A video player placeholder OR an interactive mockup showing a side-by-side comparison (e.g., a standard anatomy question transforming into an AI-generated clinical scenario).
+
+Text: "Watch how we turn a basic textbook fact into a high-yield clinical standoff."
+
+5. The Core Features Grid
+This replaces the old administrative features. Each gets a card with an icon and a punchy description.
+
+AI Clinical Scenarios: Never just memorize a muscle again. Our AI automatically frames basic sciences within high-yield patient presentations to build your clinical instincts early.
+
+Standoffs (Rapid Fire): Go head-to-head. Challenge a friend to a 1v1 or 2v2 clinical duel with a 60-second clock. Think of it like a rapid tactical chess match, but for clinical reasoning. The fastest accurate diagnosis takes the points.
+
+Competitive Elo Ratings: Track your clinical reasoning over time. Watch your rating climb as you master complex mechanisms, conquer your cohort, and dominate the global leaderboard.
+
+Peer-Hosted Lobbies: Create private exam rooms, set your own time limits, and test your knowledge against your specific study group.
+
+The XP Grind: Win Standoffs and dominate lobbies to earn Clinical XP. Use your winnings to unlock advanced specialty cases, extra AI exam generations, and exclusive dashboard themes.
+
+6. The Upgrade Block (Premium & Monetization)
+A sleek section outlining what students get when they throw down some cash.
+
+Headline: "Take Your Prep to the Next Level."
+
+Unlimited AI Exams: Remove the monthly cap. Generate as many custom, targeted practice exams as you need to survive finals.
+
+Deep Tactical Analysis: Go beyond the final score. Get a tactical post-game breakdown of exactly which mechanisms you misdiagnosed and why.
+
+Massive Lobbies: Host cohort-wide exams without player caps.
+
+XP Store Access: Instantly purchase Clinical XP to unlock premium AI utility, specific clinical scenario packs, or exclusive visual customizations.
+
+7. Horizon Features (Coming Soon)
+A teaser section to show the platform is actively evolving and building hype.
+
+Viva / Oral Assessment Simulator: High-yield, multi-step clinical scenarios fired at you dynamically to prep for the pressure of oral exams.
+
+Interactive AI Companion: Your personalized, floating dashboard character (WARD-E) that actively guides you through difficult concepts and autonomous study sessions.
+
+8. The Final CTA Band
+Catching the users who scrolled all the way to the bottom.
+
+Headline: Ready to dominate your next block?
+
+CTA: [Start Practicing for Free]
+
+9. Footer
+Logo, tagline, social links, and standard secondary pages (Contact, Terms, Privacy, FAQ).
+
+A quiet link at the bottom: Are you a University Administrator? [Click here for MedQrown Institutions] (Sets up the B2B pivot without cluttering the student page).
+
+Also if there is any other feature on the student end that I forgot, let me know and we'll see how we'll integrate it...also the contact section yes,,,,and yeah any suggestions?

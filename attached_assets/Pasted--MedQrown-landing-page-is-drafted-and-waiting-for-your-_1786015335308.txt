@@ -1,0 +1,56 @@
+ (MedQrown landing page) is drafted and waiting for your review. Here's the full write-up first, then the landing page plan and my suggestions.
+
+What MedQrown MedEazy does
+MedQrown MedEazy is a medical exam management platform built for institutions and educators. It handles the full lifecycle of a written exam — from building questions to releasing AI-marked results — without spreadsheets, manual emailing, or external marking tools.
+
+For administrators
+Exam creation Admins build exams with two question types: Multiple Choice (MCQ) and Short Answer (SAQ). Each question can carry its own mark value, explanation text, and an image. SAQs support sub-questions with individual marks. Questions can be authored one by one or bulk-imported.
+
+Student enrollment and credential delivery Admins add students to an exam by name and email. The platform generates a unique per-exam password for each student and sends it directly to their inbox via a customisable email template — with one click, or selectively per student. The email log tracks which students have received credentials and which have not.
+
+Signup approval workflow Students can self-register through a signup form. Their application is verified by email code, then sits in a pending queue. The admin reviews each application and either approves it (assigning the student to a specific exam) or rejects it with a reason.
+
+AI-powered marking Once students submit, the platform automatically marks SAQ responses using AI. Admins configure which AI provider to use (supports OpenAI-compatible APIs, Anthropic, and Gemini) and how aggressively to mark. MCQs are marked instantly and deterministically. Admins can bulk-mark all SAQs, remark individual responses, or override marks manually.
+
+Results, rankings, and analytics A live rankings table shows scores as marking completes. An analytics view breaks performance down question by question. Admins control when students can see their results by toggling a "Release results" switch.
+
+Student feedback management After results are released, students can leave a rating and written feedback. Admins can view all feedback, draft an AI-assisted reply, and send it directly to the student's email.
+
+Settings and team management Super admins can add other admin accounts with role-based access (super admin, reviewer, examiner). The platform also manages a list of universities, AI provider configurations and weights, and reusable email templates.
+
+For students
+Students visit the portal, select their exam from the list, and sign in with the email address and password they received. They read the exam instructions, then proceed question by question. Answers are saved automatically as they type or select. A configurable timer can count down per question or for the whole exam. On submission, they wait for marking to complete, then view their full results, score, per-question AI feedback, and any explanations released by the admin. They can also submit a rating and comment after viewing their results.
+
+Students who do not have credentials yet can register, verify their email, and wait for admin approval.
+
+If they forget their password, a code-based reset flow lets them recover access without contacting support.
+
+Landing page plan — Task #8
+The planned landing page includes:
+
+Section	Purpose
+Hero	Headline, value proposition, two CTAs → Admin Sign In / Student Portal
+Features grid	Six cards: Exam Builder, AI Marking, Credential Delivery, Student Portal, Live Rankings, Approval Workflow
+How it works	Three steps: Build exam → Enroll & send credentials → Review results
+Trust strip	Contact details, placeholder "used by medical educators" statement
+Footer	Logo, tagline, email, WhatsApp, copyright
+My suggestions for the landing page
+Headline options to consider:
+
+"Medical Exams, Reimagined" — short and confident
+"Run Your Medical Exams End-to-End" — functional and clear
+"From Question to Result, Automated" — describes the workflow
+Tone: Professional but approachable — medical educators are the audience, not students browsing a consumer app.
+
+Differentiators worth highlighting on the page:
+
+AI marking of written answers (SAQ) — this is genuinely unusual
+One-click credential delivery by email — saves admin hours
+No student account needed — just an email and generated password
+Results stay hidden until the admin is ready to release them
+Potential follow-on pages (after the landing page):
+
+A /features detail page with screenshots
+A /contact or inquiry form for institutions wanting access
+A /demo page with a recorded walkthrough
+Accept Task #8 in the tasks panel when you're ready and I'll build the landing page.
