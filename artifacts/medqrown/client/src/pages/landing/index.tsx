@@ -423,8 +423,8 @@ function Navbar() {
 
 function HeroSection() {
   return (
-    <section className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex items-center justify-center pt-16">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 text-center py-20">
+    <section className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex items-start justify-center pt-16">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 text-center pt-10 pb-16 sm:pt-14 sm:pb-20">
         {/* Logo */}
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
