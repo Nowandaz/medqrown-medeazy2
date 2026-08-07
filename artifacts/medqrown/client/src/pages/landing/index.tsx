@@ -14,6 +14,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
+import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 import medqrownIcon from "@/assets/medqrown-icon.png";
 import demoStudents from "@/assets/demo-students.jpg";
 
@@ -1630,6 +1631,7 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen">
       <Navbar />
+      <AnnouncementBanner />
       <HeroSection />
       <DemoSection />
       <FeaturesSection />
