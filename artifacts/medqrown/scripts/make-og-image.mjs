@@ -24,7 +24,9 @@ const svg = `
   <rect x="0" y="${H - 14}" width="${W}" height="14" fill="#0d9488"/>
   <text x="600" y="330" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="64" font-weight="900" fill="#17191b">MedQrown <tspan fill="#0d9488">MedEazy</tspan></text>
   <text x="600" y="410" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="34" font-weight="700" fill="#17191b">Master Medical School. Together.</text>
-  <text x="600" y="470" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="22" fill="#5b6b68">AI practice exams &#183; Timed MCQ &amp; SAQ challenges &#183; Instant AI feedback &#183; Leaderboards</text>
+  <text x="600" y="460" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="22" fill="#5b6b68">AI practice exams &#183; Timed MCQ &amp; SAQ challenges &#183; Instant AI feedback &#183; Leaderboards</text>
+  <rect x="415" y="495" width="370" height="62" rx="31" fill="#0d9488"/>
+  <text x="600" y="535" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="26" font-weight="700" fill="#ffffff">Start Practicing Free &#8594;</text>
 </svg>`;
 
 const logo = await sharp(logoPath).resize(150, 150, { fit: "inside" }).toBuffer();
