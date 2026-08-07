@@ -64,6 +64,32 @@ export async function registerRoutes(
         explanation TEXT,
         order_index INTEGER NOT NULL DEFAULT 0
       );
+      CREATE TABLE IF NOT EXISTS site_settings (
+        key TEXT PRIMARY KEY,
+        value JSONB
+      );
+      CREATE TABLE IF NOT EXISTS content_pages (
+        slug TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS faq_items (
+        id SERIAL PRIMARY KEY,
+        question TEXT NOT NULL,
+        answer TEXT NOT NULL,
+        order_index INTEGER NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT true
+      );
+      CREATE TABLE IF NOT EXISTS institution_inquiries (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        institution TEXT NOT NULL,
+        message TEXT,
+        is_read BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
     `);
   } catch (err: any) {
     console.error("Demo table migration error:", err.message);
@@ -71,6 +97,36 @@ export async function registerRoutes(
 
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", ts: Date.now() });
+  });
+
+  // ── SEO: robots.txt + sitemap.xml ─────────────────────────────────────────
+  const siteBaseUrl = (req: any) =>
+    process.env.SITE_URL || `${req.protocol}://${req.get("host")}`;
+
+  app.get("/robots.txt", (req, res) => {
+    res.type("text/plain").send(
+      [
+        "User-agent: *",
+        "Allow: /",
+        "Disallow: /admin",
+        "Disallow: /api/",
+        `Sitemap: ${siteBaseUrl(req)}/sitemap.xml`,
+      ].join("\n"),
+    );
+  });
+
+  app.get("/sitemap.xml", (req, res) => {
+    const base = siteBaseUrl(req);
+    const pages = ["/", "/faq", "/terms", "/privacy", "/institutions", "/portal", "/student/signup"];
+    const urls = pages
+      .map(
+        (p) =>
+          `  <url><loc>${base}${p}</loc><changefreq>weekly</changefreq><priority>${p === "/" ? "1.0" : "0.6"}</priority></url>`,
+      )
+      .join("\n");
+    res
+      .type("application/xml")
+      .send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`);
   });
 
   // Version marker — change BUILD_MARKER on every meaningful push so we can verify what's live
@@ -1742,8 +1798,207 @@ export async function registerRoutes(
   app.get("/api/demo/exams/:id/questions", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const questions = await storage.getDemoQuestions(id);
-      res.json(questions);
+      const exam = await storage.getDemoExam(id);
+      if (!exam || !exam.isActive) return res.status(404).json({ message: "Demo exam not found" });
+      const all = await storage.getDemoQuestions(id);
+      // Pick one random MCQ + one random SAQ from the bank each time
+      const pickRandom = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
+      const mcqs = all.filter((q) => q.type === "mcq");
+      const saqs = all.filter((q) => q.type === "saq");
+      const picked = [];
+      if (mcqs.length) picked.push(pickRandom(mcqs));
+      if (saqs.length) picked.push(pickRandom(saqs));
+      res.json(picked);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Site content: public routes ───────────────────────────────────────────
+  app.get("/api/site-content", async (_req, res) => {
+    try {
+      const [settings, faq] = await Promise.all([
+        storage.getSiteSettings(),
+        storage.getFaqItems(true),
+      ]);
+      res.json({ settings, faq });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/pages/:slug", async (req, res) => {
+    try {
+      const slug = req.params.slug;
+      if (!["terms", "privacy"].includes(slug)) return res.status(404).json({ message: "Not found" });
+      const page = await storage.getContentPage(slug);
+      if (!page) return res.status(404).json({ message: "Not found" });
+      res.json(page);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Simple in-memory IP rate limiter for the public inquiry endpoint
+  const inquiryHits = new Map<string, { count: number; windowStart: number }>();
+  const INQUIRY_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+  const INQUIRY_MAX_PER_WINDOW = 5;
+
+  app.post("/api/inquiries", async (req, res) => {
+    try {
+      const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "unknown";
+      const now = Date.now();
+      const hit = inquiryHits.get(ip);
+      if (!hit || now - hit.windowStart > INQUIRY_WINDOW_MS) {
+        inquiryHits.set(ip, { count: 1, windowStart: now });
+      } else {
+        hit.count++;
+        if (hit.count > INQUIRY_MAX_PER_WINDOW) {
+          return res.status(429).json({ message: "Too many inquiries. Please try again later." });
+        }
+      }
+      if (inquiryHits.size > 10000) inquiryHits.clear(); // prevent unbounded growth
+
+      const { name, email, institution, message, website } = req.body || {};
+      // Honeypot: real users never fill this hidden field — silently accept bots
+      if (website) return res.json({ ok: true });
+      if (!name?.trim() || !email?.trim() || !institution?.trim()) {
+        return res.status(400).json({ message: "Name, email and institution are required." });
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ message: "Please enter a valid email address." });
+      }
+      const row = await storage.createInquiry({
+        name: String(name).trim().slice(0, 200),
+        email: String(email).trim().slice(0, 200),
+        institution: String(institution).trim().slice(0, 300),
+        message: message ? String(message).trim().slice(0, 5000) : null,
+      });
+      // Email a copy to the site owner (non-blocking; inquiry is stored regardless)
+      const contactTo = process.env.CONTACT_EMAIL || process.env.SMTP_USER;
+      if (contactTo && process.env.SMTP_USER && process.env.SMTP_PASS) {
+        const transporter = nodemailer.createTransport({
+          host: process.env.SMTP_HOST || "smtp.gmail.com",
+          port: parseInt(process.env.SMTP_PORT || "587"),
+          secure: false,
+          family: 4,
+          auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+        } as any);
+        transporter
+          .sendMail({
+            from: `"${process.env.SMTP_FROM_NAME || "MedQrown MedEazy"}" <${process.env.SMTP_USER}>`,
+            to: contactTo,
+            replyTo: row.email,
+            subject: `New institution inquiry — ${row.institution}`,
+            text: `Name: ${row.name}\nEmail: ${row.email}\nInstitution: ${row.institution}\n\n${row.message || "(no message)"}\n\nView all inquiries in your admin dashboard → Site Content → Inquiries.`,
+          })
+          .catch((e) => console.error("Inquiry email failed:", e.message));
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Site content: admin routes ────────────────────────────────────────────
+  app.get("/api/admin/site-settings", requireAdmin, async (_req, res) => {
+    try {
+      res.json(await storage.getSiteSettings());
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/admin/site-settings", requireAdmin, async (req, res) => {
+    try {
+      const entries = Object.entries(req.body || {});
+      for (const [key, value] of entries) {
+        await storage.setSiteSetting(key, value);
+      }
+      res.json(await storage.getSiteSettings());
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/pages/:slug", requireAdmin, async (req, res) => {
+    try {
+      const page = await storage.getContentPage(req.params.slug);
+      res.json(page || null);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/admin/pages/:slug", requireAdmin, async (req, res) => {
+    try {
+      const { title, content } = req.body || {};
+      if (!title?.trim() || !content?.trim()) {
+        return res.status(400).json({ message: "Title and content are required." });
+      }
+      res.json(await storage.upsertContentPage(req.params.slug, title, content));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/faq", requireAdmin, async (_req, res) => {
+    try {
+      res.json(await storage.getFaqItems(false));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/faq", requireAdmin, async (req, res) => {
+    try {
+      const { question, answer, orderIndex, isActive } = req.body || {};
+      if (!question?.trim() || !answer?.trim()) {
+        return res.status(400).json({ message: "Question and answer are required." });
+      }
+      res.json(await storage.createFaqItem({ question, answer, orderIndex, isActive }));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/admin/faq/:id", requireAdmin, async (req, res) => {
+    try {
+      res.json(await storage.updateFaqItem(parseInt(req.params.id), req.body || {}));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/admin/faq/:id", requireAdmin, async (req, res) => {
+    try {
+      await storage.deleteFaqItem(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/inquiries", requireAdmin, async (_req, res) => {
+    try {
+      res.json(await storage.getInquiries());
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/inquiries/:id", requireAdmin, async (req, res) => {
+    try {
+      res.json(await storage.updateInquiry(parseInt(req.params.id), req.body || {}));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/admin/inquiries/:id", requireAdmin, async (req, res) => {
+    try {
+      await storage.deleteInquiry(parseInt(req.params.id));
+      res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

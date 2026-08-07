@@ -6,6 +6,8 @@ import {
   subquestions, attempts, responses, aiProviders, emailTemplates,
   emailLogs, studentFeedback, auditLogs, aiMarkingJobs, studentSignups, universities,
   demoExams, demoQuestions,
+  siteSettings, contentPages, faqItems, institutionInquiries,
+  type FaqItem, type InstitutionInquiry,
   type Admin, type InsertAdmin, type Exam, type InsertExam,
   type Student, type InsertStudent, type ExamStudent, type InsertExamStudent,
   type Question, type InsertQuestion, type QuestionOption, type InsertQuestionOption,
@@ -718,6 +720,65 @@ export class DatabaseStorage implements IStorage {
   }
   async deleteDemoQuestion(id: number) {
     await db.delete(demoQuestions).where(eq(demoQuestions.id, id));
+  }
+
+  // ── Site content (landing page CMS) ─────────────────────────────────────────
+  async getSiteSettings(): Promise<Record<string, any>> {
+    const rows = await db.select().from(siteSettings);
+    return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  }
+  async setSiteSetting(key: string, value: any) {
+    await db
+      .insert(siteSettings)
+      .values({ key, value })
+      .onConflictDoUpdate({ target: siteSettings.key, set: { value } });
+  }
+  async getContentPage(slug: string) {
+    const [row] = await db.select().from(contentPages).where(eq(contentPages.slug, slug));
+    return row;
+  }
+  async upsertContentPage(slug: string, title: string, content: string) {
+    const [row] = await db
+      .insert(contentPages)
+      .values({ slug, title, content })
+      .onConflictDoUpdate({
+        target: contentPages.slug,
+        set: { title, content, updatedAt: sql`CURRENT_TIMESTAMP` },
+      })
+      .returning();
+    return row;
+  }
+  async getFaqItems(activeOnly = true) {
+    const q = db.select().from(faqItems);
+    const rows = activeOnly
+      ? await q.where(eq(faqItems.isActive, true)).orderBy(asc(faqItems.orderIndex))
+      : await q.orderBy(asc(faqItems.orderIndex));
+    return rows;
+  }
+  async createFaqItem(data: { question: string; answer: string; orderIndex?: number; isActive?: boolean }) {
+    const [row] = await db.insert(faqItems).values(data).returning();
+    return row;
+  }
+  async updateFaqItem(id: number, data: Partial<FaqItem>) {
+    const [row] = await db.update(faqItems).set(data).where(eq(faqItems.id, id)).returning();
+    return row;
+  }
+  async deleteFaqItem(id: number) {
+    await db.delete(faqItems).where(eq(faqItems.id, id));
+  }
+  async createInquiry(data: { name: string; email: string; institution: string; message?: string | null }) {
+    const [row] = await db.insert(institutionInquiries).values(data).returning();
+    return row;
+  }
+  async getInquiries() {
+    return db.select().from(institutionInquiries).orderBy(desc(institutionInquiries.createdAt));
+  }
+  async updateInquiry(id: number, data: Partial<InstitutionInquiry>) {
+    const [row] = await db.update(institutionInquiries).set(data).where(eq(institutionInquiries.id, id)).returning();
+    return row;
+  }
+  async deleteInquiry(id: number) {
+    await db.delete(institutionInquiries).where(eq(institutionInquiries.id, id));
   }
 }
 

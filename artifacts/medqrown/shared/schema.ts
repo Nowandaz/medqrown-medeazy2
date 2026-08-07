@@ -267,3 +267,39 @@ export type InsertStudentSignup = z.infer<typeof insertStudentSignupSchema>;
 export type DemoExam = typeof demoExams.$inferSelect;
 export type DemoQuestion = typeof demoQuestions.$inferSelect;
 
+// ── Site content (landing page CMS) ──────────────────────────────────────────
+export const siteSettings = pgTable("site_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value"),
+});
+
+export const contentPages = pgTable("content_pages", {
+  slug: text("slug").primaryKey(), // 'terms' | 'privacy'
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const faqItems = pgTable("faq_items", {
+  id: serial("id").primaryKey(),
+  question: text("question").notNull(),
+  answer: text("answer").notNull(),
+  orderIndex: integer("order_index").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+});
+
+export const institutionInquiries = pgTable("institution_inquiries", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  institution: text("institution").notNull(),
+  message: text("message"),
+  isRead: boolean("is_read").notNull().default(false),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export type SiteSetting = typeof siteSettings.$inferSelect;
+export type ContentPage = typeof contentPages.$inferSelect;
+export type FaqItem = typeof faqItems.$inferSelect;
+export type InstitutionInquiry = typeof institutionInquiries.$inferSelect;
+

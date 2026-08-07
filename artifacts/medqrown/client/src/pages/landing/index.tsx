@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Brain, Zap, Trophy, Users, Star, Activity,
@@ -22,6 +23,88 @@ type DemoQuestionData = {
   explanation?: string | null;
 };
 type DemoPhase = "select" | "mcq" | "mcq_result" | "saq" | "saq_result" | "done";
+type SiteContentData = { settings: Record<string, any>; faq: { id: number; question: string; answer: string }[] };
+
+// ─── Custom subject dropdown (styled listbox) ────────────────────────────────
+
+function SubjectDropdown({
+  exams, value, onChange,
+}: {
+  exams: DemoExamData[];
+  value: number | "";
+  onChange: (id: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = exams.find((e) => e.id === value);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent | TouchEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handler);
+    };
+  }, []);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`w-full flex items-center justify-between gap-3 bg-background border rounded-xl px-4 py-3.5 text-sm transition-all ${
+          open ? "border-primary ring-2 ring-primary/20" : "border-input hover:border-primary/40"
+        }`}
+      >
+        <span className="flex items-center gap-2.5 min-w-0">
+          <span className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${selected ? "bg-primary/15" : "bg-muted"}`}>
+            <FlaskConical className={`w-3.5 h-3.5 ${selected ? "text-primary" : "text-muted-foreground/50"}`} />
+          </span>
+          <span className={`truncate font-medium ${selected ? "text-foreground" : "text-muted-foreground"}`}>
+            {selected ? selected.title : "Choose a subject…"}
+          </span>
+        </span>
+        <ChevronDown className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform duration-200 ${open ? "rotate-180 text-primary" : ""}`} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.ul
+            initial={{ opacity: 0, y: 6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.98 }}
+            transition={{ duration: 0.15 }}
+            className="absolute z-30 mt-2 w-full bg-card border border-border rounded-2xl shadow-xl overflow-hidden py-1.5 max-h-64 overflow-y-auto"
+            role="listbox"
+          >
+            {exams.map((exam) => {
+              const isSelected = exam.id === value;
+              return (
+                <li key={exam.id}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => { onChange(exam.id); setOpen(false); }}
+                    className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-left transition-colors ${
+                      isSelected ? "bg-primary/10 text-primary font-semibold" : "text-foreground hover:bg-muted"
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isSelected ? "bg-primary" : "bg-muted-foreground/25"}`} />
+                    <span className="flex-1 truncate">{exam.title}</span>
+                    {isSelected && <span className="text-primary text-xs font-bold">✓</span>}
+                  </button>
+                </li>
+              );
+            })}
+          </motion.ul>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -133,11 +216,26 @@ function Navbar() {
   }, []);
 
   const scrollTo = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
-    setMenuOpen(false);
+    if (menuOpen) {
+      // Close the mobile sheet first, then scroll once the overlay is gone —
+      // scrolling while the full-screen menu unmounts gets cancelled on mobile.
+      setMenuOpen(false);
+      setTimeout(() => {
+        document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+      }, 320);
+    } else {
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+    }
   };
 
+  // Lock body scroll while the mobile menu is open
+  useEffect(() => {
+    document.body.style.overflow = menuOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [menuOpen]);
+
   return (
+    <>
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
         scrolled
@@ -220,32 +318,85 @@ function Navbar() {
           {menuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
         </button>
       </div>
+    </header>
 
-      {/* Mobile menu */}
-      <AnimatePresence>
+    {/* Mobile menu — full-screen sheet (outside <header>: its backdrop-blur creates
+        a containing block that would break this fixed-position overlay) */}
+    <AnimatePresence>
         {menuOpen && (
           <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="md:hidden bg-background border-t border-border"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="md:hidden fixed inset-x-0 top-16 bottom-0 z-40 bg-background/98 backdrop-blur-xl overflow-y-auto"
           >
-            <div className="px-4 py-4 flex flex-col gap-2">
-              <button onClick={() => scrollTo("features")} className="text-left text-foreground hover:text-primary py-2 text-sm font-medium">Features</button>
-              <button onClick={() => scrollTo("study-hub")} className="text-left text-foreground hover:text-primary py-2 text-sm font-medium">Study Hub</button>
-              <button onClick={() => scrollTo("leaderboards")} className="text-left text-foreground hover:text-primary py-2 text-sm font-medium">Leaderboards</button>
-              <button onClick={() => scrollTo("demo-section")} className="text-left text-foreground hover:text-primary py-2 text-sm font-medium">Demo</button>
-              <hr className="border-border my-1" />
-              <Link href="/portal" onClick={() => setMenuOpen(false)} className="text-foreground hover:text-primary py-2 text-sm font-medium">Student Portal</Link>
-              <Link href="/admin" onClick={() => setMenuOpen(false)} className="text-foreground hover:text-primary py-2 text-sm font-medium">Admin / Institution Login</Link>
-              <Link href="/student/signup" onClick={() => setMenuOpen(false)}>
-                <Button className="w-full mt-1">Start</Button>
-              </Link>
-            </div>
+            {/* Ambient glow */}
+            <div
+              className="absolute inset-0 pointer-events-none"
+              aria-hidden
+              style={{ backgroundImage: "radial-gradient(ellipse 80% 40% at 50% 0%, hsl(var(--primary) / 0.08), transparent 70%)" }}
+            />
+            <nav className="relative px-5 pt-6 pb-10 flex flex-col min-h-full">
+              <p className="text-muted-foreground/60 text-[11px] font-bold uppercase tracking-[0.2em] mb-3 px-1">Explore</p>
+              <div className="flex flex-col gap-2">
+                {[
+                  { id: "features", label: "Features", icon: Sparkles, desc: "What MedQrown can do" },
+                  { id: "study-hub", label: "Study Hub", icon: Brain, desc: "Your practice arsenal" },
+                  { id: "leaderboards", label: "Leaderboards", icon: Trophy, desc: "See who's on top" },
+                  { id: "demo-section", label: "Try the Demo", icon: Zap, desc: "A real timed question" },
+                ].map(({ id, label, icon: Icon, desc }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    data-testid={`mobile-nav-${id}`}
+                    onClick={() => scrollTo(id)}
+                    className="relative z-10 flex items-center gap-4 rounded-2xl border border-border/60 bg-card px-4 py-3.5 text-left active:scale-[0.98] transition-transform"
+                  >
+                    <span className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                      <Icon className="w-5 h-5 text-primary" />
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-bold text-foreground text-[15px]">{label}</span>
+                      <span className="block text-muted-foreground text-xs">{desc}</span>
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-muted-foreground/40 shrink-0" />
+                  </button>
+                ))}
+              </div>
+
+              <p className="text-muted-foreground/60 text-[11px] font-bold uppercase tracking-[0.2em] mt-7 mb-3 px-1">Portals</p>
+              <div className="relative z-10 grid grid-cols-2 gap-2">
+                <Link
+                  href="/portal"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex flex-col items-center gap-2 rounded-2xl border border-border/60 bg-card px-3 py-4 active:scale-[0.98] transition-transform"
+                >
+                  <GraduationCap className="w-6 h-6 text-primary" />
+                  <span className="font-bold text-foreground text-sm">Student Portal</span>
+                </Link>
+                <Link
+                  href="/admin"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex flex-col items-center gap-2 rounded-2xl border border-border/60 bg-card px-3 py-4 active:scale-[0.98] transition-transform"
+                >
+                  <Crown className="w-6 h-6 text-primary" />
+                  <span className="font-bold text-foreground text-sm">Institutions</span>
+                </Link>
+              </div>
+
+              <div className="relative z-10 mt-auto pt-8">
+                <Link href="/student/signup" onClick={() => setMenuOpen(false)}>
+                  <Button className="w-full h-13 rounded-2xl font-bold text-base py-6 gap-2">
+                    Start Practicing <ArrowRight className="w-5 h-5" />
+                  </Button>
+                </Link>
+              </div>
+            </nav>
           </motion.div>
         )}
-      </AnimatePresence>
-    </header>
+    </AnimatePresence>
+    </>
   );
 }
 
@@ -394,6 +545,8 @@ function InteractiveDemoCard() {
 
   const handleStart = () => {
     if (!selectedExamId) return;
+    // Refetch so a fresh random MCQ + SAQ is pulled from the bank each attempt
+    queryClient.invalidateQueries({ queryKey: [`/api/demo/exams/${selectedExamId}/questions`] });
     setPhase("mcq");
     setTimeLeft(selectedExam?.timerSeconds ?? 60);
     setTimerActive(true);
@@ -492,16 +645,11 @@ function InteractiveDemoCard() {
               </div>
             ) : (
               <div className="space-y-3 max-w-xs mx-auto">
-                <select
+                <SubjectDropdown
+                  exams={demoExams}
                   value={selectedExamId}
-                  onChange={(e) => setSelectedExamId(e.target.value ? Number(e.target.value) : "")}
-                  className="w-full bg-background border border-input rounded-xl px-4 py-3.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 cursor-pointer"
-                >
-                  <option value="">Choose a subject…</option>
-                  {demoExams.map((e) => (
-                    <option key={e.id} value={e.id}>{e.title}</option>
-                  ))}
-                </select>
+                  onChange={(id) => setSelectedExamId(id)}
+                />
                 <Button onClick={handleStart} disabled={!selectedExamId} size="lg" className="w-full gap-2 font-bold rounded-xl h-12">
                   Start Challenge <Zap className="w-4 h-4" />
                 </Button>
@@ -648,10 +796,26 @@ function InteractiveDemoCard() {
   );
 }
 
+function toYouTubeEmbed(url: string): string | null {
+  const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/);
+  return m ? `https://www.youtube.com/embed/${m[1]}` : null;
+}
+
 function DemoSection() {
   const trackRef = useRef<HTMLDivElement>(null);
   const [slide, setSlide] = useState(0);
   const SLIDES = 3;
+
+  const { data: siteContent } = useQuery<SiteContentData>({ queryKey: ["/api/site-content"] });
+  const settings = siteContent?.settings || {};
+  const videoUrl: string = settings.demoVideoUrl || "";
+  const youtubeEmbed = videoUrl ? toYouTubeEmbed(videoUrl) : null;
+  const photoUrl: string = settings.demoPhotoUrl || demoStudents;
+  const photoHeadline: string = settings.demoPhotoHeadline || "Study less. Rank higher.";
+  const photoSubtext: string =
+    settings.demoPhotoSubtext ||
+    "Thousands of questions, AI feedback in seconds, and classmates to outscore. This is how the top of your class prepares.";
+  const photoCta: string = settings.demoPhotoCta || "Join Them";
 
   const goTo = (i: number) => {
     const el = trackRef.current;
@@ -667,7 +831,7 @@ function DemoSection() {
   };
 
   return (
-    <section id="demo-section" className="relative bg-background py-24 overflow-hidden">
+    <section id="demo-section" className="relative bg-background py-24 overflow-hidden scroll-mt-16">
       {/* Section header */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -729,30 +893,54 @@ function DemoSection() {
                   "radial-gradient(ellipse 50% 60% at 50% 50%, hsl(var(--primary) / 0.35), transparent 70%)",
               }}
             />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true }}
-              className="relative z-10 text-center max-w-lg mx-auto"
-            >
-              <motion.button
-                whileHover={{ scale: 1.06 }}
-                whileTap={{ scale: 0.97 }}
-                className="w-24 h-24 rounded-full bg-white/10 backdrop-blur border border-white/25 flex items-center justify-center mx-auto mb-8 shadow-[0_0_60px_rgba(255,255,255,0.12)]"
+            {videoUrl ? (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.97 }}
+                whileInView={{ opacity: 1, scale: 1 }}
+                viewport={{ once: true }}
+                className="relative z-10 w-full max-w-3xl mx-auto"
               >
-                <Play className="w-9 h-9 text-white ml-1.5 fill-white" />
-              </motion.button>
-              <h3 className="text-white text-2xl sm:text-3xl font-black mb-3">Watch the platform in action</h3>
-              <p className="text-white/70 text-sm max-w-sm mx-auto leading-relaxed">
-                From first question to leaderboard glory — a full walkthrough is coming soon.
-              </p>
-            </motion.div>
+                <div className="aspect-video rounded-2xl overflow-hidden shadow-[0_24px_80px_-16px_rgba(0,0,0,0.5)] border border-white/10 bg-black">
+                  {youtubeEmbed ? (
+                    <iframe
+                      src={youtubeEmbed}
+                      title="MedQrown platform walkthrough"
+                      className="w-full h-full"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  ) : (
+                    <video src={videoUrl} controls playsInline className="w-full h-full object-contain" />
+                  )}
+                </div>
+                <p className="text-white/70 text-sm text-center mt-5">Watch the platform in action.</p>
+              </motion.div>
+            ) : (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                whileInView={{ opacity: 1, scale: 1 }}
+                viewport={{ once: true }}
+                className="relative z-10 text-center max-w-lg mx-auto"
+              >
+                <motion.button
+                  whileHover={{ scale: 1.06 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="w-24 h-24 rounded-full bg-white/10 backdrop-blur border border-white/25 flex items-center justify-center mx-auto mb-8 shadow-[0_0_60px_rgba(255,255,255,0.12)]"
+                >
+                  <Play className="w-9 h-9 text-white ml-1.5 fill-white" />
+                </motion.button>
+                <h3 className="text-white text-2xl sm:text-3xl font-black mb-3">Watch the platform in action</h3>
+                <p className="text-white/70 text-sm max-w-sm mx-auto leading-relaxed">
+                  From first question to leaderboard glory — a full walkthrough is coming soon.
+                </p>
+              </motion.div>
+            )}
           </div>
 
           {/* ── Slide 3: photo ── */}
           <div className="w-full shrink-0 snap-center relative flex items-end min-h-[620px]">
             <img
-              src={demoStudents}
+              src={photoUrl}
               alt="Medical students studying together"
               className="absolute inset-0 w-full h-full object-cover"
             />
@@ -764,14 +952,14 @@ function DemoSection() {
               className="relative z-10 w-full max-w-3xl mx-auto text-center px-6 pb-16"
             >
               <h3 className="text-white text-3xl sm:text-4xl font-black mb-3 leading-tight">
-                Study less. Rank higher.
+                {photoHeadline}
               </h3>
               <p className="text-white/80 text-sm sm:text-base max-w-lg mx-auto mb-7 leading-relaxed">
-                Thousands of questions, AI feedback in seconds, and classmates to outscore. This is how the top of your class prepares.
+                {photoSubtext}
               </p>
               <Link href="/student/signup">
                 <Button size="lg" className="px-8 h-12 font-bold rounded-xl gap-2">
-                  Join Them <ArrowRight className="w-5 h-5" />
+                  {photoCta} <ArrowRight className="w-5 h-5" />
                 </Button>
               </Link>
             </motion.div>
@@ -814,7 +1002,7 @@ function DemoSection() {
 
 function FeaturesSection() {
   return (
-    <section id="features" className="bg-background py-24 px-4">
+    <section id="features" className="bg-background py-24 px-4 scroll-mt-16">
       <div className="max-w-6xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -879,7 +1067,7 @@ const fakeLeaders = [
 
 function LeaderboardTeaser() {
   return (
-    <section id="leaderboards" className="bg-muted/30 py-24 px-4">
+    <section id="leaderboards" className="bg-muted/30 py-24 px-4 scroll-mt-16">
       <div className="max-w-3xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -1040,7 +1228,7 @@ function HorizonSection() {
   };
 
   return (
-    <section id="study-hub" className="bg-muted/30 py-24 px-4">
+    <section id="study-hub" className="bg-muted/30 py-24 px-4 scroll-mt-16">
       <div className="max-w-5xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -1131,7 +1319,7 @@ function ContactSection() {
   };
 
   return (
-    <section id="contact" className="bg-background py-24 px-4">
+    <section id="contact" className="bg-background py-24 px-4 scroll-mt-16">
       <div className="max-w-5xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -1337,8 +1525,14 @@ function Footer() {
           <div>
             <p className="text-foreground text-xs font-semibold uppercase tracking-wider mb-4">Legal</p>
             <div className="flex flex-col gap-2.5">
-              {["Terms of Service", "Privacy Policy", "FAQ"].map((item) => (
-                <span key={item} className="text-muted-foreground/50 text-sm cursor-not-allowed">{item}</span>
+              {[
+                { label: "Terms of Service", href: "/terms" },
+                { label: "Privacy Policy", href: "/privacy" },
+                { label: "FAQ", href: "/faq" },
+              ].map(({ label, href }) => (
+                <Link key={href} href={href} className="text-muted-foreground hover:text-primary text-sm transition-colors">
+                  {label}
+                </Link>
               ))}
             </div>
           </div>
@@ -1349,7 +1543,7 @@ function Footer() {
             © {new Date().getFullYear()} MedQrown MedEazy. All rights reserved.
           </p>
           <Link
-            href="/admin"
+            href="/institutions"
             className="text-muted-foreground hover:text-primary text-xs underline underline-offset-2 transition-colors"
           >
             Are you a University Administrator? Click here for MedQrown Institutions →

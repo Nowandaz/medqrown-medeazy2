@@ -13,6 +13,8 @@ import AdminDashboard from "@/pages/admin/dashboard";
 import AdminExamDetail from "@/pages/admin/exam-detail";
 import AdminSettings from "@/pages/admin/settings";
 import AdminDemoExams from "@/pages/admin/demo-exams";
+import AdminSiteContent from "@/pages/admin/site-content";
+import { TermsPage, PrivacyPage, FaqPage, InstitutionsPage } from "@/pages/landing/site-pages";
 import StudentLogin from "@/pages/student/login";
 import StudentSignup from "@/pages/student/signup";
 import StudentVerifyEmail from "@/pages/student/verify-email";
@@ -33,6 +35,11 @@ function Router() {
       <Route path="/admin/exams/:id" component={AdminExamDetail} />
       <Route path="/admin/settings" component={AdminSettings} />
       <Route path="/admin/demo-exams" component={AdminDemoExams} />
+      <Route path="/admin/site-content" component={AdminSiteContent} />
+      <Route path="/terms" component={TermsPage} />
+      <Route path="/privacy" component={PrivacyPage} />
+      <Route path="/faq" component={FaqPage} />
+      <Route path="/institutions" component={InstitutionsPage} />
       <Route path="/student/signup" component={StudentSignup} />
       <Route path="/student/verify" component={StudentVerifyEmail} />
       <Route path="/student/awaiting" component={StudentAwaiting} />

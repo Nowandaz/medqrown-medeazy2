@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   BookOpen, Plus, LogOut, Settings, Trash2, Play, Pause, Eye,
-  Clock, GraduationCap, Users, Mail, CheckCircle, AlertCircle, UserPlus
+  Clock, GraduationCap, Users, Mail, CheckCircle, AlertCircle, UserPlus, Globe
 } from "lucide-react";
 import type { Exam } from "@shared/schema";
 import medqrownIcon from "@/assets/medqrown-icon.png";
@@ -371,6 +371,9 @@ export default function AdminDashboard() {
             <Badge variant="outline" className="text-xs font-medium">{admin.role.replace("_", " ")}</Badge>
             <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => setLocation("/admin/demo-exams")} title="Demo Exam Manager">
               <Play className="w-3.5 h-3.5" /> Demo
+            </Button>
+            <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => setLocation("/admin/site-content")} title="Site Content — demo media, legal pages, FAQ, inquiries">
+              <Globe className="w-3.5 h-3.5" /> Site
             </Button>
             <Button variant="ghost" size="icon" onClick={() => setLocation("/admin/settings")} data-testid="button-settings">
               <Settings className="w-4 h-4" />
