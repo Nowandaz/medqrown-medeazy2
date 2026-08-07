@@ -132,6 +132,12 @@ export interface IStorage {
       submitted: number;
       lastActivity: string | null;
     }[];
+    daily: {
+      date: string;
+      starts: number;
+      completions: number;
+      total: number;
+    }[];
   }>;
   clearDemoEngagement(): Promise<void>;
 
@@ -808,9 +814,21 @@ export class DatabaseStorage implements IStorage {
       GROUP BY q.id, q.demo_exam_id, e.id, e.title, e.display_order, q.type, q.content, q.order_index
       ORDER BY e.display_order ASC, q.order_index ASC, q.id ASC
     `);
+    const dailyRows = await db.execute(sql`
+      SELECT
+        to_char(created_at::date, 'YYYY-MM-DD') AS date,
+        COUNT(*) FILTER (WHERE event_type = 'started')::int AS starts,
+        COUNT(*) FILTER (WHERE event_type = 'completed')::int AS completions,
+        COUNT(*)::int AS total
+      FROM demo_engagement_events
+      WHERE created_at >= CURRENT_DATE - INTERVAL '59 days'
+      GROUP BY created_at::date
+      ORDER BY created_at::date ASC
+    `);
     return {
       exams: examRows.rows as any,
       questions: questionRows.rows as any,
+      daily: dailyRows.rows as any,
     };
   }
 

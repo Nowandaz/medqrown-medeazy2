@@ -16,6 +16,9 @@ import {
   ArrowLeft, Plus, Trash2, Save, Image as ImageIcon, Film, FileText,
   HelpCircle, Inbox, Upload, Mail, CheckCircle, Loader2, BarChart3,
 } from "lucide-react";
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
+} from "recharts";
 
 type FaqItem = { id: number; question: string; answer: string; orderIndex: number; isActive: boolean };
 type Inquiry = {
@@ -32,6 +35,7 @@ type EngagementSummary = {
     id: number; examId: number; examTitle: string; type: string; content: string;
     answered: number; correct: number; submitted: number; lastActivity: string | null;
   }[];
+  daily: { date: string; starts: number; completions: number; total: number }[];
 };
 
 const TABS = [
@@ -123,6 +127,23 @@ function EngagementTab() {
   const completionRate = totals.starts ? Math.round((totals.completions / totals.starts) * 100) : 0;
   const mcqAccuracy = totals.mcqAnswered ? Math.round((totals.mcqCorrect / totals.mcqAnswered) * 100) : 0;
 
+  // Build a continuous 30-day series (fill days with no events with zeros).
+  const byDate = new Map((data.daily ?? []).map((d) => [d.date, d]));
+  const dailyChart: { label: string; date: string; starts: number; completions: number; total: number }[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const day = new Date();
+    day.setDate(day.getDate() - i);
+    const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+    const row = byDate.get(key);
+    dailyChart.push({
+      date: key,
+      label: day.toLocaleDateString(undefined, { day: "numeric", month: "short" }),
+      starts: row?.starts ?? 0,
+      completions: row?.completions ?? 0,
+      total: row?.total ?? 0,
+    });
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -154,6 +175,53 @@ function EngagementTab() {
         <Metric label="MCQ answers" value={totals.mcqAnswered} />
         <Metric label="MCQ accuracy" value={`${mcqAccuracy}%`} />
         <Metric label="SAQ submissions" value={totals.saqSubmitted} />
+      </div>
+
+      <div className="space-y-3">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Daily activity (last 30 days)</h3>
+        <Card>
+          <CardContent className="p-4 sm:p-5">
+            {dailyChart.some((d) => d.total > 0) ? (
+              <div className="h-56 sm:h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dailyChart} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                      tickLine={false}
+                      axisLine={false}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      allowDecimals={false}
+                      tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <Tooltip
+                      cursor={{ fill: "hsl(var(--muted) / 0.4)" }}
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--card))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: 8,
+                        fontSize: 12,
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="total" name="All events" fill="#0d9488" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="starts" name="Starts" fill="#0d948880" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="completions" name="Completions" fill="#f59e0b" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-sm py-8 text-center">
+                No activity in the last 30 days yet — the chart fills in as students use the demo.
+              </p>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {data.exams.length === 0 ? (
