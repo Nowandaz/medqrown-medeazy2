@@ -1,0 +1,13 @@
+sitemap.xml — this has a real problem. The XML itself is good (7 real URLs, home/faq/terms/privacy/institutions/portal/signup, sensible priorities). But right after the closing </urlset> tag, a huge block of unrelated CSS is getting appended — looks like slider/audio-player styles from somewhere else in your app bundle. That means /sitemap.xml isn't actually returning a clean, valid XML file — it's returning your sitemap plus leftover content from something else, all in one response.
+
+This matters because sitemap parsers (including Google's) generally stop trusting the file, or fail outright, when there's non-XML content after the closing tag. This needs fixing before you submit it to Search Console, or it may get rejected.
+
+Likely cause: whatever route/handler serves /sitemap.xml isn't properly terminating its response — either it's not ending the response after sending the XML (so a later middleware appends more), or your server's catch-all/static-file handling is matching that path incorrectly and mixing in a bundled asset. Worth checking:
+
+What Content-Type header is /sitemap.xml actually returning? Should be application/xml or text/xml. If it's returning text/html, that's a sign the request is falling through to your SPA's catch-all route instead of a dedicated sitemap handler.
+If it's a dynamic route (e.g. an Express handler generating the XML), confirm it does something like res.set('Content-Type', 'application/xml'); res.send(xml); return; — a missing return is a classic way for execution to continue into other middleware.
+If it's a static file in public/sitemap.xml, make sure static-file serving is registered before any wildcard/catch-all route in your server setup.
+
+The structured data (JSON-LD) — good news, it is deployed and present on the live page. But looking at what you pasted, it's still missing the "url" field I added in the corrected version, and "sameAs": [] is still empty. That tells me the fuller corrected <head> block hasn't fully landed yet — worth double-checking you deployed the complete version, not just the Open Graph portion. And to reassure you on the earlier "No items detected" result: that's still expected either way — EducationalOrganization schema doesn't trigger a visual rich-result enhancement in Google (that's reserved for things like FAQ, Course, Review, Product). It's for entity understanding, not a snippet decoration, so that result isn't a sign of a problem.
+
+Fix the sitemap response first — that's the one that could actually cause a Search Console rejection.
