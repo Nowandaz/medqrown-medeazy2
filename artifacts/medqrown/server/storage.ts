@@ -784,7 +784,7 @@ export class DatabaseStorage implements IStorage {
         COUNT(ev.id) FILTER (WHERE ev.event_type = 'completed')::int AS completions
       FROM demo_exams e
       LEFT JOIN demo_engagement_events ev ON ev.demo_exam_id = e.id
-      GROUP BY e.id, e.title
+      GROUP BY e.id, e.title, e.display_order
       ORDER BY e.display_order ASC, e.id ASC
     `);
     const questionRows = await db.execute(sql`
@@ -800,7 +800,7 @@ export class DatabaseStorage implements IStorage {
       FROM demo_questions q
       JOIN demo_exams e ON e.id = q.demo_exam_id
       LEFT JOIN demo_engagement_events ev ON ev.question_id = q.id
-      GROUP BY q.id, q.demo_exam_id, e.title, q.type, q.content, q.order_index
+      GROUP BY q.id, q.demo_exam_id, e.id, e.title, e.display_order, q.type, q.content, q.order_index
       ORDER BY e.display_order ASC, q.order_index ASC, q.id ASC
     `);
     return {
