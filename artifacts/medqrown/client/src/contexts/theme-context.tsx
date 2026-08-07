@@ -13,7 +13,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
     try {
       const saved = localStorage.getItem("medqrown-theme");
-      return saved === "dark" ? "dark" : "light";
+      // If the user has explicitly chosen before, honour that choice.
+      if (saved === "dark" || saved === "light") return saved;
+      // Otherwise follow the OS/browser preference.
+      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     } catch {
       return "light";
     }
@@ -26,10 +29,16 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     } else {
       root.classList.remove("dark");
     }
-    try { localStorage.setItem("medqrown-theme", theme); } catch {}
   }, [theme]);
 
-  const toggleTheme = () => setTheme(t => t === "light" ? "dark" : "light");
+  // Persist manual overrides so they survive page reloads.
+  const toggleTheme = () => {
+    setTheme(t => {
+      const next = t === "light" ? "dark" : "light";
+      try { localStorage.setItem("medqrown-theme", next); } catch {}
+      return next;
+    });
+  };
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>

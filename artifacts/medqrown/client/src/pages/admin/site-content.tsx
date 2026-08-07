@@ -52,13 +52,36 @@ function Metric({ label, value, hint }: { label: string; value: number | string;
 }
 
 function EngagementTab() {
-  const { data, isLoading, isError } = useQuery<EngagementSummary>({
+  const [, setLocation] = useLocation();
+  const { data, isLoading, error } = useQuery<EngagementSummary | null>({
     queryKey: ["/api/admin/demo-engagement"],
     refetchOnMount: "always",
+    queryFn: async () => {
+      const res = await fetch("/api/admin/demo-engagement", { credentials: "include" });
+      if (res.status === 401) return null;          // session expired — handled below
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
   });
 
   if (isLoading) return <p className="text-muted-foreground text-sm py-8">Loading engagement…</p>;
-  if (isError || !data) {
+
+  // Session expired after server restart — send back to login cleanly.
+  if (data === null) {
+    return (
+      <div className="py-10 text-center space-y-3">
+        <p className="text-muted-foreground text-sm">Your session has expired. Please sign in again.</p>
+        <button
+          onClick={() => setLocation("/admin")}
+          className="text-primary text-sm underline underline-offset-2 hover:opacity-80"
+        >
+          Go to Admin Login
+        </button>
+      </div>
+    );
+  }
+
+  if (error || !data) {
     return <p className="text-destructive text-sm py-8">Could not load engagement data. Please refresh.</p>;
   }
 
@@ -573,6 +596,8 @@ export default function AdminSiteContent() {
   const { data: me, isLoading: meLoading } = useQuery<{ id: number } | null>({
     queryKey: ["/api/admin/me"],
     retry: false,
+    staleTime: 0,          // always revalidate — never serve a cached session after a server restart
+    refetchOnMount: "always",
   });
 
   useEffect(() => {
