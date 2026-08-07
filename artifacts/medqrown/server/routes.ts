@@ -2119,6 +2119,23 @@ export async function registerRoutes(
     }
   });
 
+  app.delete("/api/admin/demo-engagement", requireAdmin, async (req, res) => {
+    try {
+      // CSRF guard: destructive action must come from our own origin.
+      const origin = req.headers.origin || req.headers.referer;
+      if (origin) {
+        const originHost = new URL(origin).host;
+        if (originHost !== req.headers.host) {
+          return res.status(403).json({ message: "Cross-origin request rejected" });
+        }
+      }
+      await storage.clearDemoEngagement();
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/admin/demo-exams/:id/questions", requireAdmin, async (req, res) => {
     try {
       const demoExamId = parseInt(req.params.id);

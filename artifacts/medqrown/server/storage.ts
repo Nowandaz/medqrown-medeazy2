@@ -119,6 +119,7 @@ export interface IStorage {
       saqStarted: number;
       saqSubmitted: number;
       completions: number;
+      lastActivity: string | null;
     }[];
     questions: {
       id: number;
@@ -129,8 +130,10 @@ export interface IStorage {
       answered: number;
       correct: number;
       submitted: number;
+      lastActivity: string | null;
     }[];
   }>;
+  clearDemoEngagement(): Promise<void>;
 
   createStudentSignup(data: { name: string; email: string; university: string; verificationCode: string; verificationExpiresAt: Date; token: string }): Promise<StudentSignup>;
   getStudentSignupByEmail(email: string): Promise<StudentSignup | undefined>;
@@ -781,7 +784,8 @@ export class DatabaseStorage implements IStorage {
         COUNT(ev.id) FILTER (WHERE ev.event_type = 'mcq_answered' AND ev.is_correct = true)::int AS "mcqCorrect",
         COUNT(ev.id) FILTER (WHERE ev.event_type = 'saq_started')::int AS "saqStarted",
         COUNT(ev.id) FILTER (WHERE ev.event_type = 'saq_submitted')::int AS "saqSubmitted",
-        COUNT(ev.id) FILTER (WHERE ev.event_type = 'completed')::int AS completions
+        COUNT(ev.id) FILTER (WHERE ev.event_type = 'completed')::int AS completions,
+        to_char(MAX(ev.created_at), 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS "lastActivity"
       FROM demo_exams e
       LEFT JOIN demo_engagement_events ev ON ev.demo_exam_id = e.id
       GROUP BY e.id, e.title, e.display_order
@@ -796,7 +800,8 @@ export class DatabaseStorage implements IStorage {
         q.content,
         COUNT(ev.id) FILTER (WHERE ev.event_type IN ('mcq_answered', 'saq_submitted'))::int AS answered,
         COUNT(ev.id) FILTER (WHERE ev.event_type = 'mcq_answered' AND ev.is_correct = true)::int AS correct,
-        COUNT(ev.id) FILTER (WHERE ev.event_type = 'saq_submitted')::int AS submitted
+        COUNT(ev.id) FILTER (WHERE ev.event_type = 'saq_submitted')::int AS submitted,
+        to_char(MAX(ev.created_at), 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS "lastActivity"
       FROM demo_questions q
       JOIN demo_exams e ON e.id = q.demo_exam_id
       LEFT JOIN demo_engagement_events ev ON ev.question_id = q.id
@@ -807,6 +812,10 @@ export class DatabaseStorage implements IStorage {
       exams: examRows.rows as any,
       questions: questionRows.rows as any,
     };
+  }
+
+  async clearDemoEngagement(): Promise<void> {
+    await db.execute(sql`DELETE FROM demo_engagement_events`);
   }
 
   // ── Site content (landing page CMS) ─────────────────────────────────────────

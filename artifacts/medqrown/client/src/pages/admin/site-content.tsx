@@ -26,10 +26,11 @@ type EngagementSummary = {
   exams: {
     id: number; title: string; starts: number; mcqAnswered: number;
     mcqCorrect: number; saqStarted: number; saqSubmitted: number; completions: number;
+    lastActivity: string | null;
   }[];
   questions: {
     id: number; examId: number; examTitle: string; type: string; content: string;
-    answered: number; correct: number; submitted: number;
+    answered: number; correct: number; submitted: number; lastActivity: string | null;
   }[];
 };
 
@@ -51,8 +52,17 @@ function Metric({ label, value, hint }: { label: string; value: number | string;
   );
 }
 
+function formatActivityDate(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) +
+    " " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
 function EngagementTab() {
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
   const { data, isLoading, error } = useQuery<EngagementSummary | null>({
     queryKey: ["/api/admin/demo-engagement"],
     refetchOnMount: "always",
@@ -61,6 +71,21 @@ function EngagementTab() {
       if (res.status === 401) return null;          // session expired — handled below
       if (!res.ok) throw new Error(await res.text());
       return res.json();
+    },
+  });
+
+  const clearMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/admin/demo-engagement", { method: "DELETE", credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/demo-engagement"] });
+      toast({ title: "Engagement data cleared", description: "All demo engagement counts have been reset to zero." });
+    },
+    onError: () => {
+      toast({ title: "Could not clear engagement data", description: "Please try again.", variant: "destructive" });
     },
   });
 
@@ -100,11 +125,27 @@ function EngagementTab() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-black text-foreground">Demo Engagement</h2>
-        <p className="text-muted-foreground text-sm mt-1">
-          Anonymous activity from the public demo — starts, answers, drop-off, and question performance.
-        </p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-lg font-black text-foreground">Demo Engagement</h2>
+          <p className="text-muted-foreground text-sm mt-1">
+            Anonymous activity from the public demo — starts, answers, drop-off, and question performance.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive shrink-0"
+          disabled={clearMutation.isPending || totals.starts === 0}
+          onClick={() => {
+            if (window.confirm("Clear all demo engagement data? This resets every count to zero and cannot be undone.")) {
+              clearMutation.mutate();
+            }
+          }}
+        >
+          {clearMutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5 mr-1.5" />}
+          Clear data
+        </Button>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -129,8 +170,15 @@ function EngagementTab() {
             return (
               <Card key={exam.id}>
                 <CardContent className="p-4 sm:p-5">
-                  <div className="flex items-center justify-between gap-3 mb-4">
-                    <h4 className="font-bold text-foreground">{exam.title}</h4>
+                  <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                    <div className="min-w-0">
+                      <h4 className="font-bold text-foreground">{exam.title}</h4>
+                      {formatActivityDate(exam.lastActivity) && (
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          Last activity: {formatActivityDate(exam.lastActivity)}
+                        </p>
+                      )}
+                    </div>
                     <Badge variant={exam.starts ? "default" : "secondary"} className="text-[10px]">
                       {exam.starts ? `${rate}% completion` : "No activity"}
                     </Badge>
@@ -166,6 +214,11 @@ function EngagementTab() {
                       <span className="text-muted-foreground text-[11px]">{question.examTitle}</span>
                     </div>
                     <p className="text-sm font-medium text-foreground line-clamp-2">{question.content}</p>
+                    {formatActivityDate(question.lastActivity) && (
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        Last answered: {formatActivityDate(question.lastActivity)}
+                      </p>
+                    )}
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-sm font-bold text-foreground">{answerRate}</p>
