@@ -35,7 +35,7 @@ export default function AdminLogin() {
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex flex-col">
       <AppHeader />
 
-      <div className="flex-1 flex items-center justify-center px-4 pb-8">
+      <div className="flex-1 flex items-start justify-center px-4 pt-10 pb-8">
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
             <MedQrownBrand size="lg" layout="stacked" />

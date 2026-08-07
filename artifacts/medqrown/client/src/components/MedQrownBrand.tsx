@@ -5,10 +5,12 @@ interface MedQrownBrandProps {
   size?: "sm" | "md" | "lg";
   /** "inline" (default): icon left of text. "stacked": icon centered above text. */
   layout?: "inline" | "stacked";
+  /** Override the icon's size classes (stacked layout only). */
+  iconClassName?: string;
 }
 
-export function MedQrownBrand({ className = "", size = "md", layout = "inline" }: MedQrownBrandProps) {
-  const iconSizes = {
+export function MedQrownBrand({ className = "", size = "md", layout = "inline", iconClassName }: MedQrownBrandProps) {
+  const iconSizes = iconClassName ?? {
     sm: "h-7 w-7",
     md: "h-8 w-8",
     // stacked heroes get a larger icon; inline lg keeps the compact size
