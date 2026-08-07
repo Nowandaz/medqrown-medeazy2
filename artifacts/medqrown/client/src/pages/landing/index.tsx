@@ -882,7 +882,7 @@ function DemoSection() {
   };
 
   return (
-    <section id="demo-section" className="relative bg-background py-24 overflow-hidden scroll-mt-16">
+    <section id="demo-section" className="relative bg-background pt-24 pb-10 overflow-hidden scroll-mt-16">
       {/* Section header */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -1053,7 +1053,7 @@ function DemoSection() {
 
 function FeaturesSection() {
   return (
-    <section id="features" className="bg-background py-24 px-4 scroll-mt-16">
+    <section id="features" className="bg-background pt-10 pb-24 px-4 scroll-mt-16">
       <div className="max-w-6xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
