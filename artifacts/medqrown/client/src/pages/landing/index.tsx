@@ -14,6 +14,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
+import medqrownIcon from "@/assets/medqrown-icon.png";
 import demoStudents from "@/assets/demo-students.jpg";
 
 type DemoExamData = { id: number; title: string; timerSeconds: number };
@@ -431,9 +432,12 @@ function HeroSection() {
           transition={{ duration: 0.5 }}
           className="flex flex-col items-center mb-8 gap-3"
         >
-          <div className="text-center">
-            <MedQrownBrand size="lg" />
-          </div>
+          <img
+            src={medqrownIcon}
+            alt="MedQrown"
+            className="h-20 w-20 sm:h-28 sm:w-28 object-contain drop-shadow-lg"
+          />
+          <MedQrownBrand size="lg" />
         </motion.div>
 
         {/* Headline */}
