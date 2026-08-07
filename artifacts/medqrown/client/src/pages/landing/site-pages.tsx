@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
@@ -199,6 +199,19 @@ export function PrivacyPage() {
 
 type FaqItemData = { id: number; question: string; answer: string };
 
+/** Strip HTML tags and common markdown so FAQ answers are plain text in JSON-LD. */
+function stripFormatting(text: string): string {
+  return text
+    .replace(/<[^>]+>/g, " ")        // HTML tags
+    .replace(/#{1,6}\s+/g, "")       // ## headings
+    .replace(/^\s*-\s+/gm, "")       // bullet list items
+    .replace(/\*\*([^*]+)\*\*/g, "$1") // **bold**
+    .replace(/\*([^*]+)\*/g, "$1")    // *italic*
+    .replace(/`([^`]+)`/g, "$1")      // `code`
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 const DEFAULT_FAQ: FaqItemData[] = [
   { id: -1, question: "What is MedQrown MedEazy?", answer: "A competitive study platform for medical students — practice with AI-generated exams, get instant feedback, and see how your clinical reasoning ranks against your classmates." },
   { id: -2, question: "Is it free to start?", answer: "Yes. You can create an account and start practicing right away. Premium features are being rolled out for power users." },
@@ -213,6 +226,30 @@ export function FaqPage() {
   });
   const items = data?.faq?.length ? data.faq : DEFAULT_FAQ;
   const [open, setOpen] = useState<number | null>(null);
+
+  // Inject FAQPage JSON-LD into <head> for this route only; clean up on unmount.
+  useEffect(() => {
+    const schema = {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: items.map((item) => ({
+        "@type": "Question",
+        name: item.question,
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: stripFormatting(item.answer),
+        },
+      })),
+    };
+    const script = document.createElement("script");
+    script.type = "application/ld+json";
+    script.id = "faq-schema";
+    script.textContent = JSON.stringify(schema, null, 2);
+    document.head.appendChild(script);
+    return () => {
+      document.getElementById("faq-schema")?.remove();
+    };
+  }, [items]);
 
   return (
     <SitePageShell title="Frequently Asked Questions" subtitle="Everything you need to know before you start grinding.">

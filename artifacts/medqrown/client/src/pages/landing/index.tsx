@@ -531,6 +531,7 @@ function InteractiveDemoCard() {
   const [timeLeft, setTimeLeft] = useState(60);
   const [timerActive, setTimerActive] = useState(false);
   const [demoSessionId, setDemoSessionId] = useState("");
+  const [mcqNudgeDismissed, setMcqNudgeDismissed] = useState(false);
 
   const { data: demoExams = [] } = useQuery<DemoExamData[]>({
     queryKey: ["/api/demo/exams"],
@@ -625,6 +626,7 @@ function InteractiveDemoCard() {
   };
 
   const handleReset = () => {
+    setMcqNudgeDismissed(false);
     setPhase("select");
     setSelectedExamId("");
     setSelectedOption(null);
@@ -763,6 +765,26 @@ function InteractiveDemoCard() {
                     <div className="bg-primary/5 border border-primary/15 rounded-xl p-4">
                       <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1">Explanation</p>
                       <p className="text-sm text-foreground leading-relaxed">{mcqQ.explanation}</p>
+                    </div>
+                  )}
+                  {!mcqNudgeDismissed && (
+                    <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
+                      <p className="text-xs text-foreground leading-snug">
+                        <span className="font-bold">Enjoying this?</span>{" "}
+                        <span className="text-muted-foreground">Create a free account to save your streak.</span>
+                      </p>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Link href="/student/signup">
+                          <Button size="sm" className="text-xs h-7 px-3 rounded-lg font-bold">Sign up free</Button>
+                        </Link>
+                        <button
+                          onClick={() => setMcqNudgeDismissed(true)}
+                          aria-label="Dismiss"
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   )}
                   <div className="flex justify-end">
