@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Clock, CheckCircle, XCircle, ShieldCheck } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
-import medqrownIcon from "@/assets/medqrown-icon.png";
+import { MedQrownBrand } from "@/components/MedQrownBrand";
 
 export default function StudentAwaiting() {
   const search = useSearch();
@@ -53,8 +53,7 @@ export default function StudentAwaiting() {
       <div className="flex-1 flex items-center justify-center px-4 pb-8">
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
-            <img src={medqrownIcon} alt="MedQrown" className="h-28 w-28 mx-auto mb-3 object-contain" />
-            <h1 className="text-2xl font-bold tracking-tight">MedQrown MedEazy</h1>
+            <MedQrownBrand size="lg" />
             <p className="text-muted-foreground mt-1 text-sm">Student Portal</p>
           </div>
 

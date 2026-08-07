@@ -6,6 +6,7 @@ import {
   subquestions, attempts, responses, aiProviders, emailTemplates,
   emailLogs, studentFeedback, auditLogs, aiMarkingJobs, studentSignups, universities,
   demoExams, demoQuestions,
+  demoEngagementEvents,
   siteSettings, contentPages, faqItems, institutionInquiries,
   type FaqItem, type InstitutionInquiry,
   type Admin, type InsertAdmin, type Exam, type InsertExam,
@@ -100,6 +101,36 @@ export interface IStorage {
   getExamStats(examId: number): Promise<{ total: number; submitted: number; inProgress: number; notStarted: number }>;
   getExamRankings(examId: number): Promise<{ studentName: string; studentEmail: string; totalScore: number; maxScore: number; percentage: number }[]>;
   getQuestionAnalytics(examId: number): Promise<{ questionId: number; content: string; type: string; totalAttempts: number; correctCount: number; avgMarks: number }[]>;
+  recordDemoEngagement(data: {
+    demoExamId: number;
+    questionId?: number | null;
+    eventType: string;
+    sessionId: string;
+    isCorrect?: boolean | null;
+    responseLength?: number | null;
+  }): Promise<void>;
+  getDemoEngagementSummary(): Promise<{
+    exams: {
+      id: number;
+      title: string;
+      starts: number;
+      mcqAnswered: number;
+      mcqCorrect: number;
+      saqStarted: number;
+      saqSubmitted: number;
+      completions: number;
+    }[];
+    questions: {
+      id: number;
+      examId: number;
+      examTitle: string;
+      type: string;
+      content: string;
+      answered: number;
+      correct: number;
+      submitted: number;
+    }[];
+  }>;
 
   createStudentSignup(data: { name: string; email: string; university: string; verificationCode: string; verificationExpiresAt: Date; token: string }): Promise<StudentSignup>;
   getStudentSignupByEmail(email: string): Promise<StudentSignup | undefined>;
@@ -720,6 +751,62 @@ export class DatabaseStorage implements IStorage {
   }
   async deleteDemoQuestion(id: number) {
     await db.delete(demoQuestions).where(eq(demoQuestions.id, id));
+  }
+
+  async recordDemoEngagement(data: {
+    demoExamId: number;
+    questionId?: number | null;
+    eventType: string;
+    sessionId: string;
+    isCorrect?: boolean | null;
+    responseLength?: number | null;
+  }) {
+    await db.insert(demoEngagementEvents).values({
+      demoExamId: data.demoExamId,
+      questionId: data.questionId ?? null,
+      eventType: data.eventType,
+      sessionId: data.sessionId,
+      isCorrect: data.isCorrect ?? null,
+      responseLength: data.responseLength ?? null,
+    });
+  }
+
+  async getDemoEngagementSummary() {
+    const examRows = await db.execute(sql`
+      SELECT
+        e.id,
+        e.title,
+        COUNT(ev.id) FILTER (WHERE ev.event_type = 'started')::int AS starts,
+        COUNT(ev.id) FILTER (WHERE ev.event_type = 'mcq_answered')::int AS "mcqAnswered",
+        COUNT(ev.id) FILTER (WHERE ev.event_type = 'mcq_answered' AND ev.is_correct = true)::int AS "mcqCorrect",
+        COUNT(ev.id) FILTER (WHERE ev.event_type = 'saq_started')::int AS "saqStarted",
+        COUNT(ev.id) FILTER (WHERE ev.event_type = 'saq_submitted')::int AS "saqSubmitted",
+        COUNT(ev.id) FILTER (WHERE ev.event_type = 'completed')::int AS completions
+      FROM demo_exams e
+      LEFT JOIN demo_engagement_events ev ON ev.demo_exam_id = e.id
+      GROUP BY e.id, e.title
+      ORDER BY e.display_order ASC, e.id ASC
+    `);
+    const questionRows = await db.execute(sql`
+      SELECT
+        q.id,
+        q.demo_exam_id AS "examId",
+        e.title AS "examTitle",
+        q.type,
+        q.content,
+        COUNT(ev.id) FILTER (WHERE ev.event_type IN ('mcq_answered', 'saq_submitted'))::int AS answered,
+        COUNT(ev.id) FILTER (WHERE ev.event_type = 'mcq_answered' AND ev.is_correct = true)::int AS correct,
+        COUNT(ev.id) FILTER (WHERE ev.event_type = 'saq_submitted')::int AS submitted
+      FROM demo_questions q
+      JOIN demo_exams e ON e.id = q.demo_exam_id
+      LEFT JOIN demo_engagement_events ev ON ev.question_id = q.id
+      GROUP BY q.id, q.demo_exam_id, e.title, q.type, q.content, q.order_index
+      ORDER BY e.display_order ASC, q.order_index ASC, q.id ASC
+    `);
+    return {
+      exams: examRows.rows as any,
+      questions: questionRows.rows as any,
+    };
   }
 
   // ── Site content (landing page CMS) ─────────────────────────────────────────

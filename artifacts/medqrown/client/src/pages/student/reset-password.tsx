@@ -7,7 +7,6 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { ShieldCheck, Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
-import medqrownIcon from "@/assets/medqrown-icon.png";
 
 export default function ResetPassword() {
   const search = useSearch();
@@ -46,7 +45,7 @@ export default function ResetPassword() {
         return;
       }
       toast({ title: "Password updated!", description: "You can now sign in with your new password." });
-      setLocation("/");
+      setLocation("/portal");
     } catch {
       toast({ title: "Connection error", description: "Could not reach the server. Please try again.", variant: "destructive" });
     } finally {
@@ -146,7 +145,7 @@ export default function ResetPassword() {
               </button>
             </p>
             <p>
-              <button onClick={() => setLocation("/")}
+              <button onClick={() => setLocation("/portal")}
                 className="hover:text-primary transition-colors inline-flex items-center gap-1">
                 <ArrowLeft className="w-3 h-3" /> Back to Sign In
               </button>

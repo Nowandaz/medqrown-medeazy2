@@ -12,7 +12,7 @@ import { apiRequest } from "@/lib/queryClient";
 import {
   BookOpen, Clock, ChevronRight, Send, AlertTriangle, Loader2, ImageIcon
 } from "lucide-react";
-import medqrownIcon from "@/assets/medqrown-icon.png";
+import { MedQrownBrand } from "@/components/MedQrownBrand";
 
 export default function StudentExam() {
   const [, setLocation] = useLocation();
@@ -149,7 +149,7 @@ export default function StudentExam() {
   const loadExam = useCallback(async () => {
     try {
       const sessionRes = await fetch("/api/student/session", { credentials: "include" });
-      if (!sessionRes.ok) { setLocation("/"); return; }
+      if (!sessionRes.ok) { setLocation("/portal"); return; }
       const session = await sessionRes.json();
       if (session.attemptStatus === "submitted") { setLocation("/student/results"); return; }
 
@@ -168,7 +168,7 @@ export default function StudentExam() {
       setLoading(false);
     } catch {
       toast({ title: "Error", description: "Failed to load exam", variant: "destructive" });
-      setLocation("/");
+      setLocation("/portal");
     }
   }, [setLocation, toast]);
 
@@ -339,7 +339,7 @@ export default function StudentExam() {
       <header className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-3xl mx-auto px-4 py-2.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
-            <img src={medqrownIcon} alt="MedQrown" className="h-8 w-8 object-contain" />
+            <MedQrownBrand size="sm" />
             <div className="min-w-0">
               <h1 className="text-sm font-semibold truncate" data-testid="text-exam-title">{examInfo?.title}</h1>
               <p className="text-xs text-muted-foreground">

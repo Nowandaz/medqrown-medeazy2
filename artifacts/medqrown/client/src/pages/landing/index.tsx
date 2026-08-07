@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import medqrownIcon from "@/assets/medqrown-icon.png";
+import { MedQrownBrand } from "@/components/MedQrownBrand";
 import demoStudents from "@/assets/demo-students.jpg";
 
 type DemoExamData = { id: number; title: string; timerSeconds: number };
@@ -24,6 +24,27 @@ type DemoQuestionData = {
 };
 type DemoPhase = "select" | "mcq" | "mcq_result" | "saq" | "saq_result" | "done";
 type SiteContentData = { settings: Record<string, any>; faq: { id: number; question: string; answer: string }[] };
+
+function createDemoSessionId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function trackDemoEngagement(event: {
+  examId: number;
+  sessionId: string;
+  eventType: "started" | "mcq_answered" | "saq_started" | "saq_submitted" | "completed";
+  questionId?: number;
+  optionIndex?: number;
+  responseLength?: number;
+}) {
+  void fetch("/api/demo/engagement", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(event),
+  }).catch(() => undefined);
+}
 
 // ─── Custom subject dropdown (styled listbox) ────────────────────────────────
 
@@ -246,10 +267,7 @@ function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
         {/* Logo */}
         <a href="/" className="flex items-center gap-2 shrink-0">
-          <img src={medqrownIcon} alt="MedQrown" className="h-9 w-9 object-contain" />
-          <span className="font-bold text-foreground text-lg leading-none">
-            MedQrown <span className="text-primary">MedEazy</span>
-          </span>
+          <MedQrownBrand size="sm" />
         </a>
 
         {/* Desktop center nav */}
@@ -413,11 +431,8 @@ function HeroSection() {
           transition={{ duration: 0.5 }}
           className="flex flex-col items-center mb-8 gap-3"
         >
-          <img src={medqrownIcon} alt="MedQrown" className="h-40 w-40 object-contain drop-shadow-lg" />
           <div className="text-center">
-            <p className="text-2xl font-black text-foreground tracking-tight">
-              MedQrown <span className="text-primary">MedEazy</span>
-            </p>
+            <MedQrownBrand size="lg" />
           </div>
         </motion.div>
 
@@ -516,6 +531,7 @@ function InteractiveDemoCard() {
   const [saqText, setSaqText] = useState("");
   const [timeLeft, setTimeLeft] = useState(60);
   const [timerActive, setTimerActive] = useState(false);
+  const [demoSessionId, setDemoSessionId] = useState("");
 
   const { data: demoExams = [] } = useQuery<DemoExamData[]>({
     queryKey: ["/api/demo/exams"],
@@ -545,6 +561,9 @@ function InteractiveDemoCard() {
 
   const handleStart = () => {
     if (!selectedExamId) return;
+    const sessionId = createDemoSessionId();
+    setDemoSessionId(sessionId);
+    trackDemoEngagement({ examId: selectedExamId, sessionId, eventType: "started" });
     // Refetch so a fresh random MCQ + SAQ is pulled from the bank each attempt
     queryClient.invalidateQueries({ queryKey: [`/api/demo/exams/${selectedExamId}/questions`] });
     setPhase("mcq");
@@ -556,12 +575,35 @@ function InteractiveDemoCard() {
 
   const handleMcqSubmit = () => {
     if (selectedOption === null) return;
+    if (selectedExamId && demoSessionId && mcqQ) {
+      trackDemoEngagement({
+        examId: selectedExamId,
+        sessionId: demoSessionId,
+        eventType: "mcq_answered",
+        questionId: mcqQ.id,
+        optionIndex: selectedOption,
+      });
+    }
     setTimerActive(false);
     setPhase("mcq_result");
   };
 
   const handleNextToSaq = () => {
-    if (!saqQ) { setPhase("done"); return; }
+    if (!saqQ) {
+      if (selectedExamId && demoSessionId) {
+        trackDemoEngagement({ examId: selectedExamId, sessionId: demoSessionId, eventType: "completed" });
+      }
+      setPhase("done");
+      return;
+    }
+    if (selectedExamId && demoSessionId) {
+      trackDemoEngagement({
+        examId: selectedExamId,
+        sessionId: demoSessionId,
+        eventType: "saq_started",
+        questionId: saqQ.id,
+      });
+    }
     setPhase("saq");
     setTimeLeft(selectedExam?.timerSeconds ?? 60);
     setTimerActive(true);
@@ -569,6 +611,16 @@ function InteractiveDemoCard() {
   };
 
   const handleSaqSubmit = () => {
+    if (selectedExamId && demoSessionId && saqQ) {
+      trackDemoEngagement({
+        examId: selectedExamId,
+        sessionId: demoSessionId,
+        eventType: "saq_submitted",
+        questionId: saqQ.id,
+        responseLength: saqText.trim().length,
+      });
+      trackDemoEngagement({ examId: selectedExamId, sessionId: demoSessionId, eventType: "completed" });
+    }
     setTimerActive(false);
     setPhase("saq_result");
   };
@@ -623,7 +675,7 @@ function InteractiveDemoCard() {
             <Clock className="w-3.5 h-3.5" /> {mins}:{secs}
           </motion.div>
         ) : (
-          <img src={medqrownIcon} alt="" className="h-6 w-6 object-contain opacity-80" />
+          <MedQrownBrand size="sm" className="opacity-80" />
         )}
       </div>
 
@@ -1497,10 +1549,7 @@ function Footer() {
         <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-10 mb-12">
           <div className="md:col-span-2">
             <div className="flex items-center gap-2 mb-3">
-              <img src={medqrownIcon} alt="MedQrown" className="h-8 w-8 object-contain" />
-              <span className="font-black text-foreground text-base">
-                MedQrown <span className="text-primary">MedEazy</span>
-              </span>
+              <MedQrownBrand size="sm" />
             </div>
             <p className="text-muted-foreground text-sm leading-relaxed max-w-xs">
               The competitive clinical training ground for the next generation of medical professionals.

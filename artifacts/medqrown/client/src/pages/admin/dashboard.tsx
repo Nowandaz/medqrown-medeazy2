@@ -12,12 +12,12 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MedQrownBrand } from "@/components/MedQrownBrand";
 import {
   BookOpen, Plus, LogOut, Settings, Trash2, Play, Pause, Eye,
   Clock, GraduationCap, Users, Mail, CheckCircle, AlertCircle, UserPlus, Globe
 } from "lucide-react";
 import type { Exam } from "@shared/schema";
-import medqrownIcon from "@/assets/medqrown-icon.png";
 import AdminSignups from "@/pages/admin/signups";
 
 function MasterStudentDatabase() {
@@ -362,8 +362,8 @@ export default function AdminDashboard() {
       <header className="border-b bg-card/80 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <img src={medqrownIcon} alt="MedQrown" className="h-8 w-8 object-contain" /><div>
-              <h1 className="text-lg font-bold" data-testid="text-dashboard-title">MedQrown MedEazy</h1>
+            <div>
+              <MedQrownBrand size="sm" />
               <p className="text-xs text-muted-foreground">Welcome, {admin.name}</p>
             </div>
           </div>

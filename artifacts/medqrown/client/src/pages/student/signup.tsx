@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { UserPlus, ArrowLeft, Eye, EyeOff } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
-import medqrownIcon from "@/assets/medqrown-icon.png";
+import { MedQrownBrand } from "@/components/MedQrownBrand";
 
 const YEAR_OPTIONS = ["Year 1", "Year 2", "Year 3", "Year 4", "Year 5", "Year 6", "Postgraduate", "Other"];
 
@@ -77,9 +77,9 @@ export default function StudentSignup() {
       <div className="flex-1 flex items-center justify-center px-4 pb-8">
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
-            <img src={medqrownIcon} alt="MedQrown" className="h-28 w-28 mx-auto mb-3 object-contain" />
-            <h1 className="text-2xl font-bold tracking-tight">Create Your Account</h1>
-            <p className="text-muted-foreground mt-1 text-sm">MedQrown MedEazy — Student Portal</p>
+            <MedQrownBrand size="lg" />
+            <h1 className="text-2xl font-bold tracking-tight mt-5">Create Your Account</h1>
+            <p className="text-muted-foreground mt-1 text-sm">Student Portal</p>
           </div>
 
           <Card className="border-primary/10 shadow-lg">
@@ -165,13 +165,13 @@ export default function StudentSignup() {
 
           <p className="text-center text-xs text-muted-foreground mt-5">
             Already registered?{" "}
-            <button onClick={() => setLocation("/")}
+            <button onClick={() => setLocation("/portal")}
               className="hover:text-primary transition-colors underline underline-offset-2">
               Sign In
             </button>
           </p>
           <p className="text-center text-xs text-muted-foreground mt-2">
-            <button onClick={() => setLocation("/")}
+            <button onClick={() => setLocation("/portal")}
               className="hover:text-primary transition-colors inline-flex items-center gap-1">
               <ArrowLeft className="w-3 h-3" /> Back to login
             </button>

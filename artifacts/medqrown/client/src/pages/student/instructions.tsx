@@ -9,7 +9,7 @@ import {
   HelpCircle, CheckCircle2, ArrowRight, Ban
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
-import medqrownIcon from "@/assets/medqrown-icon.png";
+import { MedQrownBrand } from "@/components/MedQrownBrand";
 
 function formatSeconds(secs: number): string {
   if (secs >= 3600) {
@@ -137,7 +137,7 @@ export default function StudentInstructions() {
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex flex-col">
       <div className="flex-1 flex flex-col items-center justify-start px-4 py-8 sm:py-12">
 
-        <img src={medqrownIcon} alt="MedQrown" className="h-28 w-28 mx-auto mb-3 object-contain" />
+        <MedQrownBrand size="lg" />
 
         <div className="w-full max-w-lg space-y-5">
 

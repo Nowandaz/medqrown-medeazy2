@@ -13,8 +13,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { MedQrownBrand } from "@/components/MedQrownBrand";
 import { ArrowLeft, Brain, Mail, Users, Shield, Plus, Trash2, Save, Pencil, FlaskConical, CheckCircle, XCircle, Loader2, Building2 } from "lucide-react";
-import medqrownIcon from "@/assets/medqrown-icon.png";
 
 export default function AdminSettings() {
   const [, setLocation] = useLocation();
@@ -35,7 +35,7 @@ export default function AdminSettings() {
     <div className="min-h-screen bg-gradient-to-b from-background to-primary/3">
       <header className="border-b bg-card/80 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
-          <img src={medqrownIcon} alt="MedQrown" className="h-8 w-8 object-contain" /><Link href="/admin/dashboard">
+          <MedQrownBrand size="sm" /><Link href="/admin/dashboard">
             <Button variant="ghost" size="icon"><ArrowLeft className="w-4 h-4" /></Button>
           </Link>
           <h1 className="text-lg font-bold flex-1">Settings</h1>

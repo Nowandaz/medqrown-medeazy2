@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Eye, EyeOff, LogIn } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
-import medqrownIcon from "@/assets/medqrown-icon.png";
+import { MedQrownBrand } from "@/components/MedQrownBrand";
 
 export default function AdminLogin() {
   const [email, setEmail] = useState("");
@@ -38,9 +38,8 @@ export default function AdminLogin() {
       <div className="flex-1 flex items-center justify-center px-4 pb-8">
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
-            <img src={medqrownIcon} alt="MedQrown" className="h-28 w-28 mx-auto mb-3 object-contain" />
-            <h1 className="text-2xl font-bold tracking-tight" data-testid="text-title">MedQrown MedEazy</h1>
-            <p className="text-muted-foreground mt-1 text-sm">Admin Portal</p>
+            <MedQrownBrand size="lg" />
+            <h1 className="text-2xl font-bold tracking-tight mt-5" data-testid="text-title">Admin Portal</h1>
           </div>
 
           <Card className="border-primary/10 shadow-lg">

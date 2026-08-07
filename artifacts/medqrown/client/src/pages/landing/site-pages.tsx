@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, ArrowLeft, Building2, CheckCircle2, Mail, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiRequest } from "@/lib/queryClient";
-import medqrownIcon from "@/assets/medqrown-icon.png";
+import { MedQrownBrand } from "@/components/MedQrownBrand";
 
 // ─── Shared shell ─────────────────────────────────────────────────────────────
 
@@ -14,10 +14,7 @@ function SitePageShell({ children, title, subtitle }: { children: React.ReactNod
     <div className="min-h-screen bg-background flex flex-col">
       <header className="px-4 sm:px-6 py-4 flex items-center justify-between border-b border-border/40 bg-background/80 backdrop-blur-sm sticky top-0 z-40">
         <Link href="/" className="flex items-center gap-2 group">
-          <img src={medqrownIcon} alt="MedQrown" className="h-8 w-8 object-contain" />
-          <span className="font-bold text-foreground text-sm leading-none">
-            MedQrown <span className="text-primary">MedEazy</span>
-          </span>
+          <MedQrownBrand size="sm" />
         </Link>
         <Link
           href="/"

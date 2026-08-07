@@ -219,6 +219,17 @@ export const demoQuestions = pgTable("demo_questions", {
   orderIndex: integer("order_index").notNull().default(0),
 });
 
+export const demoEngagementEvents = pgTable("demo_engagement_events", {
+  id: serial("id").primaryKey(),
+  demoExamId: integer("demo_exam_id").notNull().references(() => demoExams.id, { onDelete: "cascade" }),
+  questionId: integer("question_id").references(() => demoQuestions.id, { onDelete: "set null" }),
+  eventType: text("event_type").notNull(), // started | mcq_answered | saq_started | saq_submitted | completed
+  sessionId: text("session_id").notNull(),
+  isCorrect: boolean("is_correct"),
+  responseLength: integer("response_length"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
 export const insertUniversitySchema = createInsertSchema(universities).omit({ id: true, createdAt: true });
 export const insertAdminSchema = createInsertSchema(admins).omit({ id: true, createdAt: true });
 export const insertExamSchema = createInsertSchema(exams).omit({ id: true, createdAt: true });
@@ -266,6 +277,7 @@ export const insertStudentSignupSchema = createInsertSchema(studentSignups).omit
 export type InsertStudentSignup = z.infer<typeof insertStudentSignupSchema>;
 export type DemoExam = typeof demoExams.$inferSelect;
 export type DemoQuestion = typeof demoQuestions.$inferSelect;
+export type DemoEngagementEvent = typeof demoEngagementEvents.$inferSelect;
 
 // ── Site content (landing page CMS) ──────────────────────────────────────────
 export const siteSettings = pgTable("site_settings", {

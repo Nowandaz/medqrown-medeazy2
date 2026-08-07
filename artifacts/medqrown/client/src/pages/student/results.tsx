@@ -14,7 +14,7 @@ import {
   Trophy, CheckCircle, XCircle, Clock, LogOut, MessageSquare,
   Star, Award, ImageIcon, TrendingUp, TrendingDown, Printer, Loader2
 } from "lucide-react";
-import medqrownIcon from "@/assets/medqrown-icon.png";
+import { MedQrownBrand } from "@/components/MedQrownBrand";
 
 export default function StudentResults() {
   const [, setLocation] = useLocation();
@@ -82,9 +82,8 @@ export default function StudentResults() {
         <header className="border-b bg-card/80 backdrop-blur-sm">
           <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <img src={medqrownIcon} alt="MedQrown" className="h-8 w-8 object-contain" />
               <div>
-                <h1 className="text-lg font-semibold" data-testid="text-title">MedQrown MedEazy</h1>
+                <MedQrownBrand size="sm" />
                 <p className="text-xs text-muted-foreground">Welcome, {session?.studentName}</p>
               </div>
             </div>
@@ -124,9 +123,8 @@ export default function StudentResults() {
       <header className="border-b bg-card/80 backdrop-blur-sm print:hidden">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <img src={medqrownIcon} alt="MedQrown" className="h-8 w-8 object-contain" />
             <div>
-              <h1 className="text-lg font-semibold" data-testid="text-title">MedQrown MedEazy</h1>
+              <MedQrownBrand size="sm" />
               <p className="text-xs text-muted-foreground">Welcome, {session?.studentName}</p>
             </div>
           </div>
@@ -147,9 +145,8 @@ export default function StudentResults() {
 
       <div className="hidden print:block print:mb-6 print:border-b print:pb-4">
         <div className="max-w-3xl mx-auto px-4 flex items-center gap-3">
-          <img src={medqrownIcon} alt="MedQrown" className="h-8 w-8 object-contain" />
           <div>
-            <h1 className="text-xl font-bold">MedQrown MedEazy</h1>
+            <MedQrownBrand size="sm" />
             <p className="text-sm text-muted-foreground">Student: {session?.studentName}</p>
           </div>
         </div>

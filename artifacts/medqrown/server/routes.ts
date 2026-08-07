@@ -64,6 +64,16 @@ export async function registerRoutes(
         explanation TEXT,
         order_index INTEGER NOT NULL DEFAULT 0
       );
+      CREATE TABLE IF NOT EXISTS demo_engagement_events (
+        id SERIAL PRIMARY KEY,
+        demo_exam_id INTEGER NOT NULL REFERENCES demo_exams(id) ON DELETE CASCADE,
+        question_id INTEGER REFERENCES demo_questions(id) ON DELETE SET NULL,
+        event_type TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        is_correct BOOLEAN,
+        response_length INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS site_settings (
         key TEXT PRIMARY KEY,
         value JSONB
@@ -1814,6 +1824,56 @@ export async function registerRoutes(
     }
   });
 
+  const engagementHits = new Map<string, { count: number; windowStart: number }>();
+  app.post("/api/demo/engagement", async (req, res) => {
+    try {
+      const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "unknown";
+      const now = Date.now();
+      const hit = engagementHits.get(ip);
+      if (!hit || now - hit.windowStart > 60 * 60 * 1000) {
+        engagementHits.set(ip, { count: 1, windowStart: now });
+      } else if (++hit.count > 120) {
+        return res.status(429).json({ message: "Too many events" });
+      }
+      if (engagementHits.size > 10000) engagementHits.clear();
+
+      const { examId, questionId, eventType, sessionId, optionIndex, responseLength } = req.body || {};
+      const allowedEvents = new Set(["started", "mcq_answered", "saq_started", "saq_submitted", "completed"]);
+      const exam = Number(examId);
+      if (!Number.isInteger(exam) || !allowedEvents.has(eventType) || typeof sessionId !== "string" || !/^[a-zA-Z0-9_-]{8,80}$/.test(sessionId)) {
+        return res.status(400).json({ message: "Invalid engagement event" });
+      }
+      const demoExam = await storage.getDemoExam(exam);
+      if (!demoExam?.isActive) return res.status(404).json({ message: "Demo exam not found" });
+
+      let validQuestionId: number | null = null;
+      let isCorrect: boolean | null = null;
+      if (questionId !== undefined && questionId !== null) {
+        const parsedQuestionId = Number(questionId);
+        if (!Number.isInteger(parsedQuestionId)) return res.status(400).json({ message: "Invalid question" });
+        const question = (await storage.getDemoQuestions(exam)).find((q) => q.id === parsedQuestionId);
+        if (!question) return res.status(400).json({ message: "Invalid question" });
+        validQuestionId = question.id;
+        if (eventType === "mcq_answered") {
+          const selected = Number(optionIndex);
+          isCorrect = Number.isInteger(selected) && !!question.options?.[selected]?.isCorrect;
+        }
+      }
+      const safeLength = responseLength === undefined ? null : Math.max(0, Math.min(10000, Number(responseLength) || 0));
+      await storage.recordDemoEngagement({
+        demoExamId: exam,
+        questionId: validQuestionId,
+        eventType,
+        sessionId,
+        isCorrect,
+        responseLength: safeLength,
+      });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Site content: public routes ───────────────────────────────────────────
   app.get("/api/site-content", async (_req, res) => {
     try {
@@ -2046,6 +2106,14 @@ export async function registerRoutes(
   app.get("/api/admin/demo-exams/:id/questions", requireAdmin, async (req, res) => {
     try {
       res.json(await storage.getDemoQuestions(parseInt(req.params.id)));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/demo-engagement", requireAdmin, async (_req, res) => {
+    try {
+      res.json(await storage.getDemoEngagementSummary());
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

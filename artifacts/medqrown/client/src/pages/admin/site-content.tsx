@@ -14,7 +14,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { useUpload } from "@/hooks/use-upload";
 import {
   ArrowLeft, Plus, Trash2, Save, Image as ImageIcon, Film, FileText,
-  HelpCircle, Inbox, Upload, Mail, CheckCircle, Loader2,
+  HelpCircle, Inbox, Upload, Mail, CheckCircle, Loader2, BarChart3,
 } from "lucide-react";
 
 type FaqItem = { id: number; question: string; answer: string; orderIndex: number; isActive: boolean };
@@ -22,13 +22,144 @@ type Inquiry = {
   id: number; name: string; email: string; institution: string;
   message?: string | null; isRead: boolean; createdAt: string;
 };
+type EngagementSummary = {
+  exams: {
+    id: number; title: string; starts: number; mcqAnswered: number;
+    mcqCorrect: number; saqStarted: number; saqSubmitted: number; completions: number;
+  }[];
+  questions: {
+    id: number; examId: number; examTitle: string; type: string; content: string;
+    answered: number; correct: number; submitted: number;
+  }[];
+};
 
 const TABS = [
   { id: "media", label: "Demo Media", icon: Film },
+  { id: "engagement", label: "Engagement", icon: BarChart3 },
   { id: "pages", label: "Legal Pages", icon: FileText },
   { id: "faq", label: "FAQ", icon: HelpCircle },
   { id: "inquiries", label: "Inquiries", icon: Inbox },
 ] as const;
+
+function Metric({ label, value, hint }: { label: string; value: number | string; hint?: string }) {
+  return (
+    <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
+      <p className="text-muted-foreground text-[11px] font-semibold uppercase tracking-wider">{label}</p>
+      <p className="text-2xl font-black text-foreground mt-1">{value}</p>
+      {hint && <p className="text-muted-foreground text-[11px] mt-1">{hint}</p>}
+    </div>
+  );
+}
+
+function EngagementTab() {
+  const { data, isLoading, isError } = useQuery<EngagementSummary>({
+    queryKey: ["/api/admin/demo-engagement"],
+    refetchOnMount: "always",
+  });
+
+  if (isLoading) return <p className="text-muted-foreground text-sm py-8">Loading engagement…</p>;
+  if (isError || !data) {
+    return <p className="text-destructive text-sm py-8">Could not load engagement data. Please refresh.</p>;
+  }
+
+  const totals = data.exams.reduce(
+    (acc, exam) => ({
+      starts: acc.starts + exam.starts,
+      mcqAnswered: acc.mcqAnswered + exam.mcqAnswered,
+      mcqCorrect: acc.mcqCorrect + exam.mcqCorrect,
+      saqSubmitted: acc.saqSubmitted + exam.saqSubmitted,
+      completions: acc.completions + exam.completions,
+    }),
+    { starts: 0, mcqAnswered: 0, mcqCorrect: 0, saqSubmitted: 0, completions: 0 },
+  );
+  const completionRate = totals.starts ? Math.round((totals.completions / totals.starts) * 100) : 0;
+  const mcqAccuracy = totals.mcqAnswered ? Math.round((totals.mcqCorrect / totals.mcqAnswered) * 100) : 0;
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-black text-foreground">Demo Engagement</h2>
+        <p className="text-muted-foreground text-sm mt-1">
+          Anonymous activity from the public demo — starts, answers, drop-off, and question performance.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <Metric label="Demo starts" value={totals.starts} />
+        <Metric label="Completions" value={totals.completions} hint={`${completionRate}% of starts`} />
+        <Metric label="MCQ answers" value={totals.mcqAnswered} />
+        <Metric label="MCQ accuracy" value={`${mcqAccuracy}%`} />
+        <Metric label="SAQ submissions" value={totals.saqSubmitted} />
+      </div>
+
+      {data.exams.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-border text-center py-14">
+          <BarChart3 className="w-9 h-9 text-muted-foreground/30 mx-auto mb-3" />
+          <p className="text-muted-foreground text-sm">No demo subjects yet.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">By subject</h3>
+          {data.exams.map((exam) => {
+            const rate = exam.starts ? Math.round((exam.completions / exam.starts) * 100) : 0;
+            const accuracy = exam.mcqAnswered ? Math.round((exam.mcqCorrect / exam.mcqAnswered) * 100) : 0;
+            return (
+              <Card key={exam.id}>
+                <CardContent className="p-4 sm:p-5">
+                  <div className="flex items-center justify-between gap-3 mb-4">
+                    <h4 className="font-bold text-foreground">{exam.title}</h4>
+                    <Badge variant={exam.starts ? "default" : "secondary"} className="text-[10px]">
+                      {exam.starts ? `${rate}% completion` : "No activity"}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
+                    <div><span className="text-muted-foreground block text-xs">Starts</span><strong>{exam.starts}</strong></div>
+                    <div><span className="text-muted-foreground block text-xs">MCQ answered</span><strong>{exam.mcqAnswered}</strong></div>
+                    <div><span className="text-muted-foreground block text-xs">MCQ accuracy</span><strong>{accuracy}%</strong></div>
+                    <div><span className="text-muted-foreground block text-xs">SAQ submitted</span><strong>{exam.saqSubmitted}</strong></div>
+                    <div><span className="text-muted-foreground block text-xs">Completed</span><strong>{exam.completions}</strong></div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {data.questions.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Question engagement</h3>
+          {data.questions.map((question) => {
+            const answerRate = question.type === "mcq" ? question.answered : question.submitted;
+            const performance = question.type === "mcq" && question.answered
+              ? `${Math.round((question.correct / question.answered) * 100)}% correct`
+              : question.type === "saq" ? `${question.submitted} submitted` : "No answers";
+            return (
+              <div key={question.id} className="rounded-xl border border-border/70 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge variant="outline" className="text-[10px] uppercase">{question.type}</Badge>
+                      <span className="text-muted-foreground text-[11px]">{question.examTitle}</span>
+                    </div>
+                    <p className="text-sm font-medium text-foreground line-clamp-2">{question.content}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-bold text-foreground">{answerRate}</p>
+                    <p className="text-[11px] text-muted-foreground">{performance}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="text-muted-foreground/70 text-xs">
+        Counts are anonymous and intended as a basic signal of demo interest, not a measure of individual student performance.
+      </p>
+    </div>
+  );
+}
 
 // ─── Demo media & photo text tab ──────────────────────────────────────────────
 
@@ -487,6 +618,7 @@ export default function AdminSiteContent() {
         </div>
 
         {tab === "media" && <MediaTab />}
+        {tab === "engagement" && <EngagementTab />}
         {tab === "pages" && <PagesTab />}
         {tab === "faq" && <FaqTab />}
         {tab === "inquiries" && <InquiriesTab />}
