@@ -137,7 +137,7 @@ export default function StudentInstructions() {
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex flex-col">
       <div className="flex-1 flex flex-col items-center justify-start px-4 py-8 sm:py-12">
 
-        <MedQrownBrand size="lg" />
+        <MedQrownBrand size="lg" layout="stacked" />
 
         <div className="w-full max-w-lg space-y-5">
 

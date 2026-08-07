@@ -38,7 +38,7 @@ export default function AdminLogin() {
       <div className="flex-1 flex items-center justify-center px-4 pb-8">
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
-            <MedQrownBrand size="lg" />
+            <MedQrownBrand size="lg" layout="stacked" />
             <h1 className="text-2xl font-bold tracking-tight mt-5" data-testid="text-title">Admin Portal</h1>
           </div>
 

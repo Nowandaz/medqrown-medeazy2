@@ -432,12 +432,7 @@ function HeroSection() {
           transition={{ duration: 0.5 }}
           className="flex flex-col items-center mb-8 gap-3"
         >
-          <img
-            src={medqrownIcon}
-            alt="MedQrown"
-            className="h-20 w-20 sm:h-28 sm:w-28 object-contain drop-shadow-lg"
-          />
-          <MedQrownBrand size="lg" />
+          <MedQrownBrand size="lg" layout="stacked" />
         </motion.div>
 
         {/* Headline */}

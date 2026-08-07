@@ -53,7 +53,7 @@ export default function StudentAwaiting() {
       <div className="flex-1 flex items-center justify-center px-4 pb-8">
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
-            <MedQrownBrand size="lg" />
+            <MedQrownBrand size="lg" layout="stacked" />
             <p className="text-muted-foreground mt-1 text-sm">Student Portal</p>
           </div>
 
