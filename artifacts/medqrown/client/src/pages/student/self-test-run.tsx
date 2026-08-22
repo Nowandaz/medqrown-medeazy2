@@ -83,18 +83,19 @@ export default function StudentSelfTestRun() {
     }
   };
 
-  const handleNext = async () => {
+  const handleNext = async (answerOverride?: string) => {
     if (advancingRef.current || !attemptData?.question) return;
     advancingRef.current = true;
     setAdvancing(true);
     setSaving(true);
     
     try {
-      if (answer !== attemptData.question.savedAnswer) {
+      const answerToSave = answerOverride ?? answer;
+      if (answerToSave !== attemptData.question.savedAnswer) {
         await saveMutation.mutateAsync({
           attemptId: attemptData.attemptId,
           questionId: attemptData.question.id,
-          answer
+          answer: answerToSave
         });
       }
       
@@ -107,7 +108,7 @@ export default function StudentSelfTestRun() {
     } catch (e: any) {
       const err = await e.json?.().catch(() => ({}));
       if (err?.isLastQuestion) {
-        await submitExam();
+        await submitExam(answerOverride);
       } else if (!err?.staleRequest) {
         toast({ title: "Error loading next question", variant: "destructive" });
       }
@@ -118,19 +119,20 @@ export default function StudentSelfTestRun() {
     }
   };
 
-  const submitExam = async () => {
+  const submitExam = async (answerOverride?: string) => {
     if (submittingRef.current || !attemptData?.question) return;
     submittingRef.current = true;
     setSubmitting(true);
     setSaving(true);
     
     try {
-      if (answer !== attemptData.question.savedAnswer) {
+      const answerToSave = answerOverride ?? answer;
+      if (answerToSave !== attemptData.question.savedAnswer) {
         try {
           await saveMutation.mutateAsync({
             attemptId: attemptData.attemptId,
             questionId: attemptData.question.id,
-            answer
+            answer: answerToSave
           });
         } catch (error) {
           if (!String(error).includes("TIME_LIMIT_EXPIRED")) throw error;
@@ -222,7 +224,15 @@ export default function StudentSelfTestRun() {
 
                 <div className="pt-2">
                   {q.type === "mcq" ? (
-                    <RadioGroup value={answer} onValueChange={setAnswer}>
+                    <RadioGroup value={answer} onValueChange={(value) => {
+                      // MCQs lock on the first selection and auto-progress by product requirement;
+                      // SAQs keep the explicit navigation control below.
+                      setAnswer(value);
+                      if (!advancingRef.current && !submittingRef.current) {
+                        if (isLastQuestion) submitExam(value);
+                        else handleNext(value);
+                      }
+                    }}>
                       <div className="space-y-2">
                         {q.options?.map((opt: any, i: number) => (
                           <label
@@ -263,9 +273,9 @@ export default function StudentSelfTestRun() {
                 {saving && "Saving answer..."}
               </p>
               <div className="flex items-center gap-2">
-                {isLastQuestion ? (
+                {isLastQuestion && q.type !== "mcq" ? (
                   <Button
-                    onClick={submitExam}
+                    onClick={() => submitExam()}
                     disabled={submitting || advancing}
                     size="lg"
                     className="shadow-sm"
@@ -273,9 +283,9 @@ export default function StudentSelfTestRun() {
                     {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
                     {submitting ? "Submitting..." : "Submit Test"}
                   </Button>
-                ) : (
+                ) : !isLastQuestion && q.type !== "mcq" ? (
                   <Button
-                    onClick={handleNext}
+                    onClick={() => handleNext()}
                     disabled={advancing || submitting}
                     size="lg"
                     className="shadow-sm"
@@ -286,7 +296,7 @@ export default function StudentSelfTestRun() {
                       <>Next Question <ChevronRight className="w-4 h-4 ml-1" /></>
                     )}
                   </Button>
-                )}
+                ) : null}
               </div>
             </div>
 

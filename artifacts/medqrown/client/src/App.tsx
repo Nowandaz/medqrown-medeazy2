@@ -39,6 +39,9 @@ import StudentStats from "@/pages/student/stats";
 import StudentSelfTests from "@/pages/student/self-tests";
 import StudentSelfTestRun from "@/pages/student/self-test-run";
 import StudentSelfTestResults from "@/pages/student/self-test-results";
+import StudentLiveRooms from "@/pages/student/live-rooms";
+import StudentLiveRoom from "@/pages/student/live-room";
+import LiveQuizShare from "@/pages/student/live-quiz-share";
 
 function StudentRoutes() {
   return (
@@ -51,6 +54,7 @@ function StudentRoutes() {
         <Route path="/student/past-exams/:id" component={StudentPastExamDetail} />
         <Route path="/student/stats" component={StudentStats} />
         <Route path="/student/self-tests" component={StudentSelfTests} />
+        <Route path="/student/live-rooms" component={StudentLiveRooms} />
         <Route path="/student/profile" component={StudentProfile} />
         <Route component={NotFound} />
       </Switch>
@@ -85,6 +89,8 @@ function Router() {
       <Route path="/student/results" component={StudentResults} />
       <Route path="/student/self-tests/:id/run" component={StudentSelfTestRun} />
       <Route path="/student/self-tests/:id/results" component={StudentSelfTestResults} />
+       <Route path="/student/live-rooms/:id" component={StudentLiveRoom} />
+       <Route path="/student/live-rooms/share/:token" component={LiveQuizShare} />
       
       {/* Nested Shell Routes */}
       <Route path="/student/dashboard" component={StudentRoutes} />
@@ -94,6 +100,7 @@ function Router() {
       <Route path="/student/past-exams/:id" component={StudentRoutes} />
       <Route path="/student/stats" component={StudentRoutes} />
       <Route path="/student/self-tests" component={StudentRoutes} />
+       <Route path="/student/live-rooms" component={StudentRoutes} />
       <Route path="/student/profile" component={StudentRoutes} />
       
       <Route component={NotFound} />

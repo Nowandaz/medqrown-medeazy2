@@ -504,6 +504,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
     { content: "", isCorrect: false },
     { content: "", isCorrect: false },
     { content: "", isCorrect: false },
+    { content: "", isCorrect: false },
   ]);
   const [imageUrl, setImageUrl] = useState("");
   const [imageCaption, setImageCaption] = useState("");
@@ -681,6 +682,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
       { content: "", isCorrect: false },
       { content: "", isCorrect: false },
       { content: "", isCorrect: false },
+      { content: "", isCorrect: false },
     ]);
   }
 
@@ -690,7 +692,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
     "type": "mcq",
     "question": "Which organ produces insulin?",
     "marks": 1,
-    "options": { "A": "Liver", "B": "Pancreas", "C": "Kidney", "D": "Spleen" },
+    "options": { "A": "Liver", "B": "Pancreas", "C": "Kidney", "D": "Spleen", "E": "Heart" },
     "answer": "B",
     "explanation": "The pancreas contains islets of Langerhans which produce insulin.",
     "imageDescription": null

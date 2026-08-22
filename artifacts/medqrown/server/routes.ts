@@ -5,12 +5,13 @@ import { storage } from "./storage";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
-import { generateSelfTestQuestions, markSAQResponses, markSingleResponse, markStudentSAQResponses } from "./ai-orchestrator";
+import { generateSelfTestQuestions, generateLiveQuizQuestions, markSAQResponses, markSingleResponse, markStudentSAQResponses } from "./ai-orchestrator";
 import { enqueueMarking } from "./marking-queue";
 import { getExamStructure, invalidateExamCache } from "./exam-cache";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { listBucketObjects, deleteSupabaseStorageObjects, urlForObjectPath } from "./supabase-storage";
 import { pool } from "./db";
+import { broadcastLiveQuiz, issueLiveQuizTicket } from "./live-quiz";
 
 const TEXT_LIMITS = {
   email: 254,
@@ -147,6 +148,98 @@ export async function registerRoutes(
         message TEXT,
         is_read BOOLEAN NOT NULL DEFAULT false,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS live_quiz_rooms (
+        id SERIAL PRIMARY KEY,
+        room_code VARCHAR(12) NOT NULL UNIQUE,
+        host_student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+        unit_id INTEGER REFERENCES units(id) ON DELETE SET NULL,
+        topic TEXT NOT NULL,
+        difficulty TEXT NOT NULL DEFAULT 'mixed',
+        content_style TEXT NOT NULL DEFAULT 'clinical',
+        question_count INTEGER NOT NULL DEFAULT 5,
+        per_question_seconds INTEGER NOT NULL DEFAULT 30,
+        status TEXT NOT NULL DEFAULT 'generating',
+        generation_error TEXT,
+        current_question_index INTEGER NOT NULL DEFAULT -1,
+        question_started_at TIMESTAMP,
+        expires_at TIMESTAMP NOT NULL,
+        started_at TIMESTAMP,
+        finished_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
+      ALTER TABLE live_quiz_rooms ADD COLUMN IF NOT EXISTS invite_token VARCHAR(96);
+      ALTER TABLE live_quiz_rooms ALTER COLUMN room_code TYPE VARCHAR(12);
+      CREATE UNIQUE INDEX IF NOT EXISTS live_quiz_rooms_invite_token_unique
+        ON live_quiz_rooms(invite_token) WHERE invite_token IS NOT NULL;
+      CREATE TABLE IF NOT EXISTS live_quiz_members (
+        id SERIAL PRIMARY KEY,
+        room_id INTEGER NOT NULL REFERENCES live_quiz_rooms(id) ON DELETE CASCADE,
+        student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+        role TEXT NOT NULL DEFAULT 'player',
+        status TEXT NOT NULL DEFAULT 'joined',
+        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        left_at TIMESTAMP,
+        UNIQUE(room_id, student_id)
+      );
+      CREATE TABLE IF NOT EXISTS live_quiz_questions (
+        id SERIAL PRIMARY KEY,
+        room_id INTEGER NOT NULL REFERENCES live_quiz_rooms(id) ON DELETE CASCADE,
+        content TEXT NOT NULL,
+        options JSONB NOT NULL,
+        correct_option_index INTEGER NOT NULL CHECK (correct_option_index BETWEEN 0 AND 4),
+        explanation TEXT,
+        order_index INTEGER NOT NULL,
+        UNIQUE(room_id, order_index)
+      );
+      CREATE TABLE IF NOT EXISTS live_quiz_answers (
+        id SERIAL PRIMARY KEY,
+        room_id INTEGER NOT NULL REFERENCES live_quiz_rooms(id) ON DELETE CASCADE,
+        member_id INTEGER NOT NULL REFERENCES live_quiz_members(id) ON DELETE CASCADE,
+        question_id INTEGER NOT NULL REFERENCES live_quiz_questions(id) ON DELETE CASCADE,
+        selected_option_index INTEGER,
+        is_correct BOOLEAN NOT NULL,
+        points INTEGER NOT NULL DEFAULT 0,
+        response_ms INTEGER,
+        answered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        UNIQUE(member_id, question_id)
+      );
+      CREATE TABLE IF NOT EXISTS live_quiz_events (
+        id SERIAL PRIMARY KEY,
+        room_id INTEGER NOT NULL REFERENCES live_quiz_rooms(id) ON DELETE CASCADE,
+        member_id INTEGER REFERENCES live_quiz_members(id) ON DELETE SET NULL,
+        event_type TEXT NOT NULL,
+        payload JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS live_quiz_leaderboard (
+        id SERIAL PRIMARY KEY,
+        room_id INTEGER NOT NULL REFERENCES live_quiz_rooms(id) ON DELETE CASCADE,
+        member_id INTEGER NOT NULL REFERENCES live_quiz_members(id) ON DELETE CASCADE,
+        score INTEGER NOT NULL DEFAULT 0,
+        correct_count INTEGER NOT NULL DEFAULT 0,
+        answer_count INTEGER NOT NULL DEFAULT 0,
+        rank INTEGER,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        UNIQUE(room_id, member_id)
+      );
+      CREATE TABLE IF NOT EXISTS live_quiz_shares (
+        id SERIAL PRIMARY KEY,
+        room_id INTEGER NOT NULL REFERENCES live_quiz_rooms(id) ON DELETE CASCADE,
+        member_id INTEGER REFERENCES live_quiz_members(id) ON DELETE SET NULL,
+        token VARCHAR(96) NOT NULL UNIQUE,
+        kind TEXT NOT NULL DEFAULT 'score',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        expires_at TIMESTAMP NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS live_quiz_matches (
+        id SERIAL PRIMARY KEY,
+        room_id INTEGER NOT NULL UNIQUE REFERENCES live_quiz_rooms(id) ON DELETE CASCADE,
+        unit_id INTEGER REFERENCES units(id) ON DELETE SET NULL,
+        participant_count INTEGER NOT NULL DEFAULT 0,
+        winner_student_id INTEGER REFERENCES students(id) ON DELETE SET NULL,
+        finished_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
       );
     `);
   } catch (err: any) {
@@ -452,6 +545,13 @@ export async function registerRoutes(
   app.post("/api/exams/:examId/questions", requireAdmin, async (req, res) => {
     const examId = parseInt(req.params.examId);
     const { type, content, marks, expectedAnswer, explanation, imageUrl, imageCaption, hasSubquestions, options, subquestions: subs } = req.body;
+    // Historical four-choice records remain valid; only newly authored MCQs are
+    // constrained to five choices.
+    if (type === "mcq" && (!Array.isArray(options) || options.length !== 5 ||
+      options.some((option: any) => !String(option?.content || "").trim()) ||
+      options.filter((option: any) => option?.isCorrect).length !== 1)) {
+      return res.status(400).json({ message: "New MCQs must have exactly five non-empty choices and one correct answer" });
+    }
     const existingQs = await storage.getQuestionsByExam(examId);
     const orderIndex = existingQs.length;
     const question = await storage.createQuestion({
@@ -514,8 +614,8 @@ export async function registerRoutes(
             return res.status(400).json({ message: `Question ${num}: MCQ "options" must be an object e.g. { "A": "...", "B": "..." }` });
           }
           const optionKeys = Object.keys(item.options);
-          if (optionKeys.length < 2) {
-            return res.status(400).json({ message: `Question ${num}: at least 2 options required` });
+          if (optionKeys.length !== 5) {
+            return res.status(400).json({ message: `Question ${num}: new MCQs must have exactly 5 options` });
           }
           const answerKey = String(item.answer ?? "").trim().toUpperCase();
           if (!answerKey || !item.options[answerKey]) {
@@ -1388,6 +1488,593 @@ export async function registerRoutes(
     });
   });
 
+  // ── Live AI quiz rooms ─────────────────────────────────────────────────────
+  const liveRoomCode = () => {
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    return Array.from(crypto.randomBytes(12), (byte) => alphabet[byte & 31]).join("");
+  };
+
+  const refreshLiveRanks = async (roomId: number, client: any = pool) => {
+    await client.query(
+      `WITH ranked AS (
+        SELECT id, RANK() OVER (ORDER BY score DESC, correct_count DESC, updated_at ASC) AS new_rank
+          FROM live_quiz_leaderboard WHERE room_id = $1
+      ) UPDATE live_quiz_leaderboard l SET rank = ranked.new_rank, updated_at = CURRENT_TIMESTAMP
+        FROM ranked WHERE l.id = ranked.id`,
+      [roomId],
+    );
+  };
+
+  const finishLiveRoom = async (roomId: number, client: any = pool) => {
+    await refreshLiveRanks(roomId, client);
+    const { rows: leaderRows } = await client.query(
+      `SELECT m.student_id FROM live_quiz_leaderboard l
+         JOIN live_quiz_members m ON m.id = l.member_id
+        WHERE l.room_id = $1 ORDER BY l.rank NULLS LAST, l.id LIMIT 1`,
+      [roomId],
+    );
+    const { rows: memberRows } = await client.query(
+      "SELECT COUNT(*)::int AS count FROM live_quiz_members WHERE room_id = $1 AND status = 'joined'",
+      [roomId],
+    );
+    const { rows: roomRows } = await client.query(
+      `UPDATE live_quiz_rooms SET status = 'finished', finished_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND status = 'running' RETURNING unit_id`,
+      [roomId],
+    );
+    if (roomRows[0]) {
+      await client.query(
+        `INSERT INTO live_quiz_matches (room_id, unit_id, participant_count, winner_student_id)
+         VALUES ($1, $2, $3, $4) ON CONFLICT (room_id) DO NOTHING`,
+        [roomId, roomRows[0].unit_id, memberRows[0]?.count || 0, leaderRows[0]?.student_id || null],
+      );
+      await client.query(
+        "INSERT INTO live_quiz_events (room_id, event_type, payload) VALUES ($1, 'finished', '{}'::jsonb)",
+        [roomId],
+      );
+    }
+    return Boolean(roomRows[0]);
+  };
+
+  const advanceLiveRoomIfNeeded = async (roomId: number) => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows: rooms } = await client.query("SELECT * FROM live_quiz_rooms WHERE id = $1 FOR UPDATE", [roomId]);
+      const room = rooms[0];
+      if (!room || room.status !== "running") {
+        await client.query("COMMIT");
+        return false;
+      }
+      const { rows: questions } = await client.query(
+        "SELECT id FROM live_quiz_questions WHERE room_id = $1 AND order_index = $2",
+        [roomId, room.current_question_index],
+      );
+      const question = questions[0];
+      if (!question) {
+        const finished = await finishLiveRoom(roomId, client);
+        await client.query("COMMIT");
+        return finished;
+      }
+      const [{ rows: memberRows }, { rows: answerRows }] = await Promise.all([
+        client.query("SELECT COUNT(*)::int AS count FROM live_quiz_members WHERE room_id = $1 AND status = 'joined'", [roomId]),
+        client.query("SELECT COUNT(*)::int AS count FROM live_quiz_answers WHERE question_id = $1", [question.id]),
+      ]);
+      const elapsed = room.question_started_at
+        ? Date.now() - new Date(room.question_started_at).getTime()
+        : 0;
+      const shouldAdvance = elapsed >= room.per_question_seconds * 1000 ||
+        (memberRows[0]?.count > 0 && answerRows[0]?.count >= memberRows[0].count);
+      if (!shouldAdvance) {
+        await client.query("COMMIT");
+        return false;
+      }
+      if (room.current_question_index + 1 >= room.question_count) {
+        const finished = await finishLiveRoom(roomId, client);
+        await client.query("COMMIT");
+        return finished;
+      }
+      await client.query(
+        `UPDATE live_quiz_rooms SET current_question_index = current_question_index + 1,
+          question_started_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [roomId],
+      );
+      await client.query(
+        "INSERT INTO live_quiz_events (room_id, event_type, payload) VALUES ($1, 'question_advanced', '{}'::jsonb)",
+        [roomId],
+      );
+      await client.query("COMMIT");
+      return true;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+
+  const expireLiveRoomIfNeeded = async (roomId: number) => {
+    const { rowCount } = await pool.query(
+      `UPDATE live_quiz_rooms SET status = 'expired'
+        WHERE id = $1 AND status IN ('generating', 'ready') AND expires_at <= CURRENT_TIMESTAMP`,
+      [roomId],
+    );
+    return Boolean(rowCount);
+  };
+
+  const buildLiveRoomPayload = async (roomId: number, studentId: number) => {
+    // A host who simply closes their browser should not leave a live room
+    // running indefinitely. Their normal room poll refreshes last_seen_at, so
+    // active hosts are unaffected; players see a clear closed state instead.
+    const { rowCount: abandonedHost } = await pool.query(
+      `UPDATE live_quiz_rooms r SET status = 'closed', finished_at = CURRENT_TIMESTAMP
+        WHERE r.id = $1 AND r.status IN ('ready', 'running') AND EXISTS (
+          SELECT 1 FROM live_quiz_members m
+           WHERE m.room_id = r.id AND m.student_id = r.host_student_id
+             AND m.last_seen_at < CURRENT_TIMESTAMP - INTERVAL '2 minutes'
+        )`,
+      [roomId],
+    );
+    if (abandonedHost) broadcastLiveQuiz(roomId, { type: "room_updated" });
+    await expireLiveRoomIfNeeded(roomId);
+    const advanced = await advanceLiveRoomIfNeeded(roomId);
+    if (advanced) broadcastLiveQuiz(roomId, { type: "room_updated" });
+    const { rows: rooms } = await pool.query(
+      `SELECT r.*, u.name AS "unitName", u.code AS "unitCode", s.name AS "hostName"
+         FROM live_quiz_rooms r
+         LEFT JOIN units u ON u.id = r.unit_id JOIN students s ON s.id = r.host_student_id
+        WHERE r.id = $1`,
+      [roomId],
+    );
+    const room = rooms[0];
+    if (!room) return null;
+    const { rows: membershipRows } = await pool.query(
+      "SELECT * FROM live_quiz_members WHERE room_id = $1 AND student_id = $2",
+      [roomId, studentId],
+    );
+    const membership = membershipRows[0];
+    if (!membership) return { forbidden: true };
+    await pool.query("UPDATE live_quiz_members SET last_seen_at = CURRENT_TIMESTAMP WHERE id = $1", [membership.id]);
+    const [{ rows: members }, { rows: leaderboardRows }] = await Promise.all([
+      pool.query(
+        `SELECT m.id, m.student_id AS "studentId", s.name, m.role, m.status,
+                m.joined_at AS "joinedAt", m.last_seen_at AS "lastSeenAt"
+           FROM live_quiz_members m JOIN students s ON s.id = m.student_id
+          WHERE m.room_id = $1 ORDER BY m.role DESC, m.joined_at`,
+        [roomId],
+      ),
+      pool.query(
+        `SELECT l.score, l.correct_count AS "correctCount", l.answer_count AS "answerCount", l.rank,
+                m.student_id AS "studentId", s.name
+           FROM live_quiz_leaderboard l JOIN live_quiz_members m ON m.id = l.member_id
+           JOIN students s ON s.id = m.student_id
+          WHERE l.room_id = $1 ORDER BY l.rank NULLS LAST, l.score DESC, s.name`,
+        [roomId],
+      ),
+    ]);
+    let question: any = null;
+    if (room.status === "running" && room.current_question_index >= 0) {
+      const { rows } = await pool.query(
+        `SELECT id, content, options, order_index AS "orderIndex"
+           FROM live_quiz_questions WHERE room_id = $1 AND order_index = $2`,
+        [roomId, room.current_question_index],
+      );
+      question = rows[0] || null;
+      if (question) {
+        const { rows: answered } = await pool.query(
+          "SELECT selected_option_index AS \"selectedOptionIndex\" FROM live_quiz_answers WHERE member_id = $1 AND question_id = $2",
+          [membership.id, question.id],
+        );
+        question.selectedOptionIndex = answered[0]?.selectedOptionIndex ?? null;
+      }
+    }
+    let results: any[] | undefined;
+    if (room.status === "finished") {
+      const { rows } = await pool.query(
+        `SELECT q.id, q.content, q.options, q.correct_option_index AS "correctOptionIndex",
+                q.explanation, q.order_index AS "orderIndex", a.selected_option_index AS "selectedOptionIndex",
+                a.is_correct AS "isCorrect", a.points
+           FROM live_quiz_questions q LEFT JOIN live_quiz_answers a
+             ON a.question_id = q.id AND a.member_id = $2
+          WHERE q.room_id = $1 ORDER BY q.order_index`,
+        [roomId, membership.id],
+      );
+      results = rows;
+    }
+    const leaderboard = room.status === "finished"
+      ? leaderboardRows
+      : leaderboardRows.map(({ studentId, name, rank, answerCount }: any) => ({ studentId, name, rank, answerCount }));
+    return {
+      room: {
+        id: room.id, roomCode: room.room_code, inviteToken: membership.role === "host" ? room.invite_token : null,
+        topic: room.topic, unitName: room.unitName || "Independent study",
+        unitCode: room.unitCode, hostName: room.hostName, hostStudentId: room.host_student_id, difficulty: room.difficulty,
+        contentStyle: room.content_style, questionCount: room.question_count, perQuestionSeconds: room.per_question_seconds,
+        status: room.status, generationError: room.generation_error, currentQuestionIndex: room.current_question_index,
+        questionStartedAt: room.question_started_at, expiresAt: room.expires_at, startedAt: room.started_at, finishedAt: room.finished_at,
+      },
+      me: { memberId: membership.id, role: membership.role, isHost: membership.role === "host" },
+      members,
+      leaderboard,
+      question,
+      results,
+    };
+  };
+
+  const runLiveGeneration = async (roomId: number, input: { unitName: string; topic: string; difficulty: string; contentStyle: string; count: number }) => {
+    try {
+      const generated = await generateLiveQuizQuestions(input);
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const { rows: activeRooms } = await client.query(
+          "SELECT id FROM live_quiz_rooms WHERE id = $1 AND status = 'generating' AND expires_at > CURRENT_TIMESTAMP FOR UPDATE",
+          [roomId],
+        );
+        if (!activeRooms[0]) {
+          await client.query("COMMIT");
+          return;
+        }
+        for (let index = 0; index < generated.length; index++) {
+          const question = generated[index];
+          await client.query(
+            `INSERT INTO live_quiz_questions
+              (room_id, content, options, correct_option_index, explanation, order_index)
+             VALUES ($1, $2, $3::jsonb, $4, $5, $6)`,
+            [roomId, question.content, JSON.stringify(question.options), question.correctOptionIndex, question.explanation, index],
+          );
+        }
+        const { rowCount } = await client.query(
+          "UPDATE live_quiz_rooms SET status = 'ready', generation_error = NULL WHERE id = $1 AND status = 'generating' AND expires_at > CURRENT_TIMESTAMP",
+          [roomId],
+        );
+        if (!rowCount) {
+          await client.query("COMMIT");
+          return;
+        }
+        await client.query("INSERT INTO live_quiz_events (room_id, event_type, payload) VALUES ($1, 'ready', '{}'::jsonb)", [roomId]);
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+      broadcastLiveQuiz(roomId, { type: "room_updated" });
+    } catch (error: any) {
+      await pool.query(
+        "UPDATE live_quiz_rooms SET status = 'generation_failed', generation_error = $2 WHERE id = $1 AND status = 'generating'",
+        [roomId, String(error.message || "Question generation failed").slice(0, 1000)],
+      );
+      broadcastLiveQuiz(roomId, { type: "room_updated" });
+    }
+  };
+
+  app.post("/api/student/live-rooms", requireStudent, async (req: any, res) => {
+    const unitId = Number(req.body?.unitId);
+    const topic = String(req.body?.topic || "").trim();
+    const difficulty = String(req.body?.difficulty || "mixed");
+    const contentStyle = String(req.body?.contentStyle || "clinical");
+    const questionCount = Number(req.body?.questionCount);
+    const perQuestionSeconds = Number(req.body?.perQuestionSeconds);
+    if (!Number.isInteger(unitId) || !topic || topic.length > TEXT_LIMITS.selfTestFocus ||
+      !["easy", "mixed", "hard"].includes(difficulty) || !["direct", "clinical", "mixed"].includes(contentStyle) ||
+      !Number.isInteger(questionCount) || questionCount < 3 || questionCount > 20 ||
+      !Number.isInteger(perQuestionSeconds) || perQuestionSeconds < 10 || perQuestionSeconds > 120) {
+      return res.status(400).json({ message: "Check the unit, topic, difficulty, question count (3–20), and timer (10–120 seconds)." });
+    }
+    const { rows: units } = await pool.query(
+      `SELECT u.id, u.name FROM units u JOIN unit_memberships um ON um.unit_id = u.id
+        WHERE u.id = $1 AND u.is_active = true AND um.student_id = $2 AND um.status = 'enrolled'`,
+      [unitId, req.student.id],
+    );
+    const unit = units[0];
+    if (!unit) return res.status(400).json({ message: "Choose an active unit" });
+    let room: any;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        const { rows } = await pool.query(
+          `INSERT INTO live_quiz_rooms
+            (room_code, invite_token, host_student_id, unit_id, topic, difficulty, content_style, question_count, per_question_seconds, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP + INTERVAL '2 hours') RETURNING *`,
+          [liveRoomCode(), crypto.randomBytes(24).toString("base64url"), req.student.id, unitId, topic, difficulty, contentStyle, questionCount, perQuestionSeconds],
+        );
+        room = rows[0];
+        break;
+      } catch (error: any) {
+        if (error.code !== "23505") throw error;
+      }
+    }
+    if (!room) return res.status(503).json({ message: "Could not reserve a room code. Please try again." });
+    const { rows: members } = await pool.query(
+      `INSERT INTO live_quiz_members (room_id, student_id, role) VALUES ($1, $2, 'host') RETURNING id`,
+      [room.id, req.student.id],
+    );
+    await pool.query("INSERT INTO live_quiz_leaderboard (room_id, member_id) VALUES ($1, $2)", [room.id, members[0].id]);
+    res.status(201).json({ roomId: room.id, roomCode: room.room_code, inviteToken: room.invite_token, status: room.status });
+    runLiveGeneration(room.id, { unitName: unit.name, topic, difficulty, contentStyle, count: questionCount });
+  });
+
+  app.get("/api/student/live-rooms/code/:code", requireStudent, async (req: any, res) => {
+    const { rows } = await pool.query(
+      "SELECT id, room_code AS \"roomCode\" FROM live_quiz_rooms WHERE room_code = $1",
+      [String(req.params.code).toUpperCase()],
+    );
+    if (!rows[0]) return res.status(404).json({ message: "Room code not found" });
+    res.json({ roomId: rows[0].id, roomCode: rows[0].roomCode });
+  });
+
+  app.post("/api/student/live-rooms/:roomId/join", requireStudent, async (req: any, res) => {
+    const roomId = Number(req.params.roomId);
+    const roomCode = String(req.body?.roomCode || "").trim().toUpperCase();
+    const inviteToken = String(req.body?.inviteToken || "").trim();
+    if (!/^[A-Z2-9]{12}$/.test(roomCode) && !/^[A-Za-z0-9_-]{24,96}$/.test(inviteToken)) {
+      return res.status(400).json({ message: "Use a valid room code or invite link" });
+    }
+    const { rows: rooms } = await pool.query("SELECT * FROM live_quiz_rooms WHERE id = $1", [roomId]);
+    const room = rooms[0];
+    if (!room || (room.room_code !== roomCode && room.invite_token !== inviteToken)) return res.status(404).json({ message: "Room not found" });
+    if (new Date(room.expires_at) <= new Date() || ["closed", "expired"].includes(room.status)) {
+      return res.status(410).json({ message: "This room is no longer available" });
+    }
+    const { rows: members } = await pool.query(
+      `INSERT INTO live_quiz_members (room_id, student_id, role, status, left_at)
+       VALUES ($1, $2, 'player', 'joined', NULL)
+       ON CONFLICT (room_id, student_id) DO UPDATE SET status = 'joined', left_at = NULL, last_seen_at = CURRENT_TIMESTAMP
+       RETURNING id`,
+      [roomId, req.student.id],
+    );
+    await pool.query(
+      "INSERT INTO live_quiz_leaderboard (room_id, member_id) VALUES ($1, $2) ON CONFLICT (room_id, member_id) DO NOTHING",
+      [roomId, members[0].id],
+    );
+    await pool.query("INSERT INTO live_quiz_events (room_id, member_id, event_type, payload) VALUES ($1, $2, 'joined', '{}'::jsonb)", [roomId, members[0].id]);
+    broadcastLiveQuiz(roomId, { type: "room_updated" });
+    res.json({ roomId });
+  });
+
+  app.get("/api/student/live-rooms/:roomId", requireStudent, async (req: any, res) => {
+    const payload = await buildLiveRoomPayload(Number(req.params.roomId), req.student.id);
+    if (!payload) return res.status(404).json({ message: "Room not found" });
+    if ("forbidden" in payload) return res.status(403).json({ message: "Join this room to view it" });
+    res.json(payload);
+  });
+
+  app.post("/api/student/live-rooms/:roomId/ws-ticket", requireStudent, async (req: any, res) => {
+    const roomId = Number(req.params.roomId);
+    const { rows } = await pool.query(
+      "SELECT id FROM live_quiz_members WHERE room_id = $1 AND student_id = $2 AND status = 'joined'",
+      [roomId, req.student.id],
+    );
+    if (!rows[0]) return res.status(403).json({ message: "Join this room first" });
+    res.json({ ticket: issueLiveQuizTicket(req.student.id, roomId) });
+  });
+
+  app.post("/api/student/live-rooms/:roomId/start", requireStudent, async (req: any, res) => {
+    const roomId = Number(req.params.roomId);
+    const { rowCount } = await pool.query(
+      `UPDATE live_quiz_rooms SET status = 'running', current_question_index = 0, started_at = CURRENT_TIMESTAMP,
+        question_started_at = CURRENT_TIMESTAMP
+       WHERE id = $1 AND host_student_id = $2 AND status = 'ready' AND expires_at > CURRENT_TIMESTAMP`,
+      [roomId, req.student.id],
+    );
+    if (!rowCount) return res.status(409).json({ message: "Only the host can start a ready, unexpired room" });
+    await pool.query("INSERT INTO live_quiz_events (room_id, event_type, payload) VALUES ($1, 'started', '{}'::jsonb)", [roomId]);
+    broadcastLiveQuiz(roomId, { type: "room_updated" });
+    res.json({ ok: true });
+  });
+
+  app.post("/api/student/live-rooms/:roomId/close", requireStudent, async (req: any, res) => {
+    const roomId = Number(req.params.roomId);
+    const { rowCount } = await pool.query(
+      `UPDATE live_quiz_rooms SET status = 'closed', finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP)
+        WHERE id = $1 AND host_student_id = $2 AND status NOT IN ('finished', 'closed', 'expired')`,
+      [roomId, req.student.id],
+    );
+    if (!rowCount) return res.status(409).json({ message: "Only the host can close this active room" });
+    await pool.query("UPDATE live_quiz_members SET status = 'left', left_at = CURRENT_TIMESTAMP WHERE room_id = $1 AND student_id = $2", [roomId, req.student.id]);
+    await pool.query("INSERT INTO live_quiz_events (room_id, event_type, payload) VALUES ($1, 'closed', '{}'::jsonb)", [roomId]);
+    broadcastLiveQuiz(roomId, { type: "room_updated" });
+    res.json({ ok: true });
+  });
+
+  app.post("/api/student/live-rooms/:roomId/answer", requireStudent, async (req: any, res) => {
+    const roomId = Number(req.params.roomId);
+    const questionId = Number(req.body?.questionId);
+    const selectedOptionIndex = Number(req.body?.selectedOptionIndex);
+    if (!Number.isInteger(selectedOptionIndex) || selectedOptionIndex < 0 || selectedOptionIndex > 4) {
+      return res.status(400).json({ message: "Select one of the five choices" });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows: rooms } = await client.query("SELECT * FROM live_quiz_rooms WHERE id = $1 FOR UPDATE", [roomId]);
+      const room = rooms[0];
+      if (!room || room.status !== "running") {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ message: "This room is not accepting answers" });
+      }
+      const deadline = room.question_started_at
+        ? new Date(room.question_started_at).getTime() + room.per_question_seconds * 1000
+        : 0;
+      if (!deadline || Date.now() >= deadline) {
+        await client.query("COMMIT");
+        const advanced = await advanceLiveRoomIfNeeded(roomId);
+        broadcastLiveQuiz(roomId, { type: advanced ? "room_updated" : "timer_elapsed" });
+        return res.status(409).json({ message: "Time is up for that question" });
+      }
+      const { rows: members } = await client.query(
+        "SELECT * FROM live_quiz_members WHERE room_id = $1 AND student_id = $2 AND status = 'joined' FOR UPDATE",
+        [roomId, req.student.id],
+      );
+      const member = members[0];
+      const { rows: questions } = await client.query(
+        "SELECT * FROM live_quiz_questions WHERE id = $1 AND room_id = $2 AND order_index = $3",
+        [questionId, roomId, room.current_question_index],
+      );
+      const question = questions[0];
+      if (!member || !question) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ message: "That question is no longer active" });
+      }
+      const { rows: existing } = await client.query(
+        "SELECT * FROM live_quiz_answers WHERE member_id = $1 AND question_id = $2",
+        [member.id, questionId],
+      );
+      if (existing[0]) {
+        await client.query("COMMIT");
+        return res.json({ locked: true, duplicate: true, isCorrect: existing[0].is_correct, points: existing[0].points });
+      }
+      const responseMs = Math.max(0, Math.min(room.per_question_seconds * 1000,
+        Date.now() - new Date(room.question_started_at).getTime()));
+      const isCorrect = selectedOptionIndex === question.correct_option_index;
+      const points = isCorrect ? Math.max(100, 1000 - Math.floor(responseMs / 10)) : 0;
+      await client.query(
+        `INSERT INTO live_quiz_answers (room_id, member_id, question_id, selected_option_index, is_correct, points, response_ms)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [roomId, member.id, questionId, selectedOptionIndex, isCorrect, points, responseMs],
+      );
+      await client.query(
+        `UPDATE live_quiz_leaderboard SET score = score + $3, correct_count = correct_count + $4,
+          answer_count = answer_count + 1, updated_at = CURRENT_TIMESTAMP WHERE room_id = $1 AND member_id = $2`,
+        [roomId, member.id, points, isCorrect ? 1 : 0],
+      );
+      await refreshLiveRanks(roomId, client);
+      const { rows: rankRows } = await client.query(
+        "SELECT rank FROM live_quiz_leaderboard WHERE room_id = $1 AND member_id = $2",
+        [roomId, member.id],
+      );
+      await client.query("UPDATE live_quiz_members SET last_seen_at = CURRENT_TIMESTAMP WHERE id = $1", [member.id]);
+      await client.query(
+        "INSERT INTO live_quiz_events (room_id, member_id, event_type, payload) VALUES ($1, $2, 'answered', '{}'::jsonb)",
+        [roomId, member.id],
+      );
+      await client.query("COMMIT");
+      const advanced = await advanceLiveRoomIfNeeded(roomId);
+      broadcastLiveQuiz(roomId, { type: advanced ? "room_updated" : "leaderboard_updated" });
+      res.json({ locked: true, isCorrect, points, rank: rankRows[0]?.rank || null, advanced });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post("/api/student/live-rooms/:roomId/share", requireStudent, async (req: any, res) => {
+    const roomId = Number(req.params.roomId);
+    const { rows: members } = await pool.query(
+      `SELECT m.id FROM live_quiz_members m JOIN live_quiz_rooms r ON r.id = m.room_id
+        WHERE m.room_id = $1 AND m.student_id = $2 AND r.status = 'finished'`,
+      [roomId, req.student.id],
+    );
+    if (!members[0]) return res.status(409).json({ message: "Finish the room before creating a share card" });
+    const { rows: existing } = await pool.query(
+      `SELECT token FROM live_quiz_shares WHERE room_id = $1 AND member_id = $2 AND expires_at > CURRENT_TIMESTAMP
+       ORDER BY created_at DESC LIMIT 1`,
+      [roomId, members[0].id],
+    );
+    const token = existing[0]?.token || crypto.randomBytes(24).toString("base64url");
+    if (!existing[0]) {
+      await pool.query(
+        `INSERT INTO live_quiz_shares (room_id, member_id, token, expires_at)
+         VALUES ($1, $2, $3, CURRENT_TIMESTAMP + INTERVAL '30 days')`,
+        [roomId, members[0].id, token],
+      );
+    }
+    res.json({ token, url: `${req.protocol}://${req.get("host")}/share/quiz/${token}` });
+  });
+
+  app.get("/api/student/live-leaderboards/:unitId", requireStudent, async (req, res) => {
+    const unitId = Number(req.params.unitId);
+    const { rows: memberships } = await pool.query(
+      "SELECT 1 FROM unit_memberships WHERE unit_id = $1 AND student_id = $2 AND status = 'enrolled'",
+      [unitId, (req as any).student.id],
+    );
+    if (!memberships[0]) return res.status(403).json({ message: "Enrol in this unit to view its standings" });
+    const { rows } = await pool.query(
+      `SELECT s.name, SUM(l.score)::int AS score, SUM(l.correct_count)::int AS "correctCount",
+              COUNT(DISTINCT l.room_id)::int AS "matchesPlayed"
+         FROM live_quiz_leaderboard l JOIN live_quiz_members m ON m.id = l.member_id
+         JOIN students s ON s.id = m.student_id JOIN live_quiz_rooms r ON r.id = l.room_id
+        WHERE r.unit_id = $1 AND r.status = 'finished'
+        GROUP BY s.id, s.name ORDER BY score DESC, "correctCount" DESC LIMIT 20`,
+      [unitId],
+    );
+    res.json(rows);
+  });
+
+  app.get("/api/student/live-matches", requireStudent, async (req: any, res) => {
+    const { rows } = await pool.query(
+      `SELECT r.id, r.room_code AS "roomCode", r.topic, r.finished_at AS "finishedAt", u.name AS "unitName",
+              l.score, l.rank, l.correct_count AS "correctCount"
+         FROM live_quiz_members m JOIN live_quiz_rooms r ON r.id = m.room_id
+         JOIN live_quiz_leaderboard l ON l.member_id = m.id LEFT JOIN units u ON u.id = r.unit_id
+        WHERE m.student_id = $1 AND r.status = 'finished' ORDER BY r.finished_at DESC LIMIT 20`,
+      [req.student.id],
+    );
+    res.json(rows);
+  });
+
+  app.get("/api/live-share/:token", async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT sh.token, sh.expires_at AS "expiresAt", r.topic, r.finished_at AS "finishedAt",
+              u.name AS "unitName", l.score, l.rank, l.correct_count AS "correctCount"
+         FROM live_quiz_shares sh JOIN live_quiz_rooms r ON r.id = sh.room_id
+         LEFT JOIN units u ON u.id = r.unit_id LEFT JOIN live_quiz_members m ON m.id = sh.member_id
+         LEFT JOIN live_quiz_leaderboard l ON l.member_id = m.id
+        WHERE sh.token = $1 AND sh.expires_at > CURRENT_TIMESTAMP AND r.status = 'finished'`,
+      [req.params.token],
+    );
+    if (!rows[0]) return res.status(404).json({ message: "This share card has expired or is unavailable" });
+    res.json({ ...rows[0], challenge: `I'm on a roll in ${rows[0].unitName || "clinical practice"} — think you can beat me?` });
+  });
+
+  app.get("/share/quiz/:token", async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT r.topic, u.name AS "unitName", l.score, l.rank
+         FROM live_quiz_shares sh JOIN live_quiz_rooms r ON r.id = sh.room_id
+         LEFT JOIN units u ON u.id = r.unit_id LEFT JOIN live_quiz_leaderboard l ON l.member_id = sh.member_id
+        WHERE sh.token = $1 AND sh.expires_at > CURRENT_TIMESTAMP AND r.status = 'finished'`,
+      [req.params.token],
+    );
+    if (!rows[0]) return res.status(404).send("This MedQrown quiz share has expired.");
+    const card = rows[0];
+    const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
+    }[character] || character));
+    const title = `Can you beat ${card.score} points in ${card.unitName || "clinical practice"}?`;
+    const description = `I'm on a roll in ${card.unitName || "clinical practice"} — think you can beat me?`;
+    const imageUrl = `${req.protocol}://${req.get("host")}/share/quiz/${encodeURIComponent(req.params.token)}/card.svg`;
+    res.type("html").send(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><meta name="description" content="${escapeHtml(description)}"><meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(description)}"><meta property="og:type" content="website"><meta property="og:image" content="${escapeHtml(imageUrl)}"></head><body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(description)}</p><p>Topic: ${escapeHtml(card.topic)}</p><a href="/student/live-rooms/share/${encodeURIComponent(req.params.token)}">Open MedQrown</a></main></body></html>`);
+  });
+
+  app.get("/share/quiz/:token/card.svg", async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT r.topic, u.name AS "unitName", l.score, l.rank
+         FROM live_quiz_shares sh JOIN live_quiz_rooms r ON r.id = sh.room_id
+         LEFT JOIN units u ON u.id = r.unit_id LEFT JOIN live_quiz_leaderboard l ON l.member_id = sh.member_id
+        WHERE sh.token = $1 AND sh.expires_at > CURRENT_TIMESTAMP AND r.status = 'finished'`,
+      [req.params.token],
+    );
+    if (!rows[0]) return res.status(404).send("Unavailable");
+    const card = rows[0];
+    const escapeXml = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;",
+    }[character] || character));
+    const unit = escapeXml(card.unitName || "Clinical practice").slice(0, 45);
+    const topic = escapeXml(card.topic).slice(0, 62);
+    res.type("image/svg+xml").send(`<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0f766e"/><stop offset="1" stop-color="#4338ca"/></linearGradient></defs>
+      <rect width="1200" height="630" fill="url(#g)"/><circle cx="1080" cy="110" r="190" fill="#fff" opacity=".08"/><circle cx="1030" cy="550" r="270" fill="#fff" opacity=".06"/>
+      <g transform="translate(86 95)"><rect width="170" height="55" rx="27" fill="#fff" opacity=".18"/><text x="85" y="36" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="23" font-weight="700">MEDQROWN</text>
+      <text y="158" fill="#fff" font-family="Arial, sans-serif" font-size="42" font-weight="600">${unit}</text><text y="222" fill="#dffaf6" font-family="Arial, sans-serif" font-size="30">${topic}</text>
+      <text y="365" fill="#fff" font-family="Arial, sans-serif" font-size="112" font-weight="800">${Number(card.score) || 0}</text><text x="320" y="365" fill="#dffaf6" font-family="Arial, sans-serif" font-size="36" font-weight="600">POINTS</text>
+      <text y="445" fill="#fff" font-family="Arial, sans-serif" font-size="31">Live room finish · leaderboard #${Number(card.rank) || "—"}</text></g>
+      <path d="M1010 235l27 66 71 5-55 45 18 70-61-38-61 38 18-70-55-45 71-5z" fill="#fcd34d"/>
+    </svg>`);
+  });
+
   // ── Student self-tests ─────────────────────────────────────────────────────
   const loadSelfTestForStudent = async (testId: number, studentId: number) => {
     const { rows } = await pool.query(
@@ -1449,8 +2136,8 @@ export async function registerRoutes(
             throw new Error(`Question ${index + 1} has an invalid format`);
           }
           if (item.type === "mcq") {
-            if (!item.options || item.options.length < 2 || item.options.some((option) => !option)) {
-              throw new Error(`Question ${index + 1} needs at least two answer options`);
+            if (!item.options || item.options.length !== 5 || item.options.some((option) => !option)) {
+              throw new Error(`Question ${index + 1} needs exactly five answer options`);
             }
             if (!Number.isInteger(item.correctOptionIndex) || item.correctOptionIndex! < 0 || item.correctOptionIndex! >= item.options.length) {
               throw new Error(`Question ${index + 1} does not identify a correct option`);

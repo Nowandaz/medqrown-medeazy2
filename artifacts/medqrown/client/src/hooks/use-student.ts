@@ -153,6 +153,30 @@ export interface SelfTestAttemptPayload {
   } | null;
 }
 
+export interface LiveRoomSetup {
+  unitId: number;
+  topic: string;
+  difficulty: "easy" | "mixed" | "hard";
+  contentStyle: "direct" | "clinical" | "mixed";
+  questionCount: number;
+  perQuestionSeconds: number;
+}
+
+export interface LiveRoomState {
+  room: {
+    id: number; roomCode: string; inviteToken?: string | null; topic: string; unitName: string; unitCode?: string | null;
+    hostName: string; hostStudentId: number; difficulty: string; contentStyle: string;
+    questionCount: number; perQuestionSeconds: number; status: "generating" | "generation_failed" | "ready" | "running" | "finished" | "closed" | "expired";
+    generationError?: string | null; currentQuestionIndex: number; questionStartedAt?: string | null;
+    expiresAt: string; startedAt?: string | null; finishedAt?: string | null;
+  };
+  me: { memberId: number; role: string; isHost: boolean };
+  members: Array<{ id: number; studentId: number; name: string; role: string; status: string; joinedAt: string; lastSeenAt: string }>;
+  leaderboard: Array<{ studentId: number; name: string; score?: number; correctCount?: number; answerCount: number; rank: number }>;
+  question: { id: number; content: string; options: string[]; orderIndex: number; selectedOptionIndex: number | null } | null;
+  results?: Array<{ id: number; content: string; options: string[]; correctOptionIndex: number; explanation?: string | null; orderIndex: number; selectedOptionIndex: number | null; isCorrect: boolean | null; points: number | null }>;
+}
+
 export function useStudentMe() {
   return useQuery<StudentProfile>({
     queryKey: ["/api/student/me"],
@@ -328,6 +352,81 @@ export function useReportSelfTestQuestion() {
   return useMutation({
     mutationFn: ({ questionId, reason }: { questionId: number; reason: string }) =>
       apiRequest("POST", `/api/student/self-test-questions/${questionId}/report`, { reason }),
+  });
+}
+
+export function useCreateLiveRoom() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: LiveRoomSetup) => apiRequest("POST", "/api/student/live-rooms", data).then((res) => res.json() as Promise<{ roomId: number; roomCode: string; inviteToken: string; status: string }>),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/student/live-matches"] }),
+  });
+}
+
+export function useLookupLiveRoomCode() {
+  return useMutation({
+    mutationFn: (code: string) => apiRequest("GET", `/api/student/live-rooms/code/${encodeURIComponent(code.trim().toUpperCase())}`).then((res) => res.json() as Promise<{ roomId: number; roomCode: string }>),
+  });
+}
+
+export function useJoinLiveRoom() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ roomId, roomCode, inviteToken }: { roomId: number; roomCode?: string; inviteToken?: string }) => apiRequest("POST", `/api/student/live-rooms/${roomId}/join`, { roomCode, inviteToken }).then((res) => res.json()),
+    onSuccess: (_, values) => queryClient.invalidateQueries({ queryKey: [`/api/student/live-rooms/${values.roomId}`] }),
+  });
+}
+
+export function useLiveRoom(roomId: string, enabled = true) {
+  return useQuery<LiveRoomState>({
+    queryKey: [`/api/student/live-rooms/${roomId}`],
+    enabled: enabled && !!roomId,
+    refetchInterval: (query) => query.state.data?.room.status === "running" || query.state.data?.room.status === "generating" ? 1500 : 5000,
+    retry: false,
+  });
+}
+
+export function useStartLiveRoom() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (roomId: number) => apiRequest("POST", `/api/student/live-rooms/${roomId}/start`),
+    onSuccess: (_, roomId) => queryClient.invalidateQueries({ queryKey: [`/api/student/live-rooms/${roomId}`] }),
+  });
+}
+
+export function useCloseLiveRoom() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (roomId: number) => apiRequest("POST", `/api/student/live-rooms/${roomId}/close`),
+    onSuccess: (_, roomId) => queryClient.invalidateQueries({ queryKey: [`/api/student/live-rooms/${roomId}`] }),
+  });
+}
+
+export function useAnswerLiveRoom() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ roomId, questionId, selectedOptionIndex }: { roomId: number; questionId: number; selectedOptionIndex: number }) =>
+      apiRequest("POST", `/api/student/live-rooms/${roomId}/answer`, { questionId, selectedOptionIndex }).then((res) => res.json() as Promise<{ locked: boolean; duplicate?: boolean; isCorrect: boolean; points: number; rank?: number | null; advanced?: boolean }>),
+    onSuccess: (_, values) => queryClient.invalidateQueries({ queryKey: [`/api/student/live-rooms/${values.roomId}`] }),
+  });
+}
+
+export function useLiveRoomShare() {
+  return useMutation({
+    mutationFn: (roomId: number) => apiRequest("POST", `/api/student/live-rooms/${roomId}/share`).then((res) => res.json() as Promise<{ token: string; url: string }>),
+  });
+}
+
+export function useLiveMatches() {
+  return useQuery<Array<{ id: number; roomCode: string; topic: string; finishedAt: string; unitName: string; score: number; rank: number; correctCount: number }>>({
+    queryKey: ["/api/student/live-matches"],
+  });
+}
+
+export function useLiveUnitLeaderboard(unitId: number | null) {
+  return useQuery<Array<{ name: string; score: number; correctCount: number; matchesPlayed: number }>>({
+    queryKey: [`/api/student/live-leaderboards/${unitId}`],
+    enabled: !!unitId,
   });
 }
 

@@ -729,7 +729,7 @@ export async function generateSelfTestQuestions(input: {
   const prompt = `You create high-quality, educational medical self-test questions. Generate exactly ${input.count} questions for the unit "${input.unitName}"${input.focus ? ` focused on "${input.focus}"` : ""}. Use ${requestedTypes} and ${requestedStyle}. SAQs must have a concise, objectively markable answer. Avoid unsafe clinical advice, ambiguous wording, and trick questions.
 
 Return JSON only in this exact format:
-{"questions":[{"type":"mcq","content":"...","options":["...","...","...","..."],"correctOptionIndex":0,"explanation":"...","marks":1},{"type":"saq","content":"...","expectedAnswer":"...","explanation":"...","marks":1}]}`;
+{"questions":[{"type":"mcq","content":"...","options":["...","...","...","...","..."],"correctOptionIndex":0,"explanation":"...","marks":1},{"type":"saq","content":"...","expectedAnswer":"...","explanation":"...","marks":1}]}`;
 
   const errors: string[] = [];
   for (const provider of getWeightedProviderOrder(providers, 0)) {
@@ -765,7 +765,11 @@ Return JSON only in this exact format:
         explanation: question.explanation ? String(question.explanation).trim() : undefined,
         marks: Math.max(1, Math.min(5, Number(question.marks) || 1)),
       }));
-      if (questions.length !== input.count || questions.some((q: GeneratedSelfTestQuestion) => !q.content || !["mcq", "saq"].includes(q.type))) {
+      if (questions.length !== input.count || questions.some((q: GeneratedSelfTestQuestion) =>
+        !q.content || !["mcq", "saq"].includes(q.type) ||
+        (q.type === "mcq" && (!q.options || q.options.length !== 5 ||
+          new Set(q.options.map((option) => option.toLowerCase())).size !== 5 ||
+          !Number.isInteger(q.correctOptionIndex) || q.correctOptionIndex! < 0 || q.correctOptionIndex! > 4)))) {
         throw new Error("The AI returned incomplete questions");
       }
       return questions;
@@ -774,4 +778,72 @@ Return JSON only in this exact format:
     }
   }
   throw new Error(`Could not generate questions. ${errors.join(" | ")}`);
+}
+
+export type GeneratedLiveQuizQuestion = {
+  content: string;
+  options: [string, string, string, string, string];
+  correctOptionIndex: number;
+  explanation: string;
+};
+
+export async function generateLiveQuizQuestions(input: {
+  unitName: string;
+  topic: string;
+  difficulty: string;
+  contentStyle: string;
+  count: number;
+}): Promise<GeneratedLiveQuizQuestion[]> {
+  const providers = await getProvidersWithFallback();
+  const prompt = `Create exactly ${input.count} fresh medical multiple-choice quiz questions for the unit "${input.unitName}" about "${input.topic}". Difficulty: ${input.difficulty}. Style: ${input.contentStyle}. These are for a fast student competition, so use clear clinically relevant stems and one unambiguously best answer. Do not reuse an exam or self-test. Avoid unsafe clinical advice.
+
+Every question MUST have exactly FIVE distinct answer choices. Return JSON only:
+{"questions":[{"content":"...","options":["A","B","C","D","E"],"correctOptionIndex":0,"explanation":"..."}]}`;
+  const errors: string[] = [];
+  for (const provider of getWeightedProviderOrder(providers, 0)) {
+    try {
+      const model = getModelName(provider);
+      let rawContent = "";
+      if (provider.type === "anthropic") {
+        const response = await getAnthropicClient(provider).messages.create({
+          model, max_tokens: Math.max(1600, input.count * 420),
+          system: "Return valid JSON only. Never include markdown.",
+          messages: [{ role: "user", content: prompt }],
+        });
+        rawContent = response.content[0]?.type === "text" ? response.content[0].text : "";
+      } else if (provider.type === "gemini") {
+        const response = await getGeminiClient(provider).getGenerativeModel({ model }).generateContent(prompt);
+        rawContent = response.response.text();
+      } else {
+        const response = await getOpenAiClient(provider).chat.completions.create({
+          model,
+          messages: [{ role: "system", content: "Return valid JSON only." }, { role: "user", content: prompt }],
+          max_tokens: Math.max(1600, input.count * 420),
+        });
+        rawContent = response.choices[0]?.message?.content || "";
+      }
+      const parsed = parseJsonSafe(rawContent);
+      if (!Array.isArray(parsed?.questions) || parsed.questions.length !== input.count) {
+        throw new Error("The AI returned the wrong number of questions");
+      }
+      const normalized = parsed.questions.map((q: any) => {
+        const options = Array.isArray(q.options) ? q.options.map((o: any) => String(o).trim()).filter(Boolean) : [];
+        const correctOptionIndex = Number(q.correctOptionIndex);
+        if (!q.content || options.length !== 5 || new Set(options.map((o: string) => o.toLowerCase())).size !== 5 ||
+            !Number.isInteger(correctOptionIndex) || correctOptionIndex < 0 || correctOptionIndex > 4) {
+          throw new Error("Every generated question must contain exactly five distinct choices");
+        }
+        return {
+          content: String(q.content).trim(),
+          options: options as [string, string, string, string, string],
+          correctOptionIndex,
+          explanation: String(q.explanation || "Review the clinical reasoning behind the best answer.").trim(),
+        };
+      });
+      return normalized;
+    } catch (error: any) {
+      errors.push(`${provider.name}: ${error.message}`);
+    }
+  }
+  throw new Error(`Could not generate live quiz questions. ${errors.join(" | ")}`);
 }

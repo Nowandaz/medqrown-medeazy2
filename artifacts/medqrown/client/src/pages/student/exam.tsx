@@ -216,7 +216,7 @@ export default function StudentExam() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [attemptData?.timerMode, attemptData?.perQuestionSeconds, attemptData?.fullExamSeconds, questionStartedAt, attemptStartedAt, handleTimerExpiry]);
 
-  const saveCurrentAnswer = async () => {
+  const saveCurrentAnswer = async (answerOverride?: string) => {
     if (!attemptData?.question) return;
     const q = attemptData.question;
     setSaving(true);
@@ -233,11 +233,11 @@ export default function StudentExam() {
             });
           }
         }
-      } else if (answer) {
+      } else if (answerOverride ?? answer) {
         await apiRequest("POST", "/api/student/save-answer", {
           attemptId: attemptData.attemptId,
           questionId: q.id,
-          answer,
+          answer: answerOverride ?? answer,
         });
       }
     } catch {
@@ -247,7 +247,7 @@ export default function StudentExam() {
     }
   };
 
-  const handleNext = async () => {
+  const handleNext = async (answerOverride?: string) => {
     if (isAutoSubmittingRef.current) return;
     // Hard guard: ignore any clicks while a previous Next is still in flight.
     // This prevents accidental double-clicks from skipping a question.
@@ -256,7 +256,7 @@ export default function StudentExam() {
     setAdvancing(true);
     let shouldSubmitAfter = false;
     try {
-      await saveCurrentAnswer();
+      await saveCurrentAnswer(answerOverride);
       const res = await apiRequest("POST", "/api/student/next-question", {
         attemptId: attemptData.attemptId,
         // Optimistic concurrency: server will reject the request as a stale duplicate
@@ -290,17 +290,17 @@ export default function StudentExam() {
       setAdvancing(false);
     }
     if (shouldSubmitAfter) {
-      await submitExam();
+      await submitExam(answerOverride);
     }
   };
 
-  const submitExam = async () => {
+  const submitExam = async (answerOverride?: string) => {
     if (isAutoSubmittingRef.current) return;
     if (advancingRef.current) return;
     advancingRef.current = true;
     setSubmitting(true);
     try {
-      await saveCurrentAnswer();
+      await saveCurrentAnswer(answerOverride);
       await apiRequest("POST", "/api/student/submit-exam", {
         attemptId: attemptData.attemptId,
       });
@@ -437,7 +437,15 @@ export default function StudentExam() {
                       ))}
                     </div>
                   ) : q.type === "mcq" ? (
-                    <RadioGroup value={answer} onValueChange={setAnswer}>
+                    <RadioGroup value={answer} onValueChange={(value) => {
+                      // MCQs lock on the first selection and auto-progress by product requirement;
+                      // SAQs keep the explicit navigation control below.
+                      setAnswer(value);
+                      if (!advancingRef.current && !submitting) {
+                        if (isLastQuestion) submitExam(value);
+                        else handleNext(value);
+                      }
+                    }}>
                       <div className="space-y-2">
                         {q.options?.map((opt: any, i: number) => (
                           <label
@@ -481,9 +489,9 @@ export default function StudentExam() {
                 {saving && "Saving..."}
               </p>
               <div className="flex items-center gap-2">
-                {isLastQuestion ? (
+                {isLastQuestion && q.type !== "mcq" ? (
                   <Button
-                    onClick={submitExam}
+                    onClick={() => submitExam()}
                     disabled={submitting || advancing}
                     size="lg"
                     className="shadow-sm"
@@ -496,9 +504,9 @@ export default function StudentExam() {
                     )}
                     {submitting ? "Submitting..." : "Submit Exam"}
                   </Button>
-                ) : (
+                ) : !isLastQuestion && q.type !== "mcq" ? (
                   <Button
-                    onClick={handleNext}
+                    onClick={() => handleNext()}
                     disabled={advancing || submitting}
                     size="lg"
                     className="shadow-sm"
@@ -516,7 +524,7 @@ export default function StudentExam() {
                       </>
                     )}
                   </Button>
-                )}
+                ) : null}
               </div>
             </div>
 

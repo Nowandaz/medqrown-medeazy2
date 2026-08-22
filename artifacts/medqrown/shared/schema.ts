@@ -390,6 +390,124 @@ export const demoEngagementEvents = pgTable("demo_engagement_events", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+// ── Live AI quiz rooms ───────────────────────────────────────────────────────
+// Live rooms are intentionally separate from official exams and self-tests.
+// Question answers are never returned by the room-state APIs until a match is
+// finished, and answer submissions are idempotent per member/question.
+export const liveQuizRooms = pgTable("live_quiz_rooms", {
+  id: serial("id").primaryKey(),
+  roomCode: varchar("room_code", { length: 12 }).notNull().unique(),
+  inviteToken: varchar("invite_token", { length: 96 }).notNull().unique(),
+  hostStudentId: integer("host_student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  unitId: integer("unit_id").references(() => units.id, { onDelete: "set null" }),
+  topic: text("topic").notNull(),
+  difficulty: text("difficulty").notNull().default("mixed"),
+  contentStyle: text("content_style").notNull().default("clinical"),
+  questionCount: integer("question_count").notNull().default(5),
+  perQuestionSeconds: integer("per_question_seconds").notNull().default(30),
+  status: text("status").notNull().default("generating"),
+  generationError: text("generation_error"),
+  currentQuestionIndex: integer("current_question_index").notNull().default(-1),
+  questionStartedAt: timestamp("question_started_at"),
+  expiresAt: timestamp("expires_at").notNull(),
+  startedAt: timestamp("started_at"),
+  finishedAt: timestamp("finished_at"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const liveQuizMembers = pgTable("live_quiz_members", {
+  id: serial("id").primaryKey(),
+  roomId: integer("room_id").notNull().references(() => liveQuizRooms.id, { onDelete: "cascade" }),
+  studentId: integer("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  role: text("role").notNull().default("player"),
+  status: text("status").notNull().default("joined"),
+  joinedAt: timestamp("joined_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  lastSeenAt: timestamp("last_seen_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  leftAt: timestamp("left_at"),
+}, (table) => [
+  uniqueIndex("live_quiz_members_room_student_unique").on(table.roomId, table.studentId),
+  index("idx_live_quiz_members_room").on(table.roomId),
+]);
+
+export const liveQuizQuestions = pgTable("live_quiz_questions", {
+  id: serial("id").primaryKey(),
+  roomId: integer("room_id").notNull().references(() => liveQuizRooms.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  options: jsonb("options").$type<string[]>().notNull(),
+  correctOptionIndex: integer("correct_option_index").notNull(),
+  explanation: text("explanation"),
+  orderIndex: integer("order_index").notNull(),
+}, (table) => [
+  uniqueIndex("live_quiz_questions_room_order_unique").on(table.roomId, table.orderIndex),
+]);
+
+export const liveQuizAnswers = pgTable("live_quiz_answers", {
+  id: serial("id").primaryKey(),
+  roomId: integer("room_id").notNull().references(() => liveQuizRooms.id, { onDelete: "cascade" }),
+  memberId: integer("member_id").notNull().references(() => liveQuizMembers.id, { onDelete: "cascade" }),
+  questionId: integer("question_id").notNull().references(() => liveQuizQuestions.id, { onDelete: "cascade" }),
+  selectedOptionIndex: integer("selected_option_index"),
+  isCorrect: boolean("is_correct").notNull(),
+  points: integer("points").notNull().default(0),
+  responseMs: integer("response_ms"),
+  answeredAt: timestamp("answered_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  uniqueIndex("live_quiz_answers_member_question_unique").on(table.memberId, table.questionId),
+  index("idx_live_quiz_answers_room").on(table.roomId),
+]);
+
+export const liveQuizEvents = pgTable("live_quiz_events", {
+  id: serial("id").primaryKey(),
+  roomId: integer("room_id").notNull().references(() => liveQuizRooms.id, { onDelete: "cascade" }),
+  memberId: integer("member_id").references(() => liveQuizMembers.id, { onDelete: "set null" }),
+  eventType: text("event_type").notNull(),
+  payload: jsonb("payload"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index("idx_live_quiz_events_room_created").on(table.roomId, table.createdAt),
+]);
+
+export const liveQuizLeaderboard = pgTable("live_quiz_leaderboard", {
+  id: serial("id").primaryKey(),
+  roomId: integer("room_id").notNull().references(() => liveQuizRooms.id, { onDelete: "cascade" }),
+  memberId: integer("member_id").notNull().references(() => liveQuizMembers.id, { onDelete: "cascade" }),
+  score: integer("score").notNull().default(0),
+  correctCount: integer("correct_count").notNull().default(0),
+  answerCount: integer("answer_count").notNull().default(0),
+  rank: integer("rank"),
+  updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  uniqueIndex("live_quiz_leaderboard_room_member_unique").on(table.roomId, table.memberId),
+]);
+
+export const liveQuizShares = pgTable("live_quiz_shares", {
+  id: serial("id").primaryKey(),
+  roomId: integer("room_id").notNull().references(() => liveQuizRooms.id, { onDelete: "cascade" }),
+  memberId: integer("member_id").references(() => liveQuizMembers.id, { onDelete: "set null" }),
+  token: varchar("token", { length: 96 }).notNull().unique(),
+  kind: text("kind").notNull().default("score"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+});
+
+export const liveQuizMatches = pgTable("live_quiz_matches", {
+  id: serial("id").primaryKey(),
+  roomId: integer("room_id").notNull().unique().references(() => liveQuizRooms.id, { onDelete: "cascade" }),
+  unitId: integer("unit_id").references(() => units.id, { onDelete: "set null" }),
+  participantCount: integer("participant_count").notNull().default(0),
+  winnerStudentId: integer("winner_student_id").references(() => students.id, { onDelete: "set null" }),
+  finishedAt: timestamp("finished_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertLiveQuizRoomSchema = createInsertSchema(liveQuizRooms).omit({ id: true, createdAt: true });
+export type LiveQuizRoom = typeof liveQuizRooms.$inferSelect;
+export type LiveQuizMember = typeof liveQuizMembers.$inferSelect;
+export type LiveQuizQuestion = typeof liveQuizQuestions.$inferSelect;
+export type LiveQuizAnswer = typeof liveQuizAnswers.$inferSelect;
+export type LiveQuizLeaderboard = typeof liveQuizLeaderboard.$inferSelect;
+export type LiveQuizShare = typeof liveQuizShares.$inferSelect;
+export type LiveQuizMatch = typeof liveQuizMatches.$inferSelect;
+
 export const insertUniversitySchema = createInsertSchema(universities).omit({ id: true, createdAt: true });
 export const insertAdminSchema = createInsertSchema(admins).omit({ id: true, createdAt: true });
 export const insertExamSchema = createInsertSchema(exams).omit({ id: true, createdAt: true });
