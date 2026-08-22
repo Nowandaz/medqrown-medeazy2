@@ -14,6 +14,7 @@ import AdminExamDetail from "@/pages/admin/exam-detail";
 import AdminSettings from "@/pages/admin/settings";
 import AdminDemoExams from "@/pages/admin/demo-exams";
 import AdminSiteContent from "@/pages/admin/site-content";
+import AdminStudentAccess from "@/pages/admin/student-access";
 import { TermsPage, PrivacyPage, FaqPage, InstitutionsPage } from "@/pages/landing/site-pages";
 import StudentLogin from "@/pages/student/login";
 import StudentSignup from "@/pages/student/signup";
@@ -24,6 +25,31 @@ import StudentResetPassword from "@/pages/student/reset-password";
 import StudentInstructions from "@/pages/student/instructions";
 import StudentExam from "@/pages/student/exam";
 import StudentResults from "@/pages/student/results";
+
+// Student Shell & Pages
+import { StudentShell } from "@/components/student/student-shell";
+import StudentDashboard from "@/pages/student/dashboard";
+import StudentUnits from "@/pages/student/units";
+import StudentUnitDetail from "@/pages/student/unit-detail";
+import StudentPastExams from "@/pages/student/past-exams";
+import StudentPastExamDetail from "@/pages/student/past-exam-detail";
+import StudentProfile from "@/pages/student/profile";
+
+function StudentRoutes() {
+  return (
+    <StudentShell>
+      <Switch>
+        <Route path="/student/dashboard" component={StudentDashboard} />
+        <Route path="/student/units" component={StudentUnits} />
+        <Route path="/student/units/:id" component={StudentUnitDetail} />
+        <Route path="/student/past-exams" component={StudentPastExams} />
+        <Route path="/student/past-exams/:id" component={StudentPastExamDetail} />
+        <Route path="/student/profile" component={StudentProfile} />
+        <Route component={NotFound} />
+      </Switch>
+    </StudentShell>
+  );
+}
 
 function Router() {
   return (
@@ -36,6 +62,7 @@ function Router() {
       <Route path="/admin/settings" component={AdminSettings} />
       <Route path="/admin/demo-exams" component={AdminDemoExams} />
       <Route path="/admin/site-content" component={AdminSiteContent} />
+      <Route path="/admin/student-access" component={AdminStudentAccess} />
       <Route path="/terms" component={TermsPage} />
       <Route path="/privacy" component={PrivacyPage} />
       <Route path="/faq" component={FaqPage} />
@@ -48,6 +75,15 @@ function Router() {
       <Route path="/student/instructions" component={StudentInstructions} />
       <Route path="/student/exam" component={StudentExam} />
       <Route path="/student/results" component={StudentResults} />
+      
+      {/* Nested Shell Routes */}
+      <Route path="/student/dashboard" component={StudentRoutes} />
+      <Route path="/student/units" component={StudentRoutes} />
+      <Route path="/student/units/:id" component={StudentRoutes} />
+      <Route path="/student/past-exams" component={StudentRoutes} />
+      <Route path="/student/past-exams/:id" component={StudentRoutes} />
+      <Route path="/student/profile" component={StudentRoutes} />
+      
       <Route component={NotFound} />
     </Switch>
   );
@@ -58,8 +94,7 @@ function ThemeToggle() {
   return (
     <button
       onClick={toggleTheme}
-      style={{ position: "fixed", bottom: "20px", right: "20px", zIndex: 9999 }}
-      className="h-11 w-11 rounded-full shadow-xl border-2 border-primary/30 bg-card hover:bg-muted flex items-center justify-center transition-colors"
+      className="fixed top-3 right-20 sm:top-auto sm:right-5 sm:bottom-5 z-[9999] h-11 w-11 rounded-full shadow-xl border-2 border-primary/30 bg-card hover:bg-muted flex items-center justify-center transition-colors"
       title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
     >
       {theme === "dark"

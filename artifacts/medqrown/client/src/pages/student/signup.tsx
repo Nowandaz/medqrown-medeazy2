@@ -10,13 +10,10 @@ import { UserPlus, ArrowLeft, Eye, EyeOff } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
 
-const YEAR_OPTIONS = ["Year 1", "Year 2", "Year 3", "Year 4", "Year 5", "Year 6", "Postgraduate", "Other"];
-
 export default function StudentSignup() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [university, setUniversity] = useState("");
-  const [yearOfStudy, setYearOfStudy] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -24,7 +21,6 @@ export default function StudentSignup() {
   const [loading, setLoading] = useState(false);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-
   const { data: universities } = useQuery<{ id: number; name: string }[]>({
     queryKey: ["/api/admin/universities"],
   });
@@ -45,7 +41,7 @@ export default function StudentSignup() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ name, email, university, yearOfStudy, password }),
+        body: JSON.stringify({ name, email, university, password }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -92,9 +88,10 @@ export default function StudentSignup() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="email" className="text-sm font-medium">Email Address</Label>
-                  <Input id="email" type="email" placeholder="your@email.com" value={email}
+                  <Label htmlFor="email" className="text-sm font-medium">School email address</Label>
+                  <Input id="email" type="email" placeholder="your@institution.com" value={email}
                     onChange={(e) => setEmail(e.target.value)} required className="h-11" />
+                  <p className="text-xs text-muted-foreground">Use the email address issued by your university or institution.</p>
                 </div>
 
                 <div className="space-y-2">
@@ -111,20 +108,6 @@ export default function StudentSignup() {
                       ? universities
                       : [{ id: -1, name: "University of Nairobi" }, { id: -2, name: "Kenyatta University" }]
                     ).map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="year" className="text-sm font-medium">Year of Study</Label>
-                  <select
-                    id="year"
-                    value={yearOfStudy}
-                    onChange={(e) => setYearOfStudy(e.target.value)}
-                    required
-                    className="h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                  >
-                    <option value="" disabled>Select your year...</option>
-                    {YEAR_OPTIONS.map(y => <option key={y} value={y}>{y}</option>)}
                   </select>
                 </div>
 

@@ -29,8 +29,8 @@ export default function StudentVerifyEmail() {
         toast({ title: "Verification failed", description: data.message, variant: "destructive" });
         return;
       }
-      toast({ title: "Email verified!", description: "Your application is now pending admin approval." });
-      setLocation(`/student/awaiting?token=${token}`);
+      toast({ title: "Email verified!", description: "Your student dashboard is ready." });
+      setLocation("/student/dashboard");
     } catch {
       toast({ title: "Error", description: "Could not connect. Please try again.", variant: "destructive" });
     } finally {

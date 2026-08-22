@@ -15,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
 import {
   BookOpen, Plus, LogOut, Settings, Trash2, Play, Pause, Eye,
-  Clock, GraduationCap, Users, Mail, CheckCircle, AlertCircle, UserPlus, Globe
+  Clock, GraduationCap, Users, Mail, CheckCircle, AlertCircle, UserPlus, Globe, ShieldCheck
 } from "lucide-react";
 import type { Exam } from "@shared/schema";
 import AdminSignups from "@/pages/admin/signups";
@@ -375,6 +375,9 @@ export default function AdminDashboard() {
             <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => setLocation("/admin/site-content")} title="Site Content — demo media, legal pages, FAQ, inquiries">
               <Globe className="w-3.5 h-3.5" /> Site
             </Button>
+             <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => setLocation("/admin/student-access")} title="Student eligibility, units, and access requests">
+               <ShieldCheck className="w-3.5 h-3.5" /> Student Access
+             </Button>
             <Button variant="ghost" size="icon" onClick={() => setLocation("/admin/settings")} data-testid="button-settings">
               <Settings className="w-4 h-4" />
             </Button>

@@ -204,6 +204,20 @@ export async function registerRoutes(
     next();
   };
 
+  const requireStudent = async (req: any, res: any, next: any) => {
+    let studentId = req.session?.studentId;
+    if (!studentId && req.session?.examStudentId) {
+      const examStudent = await storage.getExamStudent(req.session.examStudentId);
+      studentId = examStudent?.studentId;
+      if (studentId) req.session.studentId = studentId;
+    }
+    if (!studentId) return res.status(401).json({ message: "Please sign in to continue" });
+    const student = await storage.getStudent(studentId);
+    if (!student) return res.status(401).json({ message: "Student account not found" });
+    req.student = student;
+    next();
+  };
+
   // Exams
   app.get("/api/exams", requireAdmin, async (req, res) => {
     const exams = await storage.getAllExams();
@@ -635,12 +649,12 @@ export async function registerRoutes(
     res.json({ ok: true });
   });
 
-  // Update student (university / yearOfStudy)
+  // Update student university
   app.patch("/api/admin/students/:id", requireAdmin, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid student id" });
-    const { university, yearOfStudy } = req.body;
-    await storage.updateStudent(id, { ...(university !== undefined ? { university } : {}), ...(yearOfStudy !== undefined ? { yearOfStudy } : {}) });
+    const { university } = req.body;
+    await storage.updateStudent(id, { ...(university !== undefined ? { university } : {}) });
     res.json({ ok: true });
   });
 
@@ -1000,6 +1014,244 @@ export async function registerRoutes(
     }
   });
 
+  // ── Verified student dashboard and access APIs ────────────────────────────
+  app.get("/api/student/allowed-domains", async (_req, res) => {
+    const { rows } = await pool.query(
+      "SELECT id, domain, label FROM allowed_email_domains WHERE is_active = true ORDER BY domain",
+    );
+    res.json(rows);
+  });
+
+  app.get("/api/student/me", requireStudent, async (req: any, res) => {
+    const { rows } = await pool.query(
+      "SELECT id, name, email, university, avatar_key AS \"avatarKey\" FROM students WHERE id = $1",
+      [req.student.id],
+    );
+    res.json(rows[0]);
+  });
+
+  app.get("/api/student/dashboard", requireStudent, async (req: any, res) => {
+    const studentId = req.student.id;
+    const [{ rows: unitRows }, { rows: historyRows }] = await Promise.all([
+      pool.query(
+        `SELECT u.id, u.code, u.name, u.description, u.is_active AS "isActive", true AS enrolled,
+                (SELECT COUNT(*)::int FROM exams e WHERE e.unit_id = u.id AND e.status = 'active') AS "activeExamCount",
+                (SELECT COUNT(DISTINCT a.id)::int
+                   FROM exam_students es JOIN attempts a ON a.exam_student_id = es.id
+                  WHERE es.student_id = $1 AND es.exam_id IN (SELECT id FROM exams WHERE unit_id = u.id) AND a.status = 'submitted') AS "completedAttempts",
+                COALESCE((SELECT ROUND(100.0 * SUM(r.marks_awarded) / NULLIF(SUM(q.marks), 0))::int
+                   FROM exam_students es JOIN attempts a ON a.exam_student_id = es.id
+                   JOIN responses r ON r.attempt_id = a.id JOIN questions q ON q.id = r.question_id
+                  WHERE es.student_id = $1 AND es.exam_id IN (SELECT id FROM exams WHERE unit_id = u.id) AND a.status = 'submitted'), 0) AS "averageScore"
+           FROM units u JOIN unit_memberships um ON um.unit_id = u.id
+          WHERE um.student_id = $1 AND um.status = 'enrolled' AND u.is_active = true
+          ORDER BY u.code`,
+        [studentId],
+      ),
+      pool.query(
+        `SELECT es.id AS "examStudentId", e.id AS "examId", e.title, u.name AS "unitName",
+                a.submitted_at AS "submittedAt",
+                COALESCE(SUM(r.marks_awarded), 0)::float AS "earnedMarks",
+                COALESCE(SUM(q.marks), 0)::float AS "totalMarks"
+           FROM exam_students es
+           JOIN exams e ON e.id = es.exam_id
+           LEFT JOIN units u ON u.id = e.unit_id
+           JOIN attempts a ON a.exam_student_id = es.id AND a.status = 'submitted'
+           LEFT JOIN responses r ON r.attempt_id = a.id
+           LEFT JOIN questions q ON q.id = r.question_id
+          WHERE es.student_id = $1
+          GROUP BY es.id, e.id, e.title, u.name, a.submitted_at
+          ORDER BY a.submitted_at DESC LIMIT 4`,
+        [studentId],
+      ),
+    ]);
+    const recent = historyRows.map((row) => ({
+      ...row,
+      scorePercent: row.totalMarks ? Math.round((row.earnedMarks / row.totalMarks) * 100) : 0,
+    }));
+    const averageScore = recent.length
+      ? Math.round(recent.reduce((sum, exam) => sum + exam.scorePercent, 0) / recent.length)
+      : 0;
+    res.json({ enrolledUnits: unitRows, recentActivity: recent, averageScore, totalExamsCompleted: recent.length });
+  });
+
+  app.get("/api/student/units", requireStudent, async (req: any, res) => {
+    const { rows } = await pool.query(
+      `SELECT u.id, u.code, u.name, u.description, u.is_active AS "isActive",
+              EXISTS(SELECT 1 FROM unit_memberships um WHERE um.unit_id = u.id AND um.student_id = $1 AND um.status = 'enrolled') AS enrolled,
+              (SELECT COUNT(*)::int FROM exams e WHERE e.unit_id = u.id AND e.status = 'active') AS "activeExamCount",
+              (SELECT COUNT(DISTINCT a.id)::int
+                 FROM exam_students es JOIN attempts a ON a.exam_student_id = es.id
+                WHERE es.student_id = $1 AND es.exam_id IN (SELECT id FROM exams WHERE unit_id = u.id) AND a.status = 'submitted') AS "completedAttempts"
+             ,COALESCE((SELECT ROUND(100.0 * SUM(r.marks_awarded) / NULLIF(SUM(q.marks), 0))::int
+                 FROM exam_students es JOIN attempts a ON a.exam_student_id = es.id
+                 JOIN responses r ON r.attempt_id = a.id JOIN questions q ON q.id = r.question_id
+                WHERE es.student_id = $1 AND es.exam_id IN (SELECT id FROM exams WHERE unit_id = u.id) AND a.status = 'submitted'), 0) AS "averageScore"
+         FROM units u WHERE u.is_active = true ORDER BY u.code, u.name`,
+      [req.student.id],
+    );
+    res.json(rows);
+  });
+
+  app.post("/api/student/units/:id/enrol", requireStudent, async (req: any, res) => {
+    const unitId = Number(req.params.id);
+    const { rows: units } = await pool.query("SELECT id FROM units WHERE id = $1 AND is_active = true", [unitId]);
+    if (!units[0]) return res.status(404).json({ message: "Unit not found" });
+    await pool.query(
+      `INSERT INTO unit_memberships (unit_id, student_id, status) VALUES ($1, $2, 'enrolled')
+       ON CONFLICT (unit_id, student_id) DO UPDATE SET status = 'enrolled'`,
+      [unitId, req.student.id],
+    );
+    res.json({ ok: true });
+  });
+
+  app.get("/api/student/units/:id", requireStudent, async (req: any, res) => {
+    const unitId = Number(req.params.id);
+    const { rows: memberships } = await pool.query(
+      "SELECT 1 FROM unit_memberships WHERE unit_id = $1 AND student_id = $2 AND status = 'enrolled'",
+      [unitId, req.student.id],
+    );
+    if (!memberships[0]) return res.status(403).json({ message: "Enrol in this unit to view its official exams" });
+    const { rows: units } = await pool.query(
+      `SELECT u.id, u.code, u.name, u.description,
+              (SELECT COUNT(*)::int FROM exams e WHERE e.unit_id = u.id AND e.status = 'active') AS "activeExamCount",
+              (SELECT COUNT(DISTINCT a.id)::int
+                 FROM exam_students es JOIN attempts a ON a.exam_student_id = es.id
+                WHERE es.student_id = $2 AND es.exam_id IN (SELECT id FROM exams WHERE unit_id = u.id) AND a.status = 'submitted') AS "completedAttempts"
+         FROM units u WHERE u.id = $1 AND u.is_active = true`,
+      [unitId, req.student.id],
+    );
+    if (!units[0]) return res.status(404).json({ message: "Unit not found" });
+    const { rows: exams } = await pool.query(
+      `SELECT e.id, e.title, e.timer_mode AS "timerMode", COUNT(q.id)::int AS "totalQuestions",
+              CASE WHEN es.id IS NOT NULL THEN 'approved'
+                   WHEN ear.status IS NOT NULL THEN ear.status ELSE 'not_requested' END AS "accessStatus"
+         FROM exams e
+         LEFT JOIN questions q ON q.exam_id = e.id
+         LEFT JOIN exam_students es ON es.exam_id = e.id AND es.student_id = $2
+         LEFT JOIN exam_access_requests ear ON ear.exam_id = e.id AND ear.student_id = $2
+        WHERE e.unit_id = $1 AND e.status = 'active'
+        GROUP BY e.id, e.title, e.timer_mode, es.id, ear.status ORDER BY e.created_at DESC`,
+      [unitId, req.student.id],
+    );
+    res.json({ ...units[0], exams });
+  });
+
+  app.post("/api/student/exams/:id/request-access", requireStudent, async (req: any, res) => {
+    const examId = Number(req.params.id);
+    const { rows: exams } = await pool.query(
+      "SELECT e.id, e.unit_id FROM exams e WHERE e.id = $1 AND e.status = 'active'",
+      [examId],
+    );
+    const exam = exams[0];
+    if (!exam?.unit_id) return res.status(404).json({ message: "This official exam is not available for requests" });
+    const { rows: membership } = await pool.query(
+      "SELECT 1 FROM unit_memberships WHERE unit_id = $1 AND student_id = $2 AND status = 'enrolled'",
+      [exam.unit_id, req.student.id],
+    );
+    if (!membership[0]) return res.status(403).json({ message: "Enrol in the exam unit before requesting access" });
+    const existing = await storage.getExamStudentByExamAndStudent(examId, req.student.id);
+    if (existing) return res.json({ ok: true, status: "approved" });
+    await pool.query(
+      `INSERT INTO exam_access_requests (exam_id, student_id, status, reason)
+       VALUES ($1, $2, 'pending', $3)
+       ON CONFLICT (exam_id, student_id) DO UPDATE SET status = 'pending', reason = EXCLUDED.reason, reviewed_by = NULL, review_reason = NULL, reviewed_at = NULL`,
+      [examId, req.student.id, typeof req.body?.reason === "string" ? req.body.reason.trim().slice(0, 500) : null],
+    );
+    res.json({ ok: true, status: "pending" });
+  });
+
+  app.post("/api/student/exams/:id/enter", requireStudent, async (req: any, res) => {
+    const examStudent = await storage.getExamStudentByExamAndStudent(Number(req.params.id), req.student.id);
+    if (!examStudent) return res.status(403).json({ message: "Your exam access has not been approved" });
+    (req.session as any).examStudentId = examStudent.id;
+    (req.session as any).studentExamId = examStudent.examId;
+    res.json({ ok: true, attemptStatus: examStudent.attemptStatus });
+  });
+
+  app.get("/api/student/past-exams", requireStudent, async (req: any, res) => {
+    const { rows } = await pool.query(
+      `SELECT es.id AS "examStudentId", e.id AS "examId", e.title, u.name AS "unitName",
+              a.submitted_at AS "submittedAt",
+              COALESCE(SUM(r.marks_awarded), 0)::float AS "earnedMarks",
+              COALESCE(SUM(q.marks), 0)::float AS "totalMarks"
+         FROM exam_students es
+         JOIN exams e ON e.id = es.exam_id
+         LEFT JOIN units u ON u.id = e.unit_id
+         JOIN attempts a ON a.exam_student_id = es.id AND a.status = 'submitted'
+         LEFT JOIN responses r ON r.attempt_id = a.id
+         LEFT JOIN questions q ON q.id = r.question_id
+        WHERE es.student_id = $1
+        GROUP BY es.id, e.id, e.title, u.name, a.submitted_at
+        ORDER BY a.submitted_at DESC`,
+      [req.student.id],
+    );
+    res.json(rows.map((row) => ({ ...row, scorePercent: row.totalMarks ? Math.round((row.earnedMarks / row.totalMarks) * 100) : 0 })));
+  });
+
+  app.get("/api/student/past-exams/:examStudentId", requireStudent, async (req: any, res) => {
+    const examStudentId = Number(req.params.examStudentId);
+    const { rows: access } = await pool.query(
+      "SELECT id FROM exam_students WHERE id = $1 AND student_id = $2",
+      [examStudentId, req.student.id],
+    );
+    if (!access[0]) return res.status(404).json({ message: "Past exam not found" });
+    const { rows: details } = await pool.query(
+      `SELECT es.id AS "examStudentId", e.id AS "examId", e.title, u.name AS "unitName",
+              a.submitted_at AS "submittedAt",
+              COALESCE(SUM(r.marks_awarded), 0)::float AS "earnedMarks",
+              COALESCE(SUM(q.marks), 0)::float AS "totalMarks"
+         FROM exam_students es JOIN exams e ON e.id = es.exam_id
+         LEFT JOIN units u ON u.id = e.unit_id
+         JOIN attempts a ON a.exam_student_id = es.id AND a.status = 'submitted'
+         LEFT JOIN responses r ON r.attempt_id = a.id LEFT JOIN questions q ON q.id = r.question_id
+        WHERE es.id = $1 GROUP BY es.id, e.id, e.title, u.name, a.submitted_at
+        ORDER BY a.submitted_at DESC LIMIT 1`,
+      [examStudentId],
+    );
+    if (!details[0]) return res.status(404).json({ message: "Submitted attempt not found" });
+    const { rows: responses } = await pool.query(
+      `SELECT q.content AS question, q.explanation, q.marks, r.answer, r.is_correct AS "isCorrect",
+              r.marks_awarded AS "marksAwarded", r.ai_feedback AS "aiFeedback"
+         FROM attempts a JOIN responses r ON r.attempt_id = a.id JOIN questions q ON q.id = r.question_id
+        WHERE a.exam_student_id = $1 AND a.status = 'submitted' ORDER BY q.order_index`,
+      [examStudentId],
+    );
+    const detail = details[0];
+    res.json({ ...detail, scorePercent: detail.totalMarks ? Math.round((detail.earnedMarks / detail.totalMarks) * 100) : 0, responses });
+  });
+
+  app.get("/api/student/profile/requests", requireStudent, async (req: any, res) => {
+    const { rows } = await pool.query(
+      `SELECT id, field_name AS "fieldName", requested_value AS "requestedValue", reason, status,
+              review_reason AS "reviewReason", created_at AS "createdAt"
+         FROM profile_change_requests WHERE student_id = $1 ORDER BY created_at DESC`,
+      [req.student.id],
+    );
+    res.json(rows);
+  });
+
+  app.post("/api/student/profile/avatar", requireStudent, async (req: any, res) => {
+    const allowedAvatars = ["teal", "navy", "violet", "amber", "rose", "forest"];
+    if (!allowedAvatars.includes(req.body?.avatarKey)) return res.status(400).json({ message: "Choose an avatar from the available collection" });
+    await pool.query("UPDATE students SET avatar_key = $1 WHERE id = $2", [req.body.avatarKey, req.student.id]);
+    res.json({ ok: true, avatarKey: req.body.avatarKey });
+  });
+
+  app.post("/api/student/profile/requests", requireStudent, async (req: any, res) => {
+    const fieldMap: Record<string, string> = { name: "name", university: "university" };
+    const fieldName = fieldMap[String(req.body?.fieldName || "")];
+    const requestedValue = String(req.body?.requestedValue || "").trim();
+    if (!fieldName || !requestedValue || requestedValue.length > 120) {
+      return res.status(400).json({ message: "Provide a valid profile change request" });
+    }
+    await pool.query(
+      "INSERT INTO profile_change_requests (student_id, field_name, requested_value, reason) VALUES ($1, $2, $3, $4)",
+      [req.student.id, fieldName, requestedValue, String(req.body?.reason || "").trim().slice(0, 500) || null],
+    );
+    res.json({ ok: true });
+  });
+
   // Student Portal APIs
   app.get("/api/student/active-exams", async (req, res) => {
     const { db } = await import("./db");
@@ -1011,26 +1263,35 @@ export async function registerRoutes(
   });
 
   app.post("/api/student/login", async (req, res) => {
-    const { examId, email, password } = req.body;
-    if (!examId || !email || !password) {
-      return res.status(400).json({ message: "Exam, email and password are required" });
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ message: "Email and password are required" });
     }
-    const parsedExamId = Number.parseInt(String(examId), 10);
-    if (!Number.isFinite(parsedExamId)) {
-      return res.status(400).json({ message: "A valid exam is required" });
+    const normalizedEmail = String(email).trim().toLowerCase();
+
+    const { rows } = await pool.query(
+      `SELECT sa.password_hash AS "passwordHash", sa.is_active AS "isActive", s.id AS "studentId"
+         FROM student_accounts sa JOIN students s ON s.id = sa.student_id
+        WHERE LOWER(s.email) = $1`,
+      [normalizedEmail],
+    );
+    const account = rows[0];
+    if (!account || !account.isActive || !(await bcrypt.compare(password, account.passwordHash))) {
+      return res.status(401).json({ message: "Invalid email or password" });
     }
-    const es = await storage.getExamStudentByCredentials(parsedExamId, email, password);
-    if (!es) return res.status(401).json({ message: "Invalid credentials" });
-    (req.session as any).examStudentId = es.id;
-    (req.session as any).studentExamId = parsedExamId;
-    res.json({
-      examStudentId: es.id,
-      studentName: es.student.name,
-      attemptStatus: es.attemptStatus,
-    });
+    (req.session as any).studentId = account.studentId;
+    delete (req.session as any).examStudentId;
+    delete (req.session as any).studentExamId;
+    res.json({ studentId: account.studentId, accountType: "dashboard" });
   });
 
   app.get("/api/student/session", async (req, res) => {
+    const studentId = (req.session as any)?.studentId;
+    if (studentId && !(req.session as any)?.examStudentId) {
+      const student = await storage.getStudent(studentId);
+      if (!student) return res.status(401).json({ message: "Not authenticated" });
+      return res.json({ studentId: student.id, studentName: student.name, accountType: "dashboard" });
+    }
     const esId = (req.session as any)?.examStudentId;
     if (!esId) return res.status(401).json({ message: "Not authenticated" });
     const es = await storage.getExamStudent(esId);
@@ -1475,16 +1736,30 @@ export async function registerRoutes(
 
   app.post("/api/student/signup", async (req, res) => {
     try {
-      const { name, email, university, yearOfStudy, password } = req.body;
+      const { name, email, university, password } = req.body;
       if (!name || !email || !university || !password) {
         return res.status(400).json({ message: "Name, email, university and password are required" });
       }
       const normalizedEmail = (email || "").trim().toLowerCase();
+      const emailDomain = normalizedEmail.split("@")[1];
+      const { rows: allowedDomains } = await pool.query(
+        "SELECT 1 FROM allowed_email_domains WHERE domain = $1 AND is_active = true",
+        [emailDomain],
+      );
+      if (!emailDomain || !allowedDomains[0]) {
+        return res.status(400).json({ message: "Use an email address from a school approved by MedQrown." });
+      }
 
-      // Check if student already has a full account (enrolled in an exam)
+      // Existing exam-only students may activate the new portal through verified email.
       const existingStudent = await storage.getStudentByEmail(normalizedEmail);
       if (existingStudent) {
-        return res.status(409).json({ message: "An account with this email already exists. Please sign in using your existing credentials.", hasAccount: true });
+        const { rows: accounts } = await pool.query(
+          "SELECT id FROM student_accounts WHERE student_id = $1 AND is_active = true",
+          [existingStudent.id],
+        );
+        if (accounts[0]) {
+          return res.status(409).json({ message: "An account with this email already exists. Please sign in instead.", hasAccount: true });
+        }
       }
 
       const existing = await storage.getStudentSignupByEmail(normalizedEmail);
@@ -1500,7 +1775,6 @@ export async function registerRoutes(
         name: name.trim(),
         email: normalizedEmail,
         university: university.trim(),
-        yearOfStudy: yearOfStudy || null,
         password: password,
         verificationCode: code,
         verificationExpiresAt: expiresAt,
@@ -1557,8 +1831,27 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Code has expired. Please request a new one." });
       }
 
-      await storage.updateStudentSignup(signup.id, { emailVerified: true, status: "pending_approval" });
-      res.json({ message: "Email verified! Awaiting admin approval." });
+      let student = await storage.getStudentByEmail(signup.email);
+      if (!student) {
+        student = await storage.createStudent({
+          name: signup.name,
+          email: signup.email,
+          university: signup.university,
+        });
+      }
+      const { rows: accounts } = await pool.query("SELECT id FROM student_accounts WHERE student_id = $1", [student.id]);
+      if (!accounts[0]) {
+        if (!signup.password) return res.status(400).json({ message: "A password is required to activate this account. Please sign up again." });
+        await pool.query(
+          "INSERT INTO student_accounts (student_id, password_hash) VALUES ($1, $2)",
+          [student.id, await bcrypt.hash(signup.password, 10)],
+        );
+      }
+      await storage.updateStudentSignup(signup.id, { emailVerified: true, status: "active" });
+      (req.session as any).studentId = student.id;
+      delete (req.session as any).examStudentId;
+      delete (req.session as any).studentExamId;
+      res.json({ message: "Email verified. Your student account is ready.", status: "active" });
     } catch (error: any) {
       console.error("Verify error:", error);
       res.status(500).json({ message: "Verification failed. Please try again." });
@@ -1693,6 +1986,11 @@ export async function registerRoutes(
 
       // Update password on all exam_students records for this student
       await storage.updateAllExamStudentPasswords(student.id, newPassword);
+      // Keep verified-account login in sync when this student has a dashboard account.
+      await pool.query(
+        "UPDATE student_accounts SET password_hash = $1 WHERE student_id = $2",
+        [await bcrypt.hash(newPassword, 10), student.id],
+      );
       // Clear the reset code
       await storage.updateStudent(student.id, { resetCode: null, resetExpiresAt: null });
 
@@ -1701,6 +1999,189 @@ export async function registerRoutes(
       console.error("Reset password error:", error);
       res.status(500).json({ message: "Password reset failed. Please try again." });
     }
+  });
+
+  // ── Admin student access management ──────────────────────────────────────
+  app.get("/api/admin/allowed-domains", requireAdmin, async (_req, res) => {
+    const { rows } = await pool.query(
+      "SELECT id, domain, label, is_active AS \"isActive\", created_at AS \"createdAt\" FROM allowed_email_domains ORDER BY domain",
+    );
+    res.json(rows);
+  });
+
+  app.post("/api/admin/allowed-domains", requireAdmin, async (req, res) => {
+    const domain = String(req.body?.domain || "").trim().toLowerCase().replace(/^@/, "");
+    if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)) return res.status(400).json({ message: "Enter a valid school email domain" });
+    try {
+      const { rows } = await pool.query(
+        `INSERT INTO allowed_email_domains (domain, label) VALUES ($1, $2)
+         ON CONFLICT (domain) DO UPDATE SET label = EXCLUDED.label, is_active = true
+         RETURNING id, domain, label, is_active AS "isActive"`,
+        [domain, String(req.body?.label || "").trim() || null],
+      );
+      await storage.createAuditLog({ adminId: (req as any).admin.id, action: "add_allowed_domain", details: domain });
+      res.json(rows[0]);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Could not save domain" });
+    }
+  });
+
+  app.patch("/api/admin/allowed-domains/:id", requireAdmin, async (req, res) => {
+    const { rows } = await pool.query(
+      `UPDATE allowed_email_domains SET is_active = $1 WHERE id = $2
+       RETURNING id, domain, label, is_active AS "isActive"`,
+      [Boolean(req.body?.isActive), Number(req.params.id)],
+    );
+    if (!rows[0]) return res.status(404).json({ message: "Domain not found" });
+    res.json(rows[0]);
+  });
+
+  app.delete("/api/admin/allowed-domains/:id", requireAdmin, async (req, res) => {
+    await pool.query("DELETE FROM allowed_email_domains WHERE id = $1", [Number(req.params.id)]);
+    res.json({ ok: true });
+  });
+
+  app.get("/api/admin/units", requireAdmin, async (_req, res) => {
+    const { rows } = await pool.query(
+      `SELECT u.id, u.code, u.name, u.description, u.university, u.is_active AS "isActive",
+              COUNT(DISTINCT um.student_id)::int AS "enrolmentCount",
+              COUNT(DISTINCT e.id)::int AS "examCount"
+         FROM units u LEFT JOIN unit_memberships um ON um.unit_id = u.id AND um.status = 'enrolled'
+         LEFT JOIN exams e ON e.unit_id = u.id
+        GROUP BY u.id ORDER BY u.code, u.name`,
+    );
+    res.json(rows);
+  });
+
+  app.post("/api/admin/units", requireAdmin, async (req, res) => {
+    const code = String(req.body?.code || "").trim().toUpperCase();
+    const name = String(req.body?.name || "").trim();
+    if (!code || !name) return res.status(400).json({ message: "Unit code and name are required" });
+    try {
+      const { rows } = await pool.query(
+        `INSERT INTO units (code, name, description, university) VALUES ($1, $2, $3, $4)
+         RETURNING id, code, name, description, university, is_active AS "isActive"`,
+        [code, name, String(req.body?.description || "").trim() || null, String(req.body?.university || "").trim() || null],
+      );
+      res.json(rows[0]);
+    } catch (error: any) {
+      res.status(409).json({ message: error.message?.includes("unique") ? "That unit code already exists" : "Could not create unit" });
+    }
+  });
+
+  app.patch("/api/admin/units/:id", requireAdmin, async (req, res) => {
+    const id = Number(req.params.id);
+    const { rows } = await pool.query(
+      `UPDATE units SET code = COALESCE($1, code), name = COALESCE($2, name), description = $3,
+              university = $4, is_active = COALESCE($5, is_active)
+         WHERE id = $6
+       RETURNING id, code, name, description, university, is_active AS "isActive"`,
+      [
+        req.body?.code ? String(req.body.code).trim().toUpperCase() : null,
+        req.body?.name ? String(req.body.name).trim() : null,
+        req.body?.description === undefined ? null : String(req.body.description).trim() || null,
+        req.body?.university === undefined ? null : String(req.body.university).trim() || null,
+        typeof req.body?.isActive === "boolean" ? req.body.isActive : null,
+        id,
+      ],
+    );
+    if (!rows[0]) return res.status(404).json({ message: "Unit not found" });
+    res.json(rows[0]);
+  });
+
+  app.delete("/api/admin/units/:id", requireAdmin, async (req, res) => {
+    await pool.query("DELETE FROM units WHERE id = $1", [Number(req.params.id)]);
+    res.json({ ok: true });
+  });
+
+  app.patch("/api/admin/exams/:id/unit", requireAdmin, async (req, res) => {
+    const unitId = req.body?.unitId ? Number(req.body.unitId) : null;
+    if (unitId) {
+      const { rows: units } = await pool.query("SELECT id FROM units WHERE id = $1", [unitId]);
+      if (!units[0]) return res.status(400).json({ message: "Unit not found" });
+    }
+    await pool.query("UPDATE exams SET unit_id = $1 WHERE id = $2", [unitId, Number(req.params.id)]);
+    res.json({ ok: true });
+  });
+
+  app.get("/api/admin/exam-access-requests", requireAdmin, async (_req, res) => {
+    const { rows } = await pool.query(
+      `SELECT ear.id, ear.status, ear.reason, ear.review_reason AS "reviewReason", ear.created_at AS "createdAt",
+              e.id AS "examId", e.title AS "examTitle", u.code AS "unitCode",
+              s.id AS "studentId", s.name AS "studentName", s.email AS "studentEmail", s.university
+         FROM exam_access_requests ear JOIN exams e ON e.id = ear.exam_id
+         LEFT JOIN units u ON u.id = e.unit_id JOIN students s ON s.id = ear.student_id
+        ORDER BY CASE WHEN ear.status = 'pending' THEN 0 ELSE 1 END, ear.created_at DESC`,
+    );
+    res.json(rows);
+  });
+
+  app.post("/api/admin/exam-access-requests/:id/approve", requireAdmin, async (req, res) => {
+    const requestId = Number(req.params.id);
+    const { rows } = await pool.query(
+      "SELECT exam_id, student_id FROM exam_access_requests WHERE id = $1 AND status = 'pending'",
+      [requestId],
+    );
+    const request = rows[0];
+    if (!request) return res.status(404).json({ message: "Pending access request not found" });
+    const existing = await storage.getExamStudentByExamAndStudent(request.exam_id, request.student_id);
+    if (!existing) {
+      await storage.createExamStudent({
+        examId: request.exam_id,
+        studentId: request.student_id,
+        password: crypto.randomBytes(20).toString("hex"),
+        attemptStatus: "not_started",
+        resetCount: 0,
+        emailSent: false,
+      });
+    }
+    await pool.query(
+      "UPDATE exam_access_requests SET status = 'approved', reviewed_by = $1, review_reason = $2, reviewed_at = CURRENT_TIMESTAMP WHERE id = $3",
+      [(req as any).admin.id, String(req.body?.reviewReason || "").trim() || null, requestId],
+    );
+    res.json({ ok: true });
+  });
+
+  app.post("/api/admin/exam-access-requests/:id/reject", requireAdmin, async (req, res) => {
+    const result = await pool.query(
+      "UPDATE exam_access_requests SET status = 'rejected', reviewed_by = $1, review_reason = $2, reviewed_at = CURRENT_TIMESTAMP WHERE id = $3 AND status = 'pending'",
+      [(req as any).admin.id, String(req.body?.reviewReason || "").trim() || null, Number(req.params.id)],
+    );
+    if (!result.rowCount) return res.status(404).json({ message: "Pending access request not found" });
+    res.json({ ok: true });
+  });
+
+  app.get("/api/admin/profile-change-requests", requireAdmin, async (_req, res) => {
+    const { rows } = await pool.query(
+      `SELECT pcr.id, pcr.field_name AS "fieldName", pcr.requested_value AS "requestedValue", pcr.reason, pcr.status,
+              pcr.review_reason AS "reviewReason", pcr.created_at AS "createdAt",
+              s.id AS "studentId", s.name AS "studentName", s.email AS "studentEmail"
+         FROM profile_change_requests pcr JOIN students s ON s.id = pcr.student_id
+        ORDER BY CASE WHEN pcr.status = 'pending' THEN 0 ELSE 1 END, pcr.created_at DESC`,
+    );
+    res.json(rows);
+  });
+
+  app.post("/api/admin/profile-change-requests/:id/:decision", requireAdmin, async (req, res) => {
+    const decision = req.params.decision;
+    if (!["approve", "reject"].includes(decision)) return res.status(400).json({ message: "Invalid decision" });
+    const { rows } = await pool.query(
+      "SELECT id, student_id, field_name, requested_value FROM profile_change_requests WHERE id = $1 AND status = 'pending'",
+      [Number(req.params.id)],
+    );
+    const request = rows[0];
+    if (!request) return res.status(404).json({ message: "Pending profile request not found" });
+    if (decision === "approve") {
+      const columnByField: Record<string, string> = { name: "name", university: "university" };
+      const column = columnByField[request.field_name];
+      if (!column) return res.status(400).json({ message: "Unsupported profile field" });
+      await pool.query(`UPDATE students SET ${column} = $1 WHERE id = $2`, [request.requested_value, request.student_id]);
+    }
+    await pool.query(
+      "UPDATE profile_change_requests SET status = $1, reviewed_by = $2, review_reason = $3, reviewed_at = CURRENT_TIMESTAMP WHERE id = $4",
+      [decision === "approve" ? "approved" : "rejected", (req as any).admin.id, String(req.body?.reviewReason || "").trim() || null, request.id],
+    );
+    res.json({ ok: true });
   });
 
   // ── Admin Signup Management ──────────────────────────────────────────────

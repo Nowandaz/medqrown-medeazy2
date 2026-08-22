@@ -1,12 +1,9 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Eye, EyeOff, LogIn, Phone, MessageSquare, Mail as MailIcon, UserPlus } from "lucide-react";
@@ -14,7 +11,6 @@ import { AppHeader } from "@/components/AppHeader";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
 
 export default function StudentLogin() {
-  const [examId, setExamId] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -22,27 +18,19 @@ export default function StudentLogin() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
-  const { data: exams, isLoading } = useQuery<{ id: number; title: string }[]>({
-    queryKey: ["/api/student/active-exams"],
-  });
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!examId) {
-      toast({ title: "Please select an exam", variant: "destructive" });
-      return;
-    }
     setLoading(true);
     try {
-      const res = await apiRequest("POST", "/api/student/login", { examId: parseInt(examId), email, password });
+      const res = await apiRequest("POST", "/api/student/login", { email, password });
       const data = await res.json();
-      if (data.attemptStatus === "submitted") {
-        setLocation("/student/results");
+      if (res.ok && data.accountType === "dashboard") {
+        setLocation("/student/dashboard");
       } else {
-        setLocation("/student/instructions");
+        toast({ title: "Login Failed", description: data.message || "Invalid email or password", variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "Login Failed", description: "Invalid credentials or exam selection", variant: "destructive" });
+      toast({ title: "Login Failed", description: "Could not connect. Please try again.", variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -56,44 +44,25 @@ export default function StudentLogin() {
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
             <MedQrownBrand size="lg" layout="stacked" />
-            <h1 className="text-2xl font-bold tracking-tight mt-5" data-testid="text-title">Student Exam Portal</h1>
+            <h1 className="text-2xl font-bold tracking-tight mt-5" data-testid="text-title">Student Portal</h1>
           </div>
 
           <Card className="border-primary/10 shadow-lg">
             <CardContent className="p-6">
               <form onSubmit={handleLogin} className="space-y-5">
                 <div className="space-y-2">
-                  <Label htmlFor="exam" className="text-sm font-medium">Select Exam</Label>
-                  {isLoading ? (
-                    <Skeleton className="h-10 rounded-lg" />
-                  ) : (
-                    <Select value={examId} onValueChange={setExamId}>
-                      <SelectTrigger className="h-11" data-testid="select-exam">
-                        <SelectValue placeholder="Choose your exam..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {exams?.map((exam) => (
-                          <SelectItem key={exam.id} value={String(exam.id)}>{exam.title}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {exams?.length === 0 && (
-                    <p className="text-xs text-muted-foreground">No active exams available</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email" className="text-sm font-medium">Email</Label>
+                  <Label htmlFor="email" className="text-sm font-medium">School email address</Label>
                   <Input
                     id="email"
                     type="email"
-                    placeholder="Your registered email"
+                    placeholder="your@institution.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
                     className="h-11"
                     data-testid="input-email"
                   />
+                  <p className="text-xs text-muted-foreground">Use your school or institution email address.</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="password" className="text-sm font-medium">Password</Label>
@@ -123,7 +92,7 @@ export default function StudentLogin() {
                 </div>
                 <Button type="submit" className="w-full h-11 text-sm font-medium" disabled={loading} data-testid="button-login">
                   <LogIn className="w-4 h-4 mr-2" />
-                  {loading ? "Signing in..." : "Sign In to Exam"}
+                  {loading ? "Signing in..." : "Sign In"}
                 </Button>
               </form>
             </CardContent>
@@ -162,7 +131,7 @@ export default function StudentLogin() {
               data-testid="button-signup"
             >
               <UserPlus className="w-4 h-4" />
-              New student? Sign up here
+                New student? Create your verified account
             </button>
             <p className="text-center text-xs text-muted-foreground">
               <button

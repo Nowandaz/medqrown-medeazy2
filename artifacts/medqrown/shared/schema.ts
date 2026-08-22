@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, integer, boolean, timestamp, jsonb, real, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, integer, boolean, timestamp, jsonb, real, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -9,6 +9,16 @@ export const admins = pgTable("admins", {
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
   role: text("role").notNull().default("examiner"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const units = pgTable("units", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  university: text("university"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
@@ -24,6 +34,7 @@ export const exams = pgTable("exams", {
   resultsReleased: boolean("results_released").notNull().default(false),
   autoMarkEnabled: boolean("auto_mark_enabled").notNull().default(false),
   instructions: text("instructions"),
+  unitId: integer("unit_id").references(() => units.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
@@ -41,8 +52,35 @@ export const students = pgTable("students", {
   yearOfStudy: text("year_of_study"),
   resetCode: text("reset_code"),
   resetExpiresAt: timestamp("reset_expires_at"),
+  avatarKey: text("avatar_key").notNull().default("teal"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
+
+export const studentAccounts = pgTable("student_accounts", {
+  id: serial("id").primaryKey(),
+  studentId: integer("student_id").notNull().unique().references(() => students.id, { onDelete: "cascade" }),
+  passwordHash: text("password_hash").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const allowedEmailDomains = pgTable("allowed_email_domains", {
+  id: serial("id").primaryKey(),
+  domain: text("domain").notNull().unique(),
+  label: text("label"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const unitMemberships = pgTable("unit_memberships", {
+  id: serial("id").primaryKey(),
+  unitId: integer("unit_id").notNull().references(() => units.id, { onDelete: "cascade" }),
+  studentId: integer("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("enrolled"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  uniqueIndex("unit_memberships_unit_student_unique").on(table.unitId, table.studentId),
+]);
 
 export const examStudents = pgTable("exam_students", {
   id: serial("id").primaryKey(),
@@ -57,6 +95,33 @@ export const examStudents = pgTable("exam_students", {
   index("idx_exam_students_exam_id").on(table.examId),
   index("idx_exam_students_student_id").on(table.studentId),
 ]);
+
+export const examAccessRequests = pgTable("exam_access_requests", {
+  id: serial("id").primaryKey(),
+  examId: integer("exam_id").notNull().references(() => exams.id, { onDelete: "cascade" }),
+  studentId: integer("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("pending"),
+  reason: text("reason"),
+  reviewedBy: integer("reviewed_by").references(() => admins.id, { onDelete: "set null" }),
+  reviewReason: text("review_reason"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  reviewedAt: timestamp("reviewed_at"),
+}, (table) => [
+  uniqueIndex("exam_access_requests_exam_student_unique").on(table.examId, table.studentId),
+]);
+
+export const profileChangeRequests = pgTable("profile_change_requests", {
+  id: serial("id").primaryKey(),
+  studentId: integer("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  fieldName: text("field_name").notNull(),
+  requestedValue: text("requested_value").notNull(),
+  reason: text("reason"),
+  status: text("status").notNull().default("pending"),
+  reviewedBy: integer("reviewed_by").references(() => admins.id, { onDelete: "set null" }),
+  reviewReason: text("review_reason"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  reviewedAt: timestamp("reviewed_at"),
+});
 
 export const questions = pgTable("questions", {
   id: serial("id").primaryKey(),
