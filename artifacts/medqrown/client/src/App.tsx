@@ -34,6 +34,7 @@ import StudentUnitDetail from "@/pages/student/unit-detail";
 import StudentPastExams from "@/pages/student/past-exams";
 import StudentPastExamDetail from "@/pages/student/past-exam-detail";
 import StudentProfile from "@/pages/student/profile";
+import StudentStats from "@/pages/student/stats";
 
 function StudentRoutes() {
   return (
@@ -44,6 +45,7 @@ function StudentRoutes() {
         <Route path="/student/units/:id" component={StudentUnitDetail} />
         <Route path="/student/past-exams" component={StudentPastExams} />
         <Route path="/student/past-exams/:id" component={StudentPastExamDetail} />
+        <Route path="/student/stats" component={StudentStats} />
         <Route path="/student/profile" component={StudentProfile} />
         <Route component={NotFound} />
       </Switch>
@@ -82,6 +84,7 @@ function Router() {
       <Route path="/student/units/:id" component={StudentRoutes} />
       <Route path="/student/past-exams" component={StudentRoutes} />
       <Route path="/student/past-exams/:id" component={StudentRoutes} />
+      <Route path="/student/stats" component={StudentRoutes} />
       <Route path="/student/profile" component={StudentRoutes} />
       
       <Route component={NotFound} />

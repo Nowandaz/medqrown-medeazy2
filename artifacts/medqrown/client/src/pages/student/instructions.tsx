@@ -36,6 +36,8 @@ export default function StudentInstructions() {
     totalQuestions: number;
     mcqCount: number;
     saqCount: number;
+    maxAttempts: number;
+    attemptsUsed: number;
     instructions: string | null;
   }>({
     queryKey: ["/api/student/exam-info"],
@@ -177,6 +179,9 @@ export default function StudentInstructions() {
                 {!isTimed && (
                   <Badge variant="outline" className="text-xs">No time limit</Badge>
                 )}
+                <Badge variant="outline" className="text-xs">
+                  Attempt {info.attemptsUsed + 1} of {info.maxAttempts}
+                </Badge>
               </div>
 
               <Separator />

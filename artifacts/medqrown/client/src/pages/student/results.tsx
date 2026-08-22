@@ -12,7 +12,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import {
   Trophy, CheckCircle, XCircle, Clock, LogOut, MessageSquare,
-  Star, Award, ImageIcon, TrendingUp, TrendingDown, Printer, Loader2
+  Star, Award, ImageIcon, TrendingUp, TrendingDown, Printer, Loader2, ArrowLeft
 } from "lucide-react";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
 
@@ -87,6 +87,9 @@ export default function StudentResults() {
                 <p className="text-xs text-muted-foreground">Welcome, {session?.studentName}</p>
               </div>
             </div>
+            <Button variant="outline" size="sm" onClick={() => setLocation("/student/dashboard")} className="gap-1.5">
+              <ArrowLeft className="w-3.5 h-3.5" />Back to dashboard
+            </Button>
           </div>
         </header>
 
@@ -129,6 +132,9 @@ export default function StudentResults() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setLocation("/student/dashboard")} className="gap-1.5" data-testid="button-back-dashboard">
+              <ArrowLeft className="w-3.5 h-3.5" />Back
+            </Button>
             {results?.released && (
               <Button variant="outline" size="sm" onClick={handlePrint} className="gap-1.5" data-testid="button-print">
                 <Printer className="w-3.5 h-3.5" />

@@ -27,6 +27,10 @@ export interface UnitExam {
   timerMode: string;
   totalQuestions: number;
   accessStatus: string;
+  maxAttempts: number;
+  attemptsUsed: number;
+  canEnter: boolean;
+  reattemptStatus: "not_requested" | "pending" | "approved" | "rejected";
 }
 
 export interface UnitDetail extends Unit {
@@ -34,6 +38,7 @@ export interface UnitDetail extends Unit {
 }
 
 export interface PastExam {
+  attemptId: string;
   examStudentId: string;
   examId: string;
   title: string;
@@ -68,6 +73,26 @@ export interface DashboardData {
   enrolledUnits: Unit[];
   averageScore: number;
   totalExamsCompleted: number;
+}
+
+export interface StudentStats {
+  totalAttempts: number;
+  averageScore: number;
+  bestScore: number;
+  passRate: number;
+  recentScores: Array<{
+    attemptId: string;
+    examId: string;
+    title: string;
+    unitName: string;
+    submittedAt: string;
+    scorePercent: number;
+  }>;
+  unitPerformance: Array<{
+    unitName: string;
+    total: number;
+    averageScore: number;
+  }>;
 }
 
 export function useStudentMe() {
@@ -133,6 +158,23 @@ export function useRequestExamAccess() {
 export function useEnterExam() {
   return useMutation({
     mutationFn: (id: string) => apiRequest("POST", `/api/student/exams/${id}/enter`).then(res => res.json()),
+  });
+}
+
+export function useRequestReattempt() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
+      apiRequest("POST", `/api/student/exams/${id}/request-reattempt`, { reason }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/student/units"] });
+    },
+  });
+}
+
+export function useStudentStats() {
+  return useQuery<StudentStats>({
+    queryKey: ["/api/student/stats"],
   });
 }
 

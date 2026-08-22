@@ -127,8 +127,8 @@ export default function StudentPastExamDetail() {
                       {response.marksAwarded ?? 0}/{response.marks ?? 0} marks
                     </span>
                   </div>
-                  <div className="mt-4 rounded-lg bg-muted/50 p-3 text-sm">
-                    <span className="text-muted-foreground">Your answer: </span>{response.answer || "No answer submitted"}
+                     <div className="mt-4 rounded-lg bg-muted/50 p-3 text-sm">
+                       <span className="text-muted-foreground">Your answer: </span>{response.answerDisplay || response.answer || "No answer submitted"}
                   </div>
                   {(response.explanation || response.aiFeedback) && (
                     <div className="mt-3 text-sm text-muted-foreground">

@@ -48,7 +48,7 @@ export default function StudentPastExams() {
       ) : (
         <div className="grid gap-4">
           {exams.map((exam) => (
-            <Link key={exam.examStudentId} href={`/student/past-exams/${exam.examStudentId}`}>
+            <Link key={exam.attemptId} href={`/student/past-exams/${exam.attemptId}`}>
               <Card className="group transition-all hover:shadow-md hover:border-primary/30 cursor-pointer">
                 <CardContent className="p-6">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">

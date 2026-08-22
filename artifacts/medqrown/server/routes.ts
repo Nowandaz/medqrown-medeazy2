@@ -218,6 +218,35 @@ export async function registerRoutes(
     next();
   };
 
+  const getAttemptEntitlement = async (examId: number, studentId: number) => {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(e.max_attempts, 1)::int AS "maxAttempts",
+              (SELECT COUNT(*)::int
+                 FROM attempts a JOIN exam_students es ON es.id = a.exam_student_id
+                WHERE es.exam_id = e.id AND es.student_id = $2 AND a.status = 'submitted') AS "submittedAttempts",
+              EXISTS(
+                SELECT 1 FROM attempts a JOIN exam_students es ON es.id = a.exam_student_id
+                 WHERE es.exam_id = e.id AND es.student_id = $2 AND a.status = 'in_progress'
+              ) AS "hasInProgressAttempt",
+              (SELECT rr.id FROM exam_reattempt_requests rr
+                WHERE rr.exam_id = e.id AND rr.student_id = $2
+                  AND rr.status = 'approved' AND rr.consumed_at IS NULL
+                ORDER BY rr.reviewed_at DESC NULLS LAST, rr.created_at DESC LIMIT 1) AS "approvedRequestId",
+              (SELECT rr.status FROM exam_reattempt_requests rr
+                WHERE rr.exam_id = e.id AND rr.student_id = $2 AND rr.status = 'pending'
+                ORDER BY rr.created_at DESC LIMIT 1) AS "pendingRequestStatus"
+         FROM exams e WHERE e.id = $1`,
+      [examId, studentId],
+    );
+    return rows[0] as {
+      maxAttempts: number;
+      submittedAttempts: number;
+      hasInProgressAttempt: boolean;
+      approvedRequestId: number | null;
+      pendingRequestStatus: string | null;
+    } | undefined;
+  };
+
   // Exams
   app.get("/api/exams", requireAdmin, async (req, res) => {
     const exams = await storage.getAllExams();
@@ -238,7 +267,15 @@ export async function registerRoutes(
   });
 
   app.patch("/api/exams/:id", requireAdmin, async (req, res) => {
-    const exam = await storage.updateExam(parseInt(req.params.id), req.body);
+    const updates = { ...req.body };
+    if (updates.maxAttempts !== undefined) {
+      const maxAttempts = Number(updates.maxAttempts);
+      if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 100) {
+        return res.status(400).json({ message: "Maximum attempts must be a whole number between 1 and 100" });
+      }
+      updates.maxAttempts = maxAttempts;
+    }
+    const exam = await storage.updateExam(parseInt(req.params.id), updates);
     res.json(exam);
   });
 
@@ -1123,15 +1160,32 @@ export async function registerRoutes(
     );
     if (!units[0]) return res.status(404).json({ message: "Unit not found" });
     const { rows: exams } = await pool.query(
-      `SELECT e.id, e.title, e.timer_mode AS "timerMode", COUNT(q.id)::int AS "totalQuestions",
+      `SELECT e.id, e.title, e.timer_mode AS "timerMode", COALESCE(e.max_attempts, 1)::int AS "maxAttempts",
+              COUNT(q.id)::int AS "totalQuestions",
               CASE WHEN es.id IS NOT NULL THEN 'approved'
                    WHEN ear.status IS NOT NULL THEN ear.status ELSE 'not_requested' END AS "accessStatus"
+              ,COALESCE((SELECT COUNT(*)::int
+                  FROM attempts a JOIN exam_students counted_es ON counted_es.id = a.exam_student_id
+                 WHERE counted_es.exam_id = e.id AND counted_es.student_id = $2 AND a.status = 'submitted'), 0) AS "attemptsUsed"
+              ,CASE WHEN es.id IS NULL THEN false
+                    WHEN EXISTS(SELECT 1 FROM attempts a WHERE a.exam_student_id = es.id AND a.status = 'in_progress') THEN true
+                    WHEN (SELECT COUNT(*) FROM attempts a WHERE a.exam_student_id = es.id AND a.status = 'submitted') < COALESCE(e.max_attempts, 1) THEN true
+                    WHEN EXISTS(SELECT 1 FROM exam_reattempt_requests rr WHERE rr.exam_id = e.id AND rr.student_id = $2 AND rr.status = 'approved' AND rr.consumed_at IS NULL) THEN true
+                    ELSE false END AS "canEnter"
+              ,COALESCE(
+                (SELECT rr.status FROM exam_reattempt_requests rr
+                  WHERE rr.exam_id = e.id AND rr.student_id = $2 AND (
+                    rr.status = 'pending' OR (rr.status = 'approved' AND rr.consumed_at IS NULL) OR rr.status = 'rejected'
+                  )
+                 ORDER BY rr.created_at DESC LIMIT 1),
+                'not_requested'
+               ) AS "reattemptStatus"
          FROM exams e
          LEFT JOIN questions q ON q.exam_id = e.id
          LEFT JOIN exam_students es ON es.exam_id = e.id AND es.student_id = $2
          LEFT JOIN exam_access_requests ear ON ear.exam_id = e.id AND ear.student_id = $2
         WHERE e.unit_id = $1 AND e.status = 'active'
-        GROUP BY e.id, e.title, e.timer_mode, es.id, ear.status ORDER BY e.created_at DESC`,
+         GROUP BY e.id, e.title, e.timer_mode, e.max_attempts, es.id, ear.status ORDER BY e.created_at DESC`,
       [unitId, req.student.id],
     );
     res.json({ ...units[0], exams });
@@ -1162,16 +1216,116 @@ export async function registerRoutes(
   });
 
   app.post("/api/student/exams/:id/enter", requireStudent, async (req: any, res) => {
-    const examStudent = await storage.getExamStudentByExamAndStudent(Number(req.params.id), req.student.id);
+    const examId = Number(req.params.id);
+    const examStudent = await storage.getExamStudentByExamAndStudent(examId, req.student.id);
     if (!examStudent) return res.status(403).json({ message: "Your exam access has not been approved" });
+    const entitlement = await getAttemptEntitlement(examId, req.student.id);
+    if (!entitlement) return res.status(404).json({ message: "Exam not found" });
+
+    if (!entitlement.hasInProgressAttempt) {
+      if (entitlement.submittedAttempts < entitlement.maxAttempts) {
+        // A normal configured retry is available. Clear the submitted session state
+        // so the exam page proceeds from instructions into a fresh attempt.
+        await storage.updateExamStudent(examStudent.id, { attemptStatus: "not_started" });
+      } else if (entitlement.approvedRequestId) {
+        // The approval is deliberately not consumed here. Entering an exam only
+        // opens its instructions; the single-use entitlement is consumed atomically
+        // when a fresh attempt is actually created in start-exam.
+        await storage.updateExamStudent(examStudent.id, { attemptStatus: "not_started" });
+      } else {
+        return res.status(403).json({
+          message: entitlement.pendingRequestStatus
+            ? "Your reattempt request is awaiting an administrator decision"
+            : "You have used all allowed attempts for this exam. Request a reattempt to continue.",
+          code: entitlement.pendingRequestStatus ? "REATEMPT_PENDING" : "ATTEMPT_LIMIT_REACHED",
+        });
+      }
+    }
     (req.session as any).examStudentId = examStudent.id;
     (req.session as any).studentExamId = examStudent.examId;
-    res.json({ ok: true, attemptStatus: examStudent.attemptStatus });
+    res.json({ ok: true, attemptStatus: entitlement.hasInProgressAttempt ? "in_progress" : "not_started" });
+  });
+
+  app.post("/api/student/exams/:id/request-reattempt", requireStudent, async (req: any, res) => {
+    const examId = Number(req.params.id);
+    const examStudent = await storage.getExamStudentByExamAndStudent(examId, req.student.id);
+    if (!examStudent) return res.status(403).json({ message: "Your exam access has not been approved" });
+    const entitlement = await getAttemptEntitlement(examId, req.student.id);
+    if (!entitlement) return res.status(404).json({ message: "Exam not found" });
+    if (entitlement.hasInProgressAttempt || entitlement.submittedAttempts < entitlement.maxAttempts) {
+      return res.status(400).json({ message: "You still have an available attempt for this exam" });
+    }
+    if (entitlement.approvedRequestId) {
+      return res.status(409).json({ message: "You already have an approved reattempt available" });
+    }
+    if (entitlement.pendingRequestStatus) {
+      return res.status(409).json({ message: "You already have a reattempt request awaiting review" });
+    }
+    try {
+      await pool.query(
+        `INSERT INTO exam_reattempt_requests (exam_id, student_id, reason)
+         VALUES ($1, $2, $3)`,
+        [examId, req.student.id, String(req.body?.reason || "").trim().slice(0, 500) || null],
+      );
+      res.json({ ok: true, status: "pending" });
+    } catch (error: any) {
+      if (error?.code === "23505") {
+        return res.status(409).json({ message: "You already have a reattempt request awaiting review" });
+      }
+      throw error;
+    }
+  });
+
+  app.get("/api/student/stats", requireStudent, async (req: any, res) => {
+    const { rows } = await pool.query(
+      `SELECT a.id AS "attemptId", e.id AS "examId", e.title, COALESCE(u.name, 'Independent exam') AS "unitName",
+              a.submitted_at AS "submittedAt", COALESCE(SUM(r.marks_awarded), 0)::float AS "earnedMarks",
+              COALESCE(SUM(q.marks), 0)::float AS "totalMarks"
+         FROM attempts a
+         JOIN exam_students es ON es.id = a.exam_student_id
+         JOIN exams e ON e.id = es.exam_id
+         LEFT JOIN units u ON u.id = e.unit_id
+         LEFT JOIN responses r ON r.attempt_id = a.id
+         LEFT JOIN questions q ON q.id = r.question_id
+        WHERE es.student_id = $1 AND a.status = 'submitted'
+        GROUP BY a.id, e.id, e.title, u.name, a.submitted_at
+        ORDER BY a.submitted_at DESC`,
+      [req.student.id],
+    );
+    const attempts = rows.map((row) => ({
+      ...row,
+      scorePercent: row.totalMarks ? Math.round((row.earnedMarks / row.totalMarks) * 100) : 0,
+    }));
+    const totalAttempts = attempts.length;
+    const averageScore = totalAttempts
+      ? Math.round(attempts.reduce((sum, attempt) => sum + attempt.scorePercent, 0) / totalAttempts)
+      : 0;
+    const bestScore = totalAttempts ? Math.max(...attempts.map((attempt) => attempt.scorePercent)) : 0;
+    const passRate = totalAttempts
+      ? Math.round((attempts.filter((attempt) => attempt.scorePercent >= 50).length / totalAttempts) * 100)
+      : 0;
+    const byUnit = new Map<string, { unitName: string; total: number; scoreSum: number }>();
+    for (const attempt of attempts) {
+      const current = byUnit.get(attempt.unitName) || { unitName: attempt.unitName, total: 0, scoreSum: 0 };
+      current.total += 1;
+      current.scoreSum += attempt.scorePercent;
+      byUnit.set(attempt.unitName, current);
+    }
+    res.json({
+      totalAttempts,
+      averageScore,
+      bestScore,
+      passRate,
+      recentScores: attempts.slice(0, 8).reverse(),
+      unitPerformance: Array.from(byUnit.values())
+        .map((unit) => ({ ...unit, averageScore: Math.round(unit.scoreSum / unit.total) }))
+        .sort((a, b) => b.averageScore - a.averageScore),
+    });
   });
 
   app.get("/api/student/past-exams", requireStudent, async (req: any, res) => {
     const { rows } = await pool.query(
-      `SELECT es.id AS "examStudentId", e.id AS "examId", e.title, u.name AS "unitName",
+      `SELECT a.id AS "attemptId", es.id AS "examStudentId", e.id AS "examId", e.title, u.name AS "unitName",
               a.submitted_at AS "submittedAt",
               COALESCE(SUM(r.marks_awarded), 0)::float AS "earnedMarks",
               COALESCE(SUM(q.marks), 0)::float AS "totalMarks"
@@ -1182,22 +1336,23 @@ export async function registerRoutes(
          LEFT JOIN responses r ON r.attempt_id = a.id
          LEFT JOIN questions q ON q.id = r.question_id
         WHERE es.student_id = $1
-        GROUP BY es.id, e.id, e.title, u.name, a.submitted_at
+         GROUP BY a.id, es.id, e.id, e.title, u.name, a.submitted_at
         ORDER BY a.submitted_at DESC`,
       [req.student.id],
     );
     res.json(rows.map((row) => ({ ...row, scorePercent: row.totalMarks ? Math.round((row.earnedMarks / row.totalMarks) * 100) : 0 })));
   });
 
-  app.get("/api/student/past-exams/:examStudentId", requireStudent, async (req: any, res) => {
-    const examStudentId = Number(req.params.examStudentId);
+  app.get("/api/student/past-exams/:attemptId", requireStudent, async (req: any, res) => {
+    const attemptId = Number(req.params.attemptId);
     const { rows: access } = await pool.query(
-      "SELECT id FROM exam_students WHERE id = $1 AND student_id = $2",
-      [examStudentId, req.student.id],
+      `SELECT a.id FROM attempts a JOIN exam_students es ON es.id = a.exam_student_id
+        WHERE a.id = $1 AND es.student_id = $2 AND a.status = 'submitted'`,
+      [attemptId, req.student.id],
     );
     if (!access[0]) return res.status(404).json({ message: "Past exam not found" });
     const { rows: details } = await pool.query(
-      `SELECT es.id AS "examStudentId", e.id AS "examId", e.title, u.name AS "unitName",
+      `SELECT a.id AS "attemptId", es.id AS "examStudentId", e.id AS "examId", e.title, u.name AS "unitName",
               a.submitted_at AS "submittedAt",
               COALESCE(SUM(r.marks_awarded), 0)::float AS "earnedMarks",
               COALESCE(SUM(q.marks), 0)::float AS "totalMarks"
@@ -1205,17 +1360,23 @@ export async function registerRoutes(
          LEFT JOIN units u ON u.id = e.unit_id
          JOIN attempts a ON a.exam_student_id = es.id AND a.status = 'submitted'
          LEFT JOIN responses r ON r.attempt_id = a.id LEFT JOIN questions q ON q.id = r.question_id
-        WHERE es.id = $1 GROUP BY es.id, e.id, e.title, u.name, a.submitted_at
-        ORDER BY a.submitted_at DESC LIMIT 1`,
-      [examStudentId],
+         WHERE a.id = $1 GROUP BY a.id, es.id, e.id, e.title, u.name, a.submitted_at`,
+      [attemptId],
     );
     if (!details[0]) return res.status(404).json({ message: "Submitted attempt not found" });
     const { rows: responses } = await pool.query(
       `SELECT q.content AS question, q.explanation, q.marks, r.answer, r.is_correct AS "isCorrect",
-              r.marks_awarded AS "marksAwarded", r.ai_feedback AS "aiFeedback"
+               r.marks_awarded AS "marksAwarded", r.ai_feedback AS "aiFeedback",
+               selected_option.content AS "answerDisplay"
          FROM attempts a JOIN responses r ON r.attempt_id = a.id JOIN questions q ON q.id = r.question_id
-        WHERE a.exam_student_id = $1 AND a.status = 'submitted' ORDER BY q.order_index`,
-      [examStudentId],
+          LEFT JOIN question_options selected_option
+            ON selected_option.question_id = q.id
+           AND selected_option.id = CASE
+             WHEN r.answer ~ '^[0-9]+$' THEN r.answer::integer
+             ELSE NULL
+           END
+         WHERE a.id = $1 ORDER BY q.order_index`,
+      [attemptId],
     );
     const detail = details[0];
     res.json({ ...detail, scorePercent: detail.totalMarks ? Math.round((detail.earnedMarks / detail.totalMarks) * 100) : 0, responses });
@@ -1317,6 +1478,7 @@ export async function registerRoutes(
     const exam = await storage.getExam(es.examId);
     if (!exam) return res.status(404).json({ message: "Exam not found" });
     const qs = await storage.getQuestionsByExam(exam.id);
+    const entitlement = await getAttemptEntitlement(exam.id, es.studentId);
     const mcqCount = qs.filter(q => q.type === "mcq").length;
     const saqCount = qs.filter(q => q.type === "saq").length;
     res.json({
@@ -1329,6 +1491,8 @@ export async function registerRoutes(
       mcqCount,
       saqCount,
       attemptStatus: es.attemptStatus,
+      maxAttempts: entitlement?.maxAttempts ?? exam.maxAttempts,
+      attemptsUsed: entitlement?.submittedAttempts ?? 0,
       instructions: exam.instructions ?? null,
     });
   });
@@ -1343,26 +1507,96 @@ export async function registerRoutes(
   app.post("/api/student/start-exam", async (req, res) => {
     const esId = (req.session as any)?.examStudentId;
     if (!esId) return res.status(401).json({ message: "Not authenticated" });
-    const es = await storage.getExamStudent(esId);
-    if (!es) return res.status(401).json({ message: "Session expired" });
+    let es: { id: number; examId: number; studentId: number } | undefined;
+    let attempt: any;
+    const transaction = await pool.connect();
+    try {
+      await transaction.query("BEGIN");
+      const { rows: examStudents } = await transaction.query(
+        `SELECT id, exam_id AS "examId", student_id AS "studentId"
+           FROM exam_students WHERE id = $1 FOR UPDATE`,
+        [esId],
+      );
+      es = examStudents[0];
+      if (!es) {
+        await transaction.query("ROLLBACK");
+        return res.status(401).json({ message: "Session expired" });
+      }
 
-    if (es.attemptStatus === "submitted") {
-      return res.status(400).json({ message: "Exam already submitted" });
+      const { rows: existingAttempts } = await transaction.query(
+        `SELECT id, exam_student_id AS "examStudentId", status,
+                current_question_index AS "currentQuestionIndex", remaining_time AS "remainingTime",
+                started_at AS "startedAt", question_started_at AS "questionStartedAt",
+                submitted_at AS "submittedAt"
+           FROM attempts WHERE exam_student_id = $1
+          ORDER BY started_at DESC, id DESC LIMIT 1`,
+        [es.id],
+      );
+      attempt = existingAttempts[0];
+
+      if (attempt?.status !== "in_progress") {
+        const { rows: examRows } = await transaction.query(
+          "SELECT COALESCE(max_attempts, 1)::int AS \"maxAttempts\" FROM exams WHERE id = $1",
+          [es.examId],
+        );
+        if (!examRows[0]) {
+          await transaction.query("ROLLBACK");
+          return res.status(404).json({ message: "Exam not found" });
+        }
+        const { rows: counts } = await transaction.query(
+          "SELECT COUNT(*)::int AS count FROM attempts WHERE exam_student_id = $1 AND status = 'submitted'",
+          [es.id],
+        );
+        const submittedAttempts = counts[0].count;
+        let approvedRequestId: number | null = null;
+        if (submittedAttempts >= examRows[0].maxAttempts) {
+          const { rows: approvals } = await transaction.query(
+            `SELECT id FROM exam_reattempt_requests
+              WHERE exam_id = $1 AND student_id = $2
+                AND status = 'approved' AND consumed_at IS NULL
+              ORDER BY reviewed_at DESC NULLS LAST, created_at DESC
+              LIMIT 1 FOR UPDATE`,
+            [es.examId, es.studentId],
+          );
+          approvedRequestId = approvals[0]?.id ?? null;
+          if (!approvedRequestId) {
+            await transaction.query("ROLLBACK");
+            return res.status(403).json({
+              message: "You have used all allowed attempts for this exam. Request a reattempt from your unit page.",
+              code: "ATTEMPT_LIMIT_REACHED",
+            });
+          }
+        }
+
+        const { rows: newAttempts } = await transaction.query(
+          `INSERT INTO attempts (exam_student_id, status, current_question_index, remaining_time, question_started_at)
+           VALUES ($1, 'in_progress', 0, NULL, CURRENT_TIMESTAMP)
+           RETURNING id, exam_student_id AS "examStudentId", status,
+                     current_question_index AS "currentQuestionIndex", remaining_time AS "remainingTime",
+                     started_at AS "startedAt", question_started_at AS "questionStartedAt",
+                     submitted_at AS "submittedAt"`,
+          [es.id],
+        );
+        attempt = newAttempts[0];
+        if (approvedRequestId) {
+          await transaction.query(
+            `UPDATE exam_reattempt_requests SET consumed_at = CURRENT_TIMESTAMP
+              WHERE id = $1 AND status = 'approved' AND consumed_at IS NULL`,
+            [approvedRequestId],
+          );
+        }
+        await transaction.query("UPDATE exam_students SET attempt_status = 'in_progress' WHERE id = $1", [es.id]);
+      }
+      await transaction.query("COMMIT");
+    } catch (error) {
+      await transaction.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      transaction.release();
     }
 
-    let attempt = await storage.getAttemptByExamStudent(esId);
     const exam = await storage.getExam(es.examId);
-    if (!attempt) {
-      const now = new Date();
-      attempt = await storage.createAttempt({
-        examStudentId: esId,
-        status: "in_progress",
-        currentQuestionIndex: 0,
-        remainingTime: null,
-        questionStartedAt: now,
-      });
-      await storage.updateExamStudent(esId, { attemptStatus: "in_progress" });
-    } else if (!attempt.questionStartedAt) {
+    if (!attempt.questionStartedAt) {
       const now = new Date();
       await storage.updateAttempt(attempt.id, { questionStartedAt: now });
       attempt = { ...attempt, questionStartedAt: now };
@@ -2148,6 +2382,44 @@ export async function registerRoutes(
       [(req as any).admin.id, String(req.body?.reviewReason || "").trim() || null, Number(req.params.id)],
     );
     if (!result.rowCount) return res.status(404).json({ message: "Pending access request not found" });
+    res.json({ ok: true });
+  });
+
+  app.get("/api/exams/:examId/reattempt-requests", requireAdmin, async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT rr.id, rr.status, rr.reason, rr.review_reason AS "reviewReason", rr.created_at AS "createdAt",
+              rr.reviewed_at AS "reviewedAt", rr.consumed_at AS "consumedAt",
+              s.id AS "studentId", s.name AS "studentName", s.email AS "studentEmail"
+         FROM exam_reattempt_requests rr JOIN students s ON s.id = rr.student_id
+        WHERE rr.exam_id = $1
+        ORDER BY CASE WHEN rr.status = 'pending' THEN 0 ELSE 1 END, rr.created_at DESC`,
+      [Number(req.params.examId)],
+    );
+    res.json(rows);
+  });
+
+  app.post("/api/exams/:examId/reattempt-requests/:id/:decision", requireAdmin, async (req, res) => {
+    const decision = req.params.decision;
+    if (!["approve", "reject"].includes(decision)) return res.status(400).json({ message: "Invalid decision" });
+    const result = await pool.query(
+      `UPDATE exam_reattempt_requests
+          SET status = $1, reviewed_by = $2, review_reason = $3, reviewed_at = CURRENT_TIMESTAMP
+        WHERE id = $4 AND exam_id = $5 AND status = 'pending'
+        RETURNING id`,
+      [
+        decision === "approve" ? "approved" : "rejected",
+        (req as any).admin.id,
+        String(req.body?.reviewReason || "").trim() || null,
+        Number(req.params.id),
+        Number(req.params.examId),
+      ],
+    );
+    if (!result.rows[0]) return res.status(404).json({ message: "Pending reattempt request not found" });
+    await storage.createAuditLog({
+      adminId: (req as any).admin.id,
+      action: decision === "approve" ? "approve_reattempt" : "reject_reattempt",
+      details: `Reattempt request ${req.params.id} for exam ${req.params.examId}`,
+    });
     res.json({ ok: true });
   });
 

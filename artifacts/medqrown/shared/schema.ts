@@ -27,6 +27,7 @@ export const exams = pgTable("exams", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   status: text("status").notNull().default("draft"),
+  maxAttempts: integer("max_attempts").notNull().default(1),
   timerMode: text("timer_mode").notNull().default("none"),
   perQuestionSeconds: integer("per_question_seconds"),
   fullExamSeconds: integer("full_exam_seconds"),
@@ -108,6 +109,22 @@ export const examAccessRequests = pgTable("exam_access_requests", {
   reviewedAt: timestamp("reviewed_at"),
 }, (table) => [
   uniqueIndex("exam_access_requests_exam_student_unique").on(table.examId, table.studentId),
+]);
+
+export const examReattemptRequests = pgTable("exam_reattempt_requests", {
+  id: serial("id").primaryKey(),
+  examId: integer("exam_id").notNull().references(() => exams.id, { onDelete: "cascade" }),
+  studentId: integer("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("pending"),
+  reason: text("reason"),
+  reviewedBy: integer("reviewed_by").references(() => admins.id, { onDelete: "set null" }),
+  reviewReason: text("review_reason"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  reviewedAt: timestamp("reviewed_at"),
+  consumedAt: timestamp("consumed_at"),
+}, (table) => [
+  index("idx_exam_reattempt_requests_exam_student").on(table.examId, table.studentId),
+  uniqueIndex("exam_reattempt_requests_one_pending_per_student").on(table.examId, table.studentId).where(sql`status = 'pending'`),
 ]);
 
 export const profileChangeRequests = pgTable("profile_change_requests", {

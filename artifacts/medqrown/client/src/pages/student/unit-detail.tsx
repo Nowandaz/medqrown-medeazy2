@@ -1,19 +1,25 @@
-import { useStudentUnit, useRequestExamAccess, useEnterExam } from "@/hooks/use-student";
+import { useStudentUnit, useRequestExamAccess, useRequestReattempt, useEnterExam } from "@/hooks/use-student";
 import { useParams, useLocation, Link } from "wouter";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronLeft, FileText, Lock, Unlock, Clock, AlertCircle } from "lucide-react";
+import { ChevronLeft, FileText, Lock, Unlock, Clock, RefreshCcw } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 export default function StudentUnitDetail() {
   const { id } = useParams();
   const [, setLocation] = useLocation();
   const { data: unit, isLoading } = useStudentUnit(id || "");
   const requestAccess = useRequestExamAccess();
+  const requestReattempt = useRequestReattempt();
   const enterExam = useEnterExam();
   const { toast } = useToast();
+  const [reattemptExam, setReattemptExam] = useState<{ id: string; title: string } | null>(null);
+  const [reattemptReason, setReattemptReason] = useState("");
 
   if (isLoading) {
     return (
@@ -82,6 +88,22 @@ export default function StudentUnitDetail() {
     });
   };
 
+  const handleRequestReattempt = () => {
+    if (!reattemptExam) return;
+    requestReattempt.mutate({ id: reattemptExam.id, reason: reattemptReason }, {
+      onSuccess: () => {
+        toast({ title: "Reattempt requested", description: "Your administrator will review your request." });
+        setReattemptExam(null);
+        setReattemptReason("");
+      },
+      onError: (err) => toast({
+        title: "Could not request a reattempt",
+        description: err instanceof Error ? err.message : "Please try again.",
+        variant: "destructive",
+      }),
+    });
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex items-center gap-4">
@@ -145,9 +167,14 @@ export default function StudentUnitDetail() {
                       {exam.timerMode}
                     </span>
                   </CardDescription>
+                   {exam.accessStatus === "approved" && (
+                     <p className="mt-3 text-xs text-muted-foreground">
+                       Attempts: {exam.attemptsUsed} of {exam.maxAttempts}
+                     </p>
+                   )}
                 </CardHeader>
                 <CardFooter className="pt-4 mt-auto border-t">
-                  {exam.accessStatus === 'approved' ? (
+                   {exam.accessStatus === 'approved' && exam.canEnter ? (
                     <Button 
                       className="w-full shadow-sm" 
                       onClick={() => handleEnterExam(exam.id)}
@@ -155,6 +182,19 @@ export default function StudentUnitDetail() {
                     >
                       {enterExam.isPending ? "Preparing..." : "Enter Exam"}
                     </Button>
+                   ) : exam.accessStatus === "approved" && exam.reattemptStatus === "pending" ? (
+                     <Button variant="secondary" className="w-full" disabled>
+                       <Clock className="mr-2 h-4 w-4" />Reattempt Pending
+                     </Button>
+                   ) : exam.accessStatus === "approved" ? (
+                     <Button
+                       variant="outline"
+                       className="w-full"
+                       onClick={() => setReattemptExam({ id: exam.id, title: exam.title })}
+                       disabled={requestReattempt.isPending}
+                     >
+                       <RefreshCcw className="mr-2 h-4 w-4" />Request Reattempt
+                     </Button>
                   ) : exam.accessStatus === 'pending' ? (
                     <Button variant="secondary" className="w-full" disabled>
                       <Clock className="w-4 h-4 mr-2" />
@@ -176,6 +216,26 @@ export default function StudentUnitDetail() {
           </div>
         )}
       </div>
+      <Dialog open={!!reattemptExam} onOpenChange={(open) => !open && setReattemptExam(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Request another attempt</DialogTitle>
+            <DialogDescription>Explain why you need another attempt for {reattemptExam?.title}. Your administrator will review this request.</DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={reattemptReason}
+            onChange={(event) => setReattemptReason(event.target.value)}
+            placeholder="Optional explanation"
+            maxLength={500}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReattemptExam(null)}>Cancel</Button>
+            <Button onClick={handleRequestReattempt} disabled={requestReattempt.isPending}>
+              {requestReattempt.isPending ? "Submitting..." : "Submit request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

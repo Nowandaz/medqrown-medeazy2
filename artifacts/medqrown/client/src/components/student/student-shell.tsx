@@ -6,6 +6,7 @@ import {
   LayoutDashboard, 
   BookOpen, 
   History, 
+  BarChart3,
   User, 
   LogOut, 
   Menu, 
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   { href: "/student/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/student/units", label: "My Units", icon: BookOpen },
   { href: "/student/past-exams", label: "Past Exams", icon: History },
+  { href: "/student/stats", label: "Stats", icon: BarChart3 },
   { href: "/student/profile", label: "Profile", icon: User },
 ];
 

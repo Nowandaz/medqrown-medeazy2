@@ -142,6 +142,9 @@ export default function AdminExamDetail() {
             <TabsTrigger value="settings" className="text-xs gap-1" data-testid="tab-settings">
               <Settings className="w-3 h-3" />Settings
             </TabsTrigger>
+            <TabsTrigger value="reattempts" className="text-xs gap-1" data-testid="tab-reattempts">
+              <RotateCcw className="w-3 h-3" />Reattempts
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -173,6 +176,9 @@ export default function AdminExamDetail() {
           </TabsContent>
           <TabsContent value="settings">
             <SettingsTab exam={exam} examId={examId} />
+          </TabsContent>
+          <TabsContent value="reattempts">
+            <ReattemptsTab examId={examId} />
           </TabsContent>
         </Tabs>
       </main>
@@ -1965,6 +1971,7 @@ function SettingsTab({ exam, examId }: { exam: any; examId: number }) {
   const [timerMode, setTimerMode] = useState(exam.timerMode);
   const [perQ, setPerQ] = useState(exam.perQuestionSeconds || 60);
   const [fullExam, setFullExam] = useState(exam.fullExamSeconds || 3600);
+  const [maxAttempts, setMaxAttempts] = useState(exam.maxAttempts || 1);
 
   const updateSettings = useMutation({
     mutationFn: async () => {
@@ -1972,6 +1979,7 @@ function SettingsTab({ exam, examId }: { exam: any; examId: number }) {
         timerMode,
         perQuestionSeconds: timerMode === "per_question" ? perQ : null,
         fullExamSeconds: timerMode === "full_exam" ? fullExam : null,
+        maxAttempts,
       });
     },
     onSuccess: () => {
@@ -1990,6 +1998,19 @@ function SettingsTab({ exam, examId }: { exam: any; examId: number }) {
           </h3>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Maximum Attempts</Label>
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              value={maxAttempts}
+              onChange={(e) => setMaxAttempts(Math.max(1, parseInt(e.target.value) || 1))}
+              data-testid="input-max-attempts"
+            />
+            <p className="text-xs text-muted-foreground">Students can request an administrator-approved reattempt after this limit is reached.</p>
+          </div>
+          <div className="border-t" />
           <div className="space-y-2">
             <Label>Timer Mode</Label>
             <Select value={timerMode} onValueChange={setTimerMode}>
@@ -2017,6 +2038,56 @@ function SettingsTab({ exam, examId }: { exam: any; examId: number }) {
           <Button onClick={() => updateSettings.mutate()} disabled={updateSettings.isPending} className="shadow-sm" data-testid="button-save-settings">
             {updateSettings.isPending ? "Saving..." : "Save Settings"}
           </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ReattemptsTab({ examId }: { examId: number }) {
+  const { toast } = useToast();
+  const { data: requests = [] } = useQuery<any[]>({
+    queryKey: ["/api/exams", examId, "reattempt-requests"],
+  });
+  const reviewRequest = useMutation({
+    mutationFn: ({ id, decision }: { id: number; decision: "approve" | "reject" }) =>
+      apiRequest("POST", `/api/exams/${examId}/reattempt-requests/${id}/${decision}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/exams", examId, "reattempt-requests"] });
+      toast({ title: "Reattempt request updated" });
+    },
+    onError: (error: Error) => toast({ title: "Could not update request", description: error.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className="max-w-3xl space-y-4">
+      <Card className="shadow-sm border-primary/10">
+        <CardHeader className="pb-3">
+          <h3 className="font-semibold flex items-center gap-2"><RotateCcw className="w-4 h-4 text-primary" />Reattempt requests</h3>
+          <p className="text-sm text-muted-foreground">Approve one additional attempt for a student after their normal allowance is exhausted.</p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {!requests.length ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">No reattempt requests for this exam yet.</p>
+          ) : requests.map((request) => (
+            <div key={request.id} className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-medium">{request.studentName}</p>
+                <p className="text-xs text-muted-foreground">{request.studentEmail}</p>
+                {request.reason && <p className="mt-2 text-sm text-muted-foreground">“{request.reason}”</p>}
+                {request.consumedAt && <p className="mt-2 text-xs text-muted-foreground">Approved reattempt used.</p>}
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant={request.status === "approved" ? "default" : request.status === "rejected" ? "destructive" : "secondary"}>{request.status}</Badge>
+                {request.status === "pending" && (
+                  <>
+                    <Button size="sm" onClick={() => reviewRequest.mutate({ id: request.id, decision: "approve" })}>Approve</Button>
+                    <Button size="sm" variant="outline" onClick={() => reviewRequest.mutate({ id: request.id, decision: "reject" })}>Decline</Button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
         </CardContent>
       </Card>
     </div>
