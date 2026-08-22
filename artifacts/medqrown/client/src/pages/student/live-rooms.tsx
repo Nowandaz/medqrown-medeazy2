@@ -30,7 +30,7 @@ function CreateLiveRoom() {
     }, {
       onSuccess: (room) => {
         setOpen(false);
-        setLocation(`/student/live-rooms/${room.roomId}?invite=${room.inviteToken}`);
+        setLocation(`/student/live-rooms/${room.roomId}?code=${room.roomCode}`);
       },
       onError: (error: any) => toast({ title: "Could not create room", description: error.message, variant: "destructive" }),
     });

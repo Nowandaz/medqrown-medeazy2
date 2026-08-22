@@ -15,7 +15,7 @@ export default function StudentLogin() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { toast } = useToast();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -25,7 +25,8 @@ export default function StudentLogin() {
       const res = await apiRequest("POST", "/api/student/login", { email, password });
       const data = await res.json();
       if (res.ok && data.accountType === "dashboard") {
-        setLocation("/student/dashboard");
+        const next = new URLSearchParams(location.split("?")[1] || "").get("next");
+        setLocation(next && next.startsWith("/") && !next.startsWith("//") ? next : "/student/dashboard");
       } else {
         toast({ title: "Login Failed", description: data.message || "Invalid email or password", variant: "destructive" });
       }

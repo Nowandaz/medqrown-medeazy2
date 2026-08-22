@@ -168,13 +168,14 @@ export interface LiveRoomState {
     hostName: string; hostStudentId: number; difficulty: string; contentStyle: string;
     questionCount: number; perQuestionSeconds: number; status: "generating" | "generation_failed" | "ready" | "running" | "finished" | "closed" | "expired";
     generationError?: string | null; currentQuestionIndex: number; questionStartedAt?: string | null;
+    questionDeadlineAt?: string | null; serverNow?: number;
     expiresAt: string; startedAt?: string | null; finishedAt?: string | null;
   };
   me: { memberId: number; role: string; isHost: boolean };
-  members: Array<{ id: number; studentId: number; name: string; role: string; status: string; joinedAt: string; lastSeenAt: string }>;
-  leaderboard: Array<{ studentId: number; name: string; score?: number; correctCount?: number; answerCount: number; rank: number }>;
+  members: Array<{ id: number; studentId: number; name: string; avatarKey?: string | null; role: string; status: string; joinedAt: string; lastSeenAt: string }>;
+  leaderboard: Array<{ studentId: number; name: string; avatarKey?: string | null; score?: number; correctCount?: number; answerCount: number; rank: number }>;
   question: { id: number; content: string; options: string[]; orderIndex: number; selectedOptionIndex: number | null } | null;
-  results?: Array<{ id: number; content: string; options: string[]; correctOptionIndex: number; explanation?: string | null; orderIndex: number; selectedOptionIndex: number | null; isCorrect: boolean | null; points: number | null }>;
+  results?: Array<{ id: number; content: string; options: string[]; correctOptionIndex: number; explanation?: string | null; orderIndex: number; selectedOptionIndex: number | null; isCorrect: boolean | null; points: number | null; selections: Array<{ studentId: number; name: string; avatarKey?: string | null; selectedOptionIndex: number }> }>;
 }
 
 export function useStudentMe() {

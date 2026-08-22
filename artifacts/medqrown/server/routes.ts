@@ -1493,11 +1493,12 @@ export async function registerRoutes(
     const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     return Array.from(crypto.randomBytes(12), (byte) => alphabet[byte & 31]).join("");
   };
+  const liveShareCode = () => crypto.randomBytes(5).toString("hex").toUpperCase();
 
   const refreshLiveRanks = async (roomId: number, client: any = pool) => {
     await client.query(
       `WITH ranked AS (
-        SELECT id, RANK() OVER (ORDER BY score DESC, correct_count DESC, updated_at ASC) AS new_rank
+        SELECT id, RANK() OVER (ORDER BY score DESC, correct_count DESC) AS new_rank
           FROM live_quiz_leaderboard WHERE room_id = $1
       ) UPDATE live_quiz_leaderboard l SET rank = ranked.new_rank, updated_at = CURRENT_TIMESTAMP
         FROM ranked WHERE l.id = ranked.id`,
@@ -1637,7 +1638,7 @@ export async function registerRoutes(
     await pool.query("UPDATE live_quiz_members SET last_seen_at = CURRENT_TIMESTAMP WHERE id = $1", [membership.id]);
     const [{ rows: members }, { rows: leaderboardRows }] = await Promise.all([
       pool.query(
-        `SELECT m.id, m.student_id AS "studentId", s.name, m.role, m.status,
+        `SELECT m.id, m.student_id AS "studentId", s.name, s.avatar_key AS "avatarKey", m.role, m.status,
                 m.joined_at AS "joinedAt", m.last_seen_at AS "lastSeenAt"
            FROM live_quiz_members m JOIN students s ON s.id = m.student_id
           WHERE m.room_id = $1 ORDER BY m.role DESC, m.joined_at`,
@@ -1645,7 +1646,7 @@ export async function registerRoutes(
       ),
       pool.query(
         `SELECT l.score, l.correct_count AS "correctCount", l.answer_count AS "answerCount", l.rank,
-                m.student_id AS "studentId", s.name
+                m.student_id AS "studentId", s.name, s.avatar_key AS "avatarKey"
            FROM live_quiz_leaderboard l JOIN live_quiz_members m ON m.id = l.member_id
            JOIN students s ON s.id = m.student_id
           WHERE l.room_id = $1 ORDER BY l.rank NULLS LAST, l.score DESC, s.name`,
@@ -1679,11 +1680,26 @@ export async function registerRoutes(
           WHERE q.room_id = $1 ORDER BY q.order_index`,
         [roomId, membership.id],
       );
-      results = rows;
+      const { rows: selections } = await pool.query(
+        `SELECT a.question_id AS "questionId", a.selected_option_index AS "selectedOptionIndex",
+                m.student_id AS "studentId", s.name, s.avatar_key AS "avatarKey"
+           FROM live_quiz_answers a JOIN live_quiz_members m ON m.id = a.member_id
+           JOIN students s ON s.id = m.student_id
+          WHERE a.room_id = $1
+          ORDER BY a.answered_at`,
+        [roomId],
+      );
+      const selectionsByQuestion = new Map<number, any[]>();
+      for (const selection of selections) {
+        const entries = selectionsByQuestion.get(selection.questionId) || [];
+        entries.push(selection);
+        selectionsByQuestion.set(selection.questionId, entries);
+      }
+      results = rows.map((result) => ({ ...result, selections: selectionsByQuestion.get(result.id) || [] }));
     }
-    const leaderboard = room.status === "finished"
-      ? leaderboardRows
-      : leaderboardRows.map(({ studentId, name, rank, answerCount }: any) => ({ studentId, name, rank, answerCount }));
+    const questionDeadlineAt = room.question_started_at
+      ? new Date(new Date(room.question_started_at).getTime() + room.per_question_seconds * 1000).toISOString()
+      : null;
     return {
       room: {
         id: room.id, roomCode: room.room_code, inviteToken: membership.role === "host" ? room.invite_token : null,
@@ -1691,11 +1707,12 @@ export async function registerRoutes(
         unitCode: room.unitCode, hostName: room.hostName, hostStudentId: room.host_student_id, difficulty: room.difficulty,
         contentStyle: room.content_style, questionCount: room.question_count, perQuestionSeconds: room.per_question_seconds,
         status: room.status, generationError: room.generation_error, currentQuestionIndex: room.current_question_index,
-        questionStartedAt: room.question_started_at, expiresAt: room.expires_at, startedAt: room.started_at, finishedAt: room.finished_at,
+        questionStartedAt: room.question_started_at, questionDeadlineAt, serverNow: Date.now(),
+        expiresAt: room.expires_at, startedAt: room.started_at, finishedAt: room.finished_at,
       },
       me: { memberId: membership.id, role: membership.role, isHost: membership.role === "host" },
       members,
-      leaderboard,
+      leaderboard: leaderboardRows,
       question,
       results,
     };
@@ -1928,7 +1945,9 @@ export async function registerRoutes(
       const responseMs = Math.max(0, Math.min(room.per_question_seconds * 1000,
         Date.now() - new Date(room.question_started_at).getTime()));
       const isCorrect = selectedOptionIndex === question.correct_option_index;
-      const points = isCorrect ? Math.max(100, 1000 - Math.floor(responseMs / 10)) : 0;
+      // Score in full-second bands so two students who answer at effectively the
+      // same time are not separated by normal device/network jitter.
+      const points = isCorrect ? Math.max(200, 1000 - Math.floor(responseMs / 1000) * 50) : 0;
       await client.query(
         `INSERT INTO live_quiz_answers (room_id, member_id, question_id, selected_option_index, is_correct, points, response_ms)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -1970,17 +1989,20 @@ export async function registerRoutes(
     );
     if (!members[0]) return res.status(409).json({ message: "Finish the room before creating a share card" });
     const { rows: existing } = await pool.query(
-      `SELECT token FROM live_quiz_shares WHERE room_id = $1 AND member_id = $2 AND expires_at > CURRENT_TIMESTAMP
+      `SELECT id, token FROM live_quiz_shares WHERE room_id = $1 AND member_id = $2 AND expires_at > CURRENT_TIMESTAMP
        ORDER BY created_at DESC LIMIT 1`,
       [roomId, members[0].id],
     );
-    const token = existing[0]?.token || crypto.randomBytes(24).toString("base64url");
+    const existingToken = String(existing[0]?.token || "");
+    const token = /^[A-F0-9]{10}$/.test(existingToken) ? existingToken : liveShareCode();
     if (!existing[0]) {
       await pool.query(
         `INSERT INTO live_quiz_shares (room_id, member_id, token, expires_at)
          VALUES ($1, $2, $3, CURRENT_TIMESTAMP + INTERVAL '30 days')`,
         [roomId, members[0].id, token],
       );
+    } else if (existingToken !== token) {
+      await pool.query("UPDATE live_quiz_shares SET token = $1 WHERE id = $2", [token, existing[0].id]);
     }
     res.json({ token, url: `${req.protocol}://${req.get("host")}/share/quiz/${token}` });
   });
@@ -2018,7 +2040,7 @@ export async function registerRoutes(
 
   app.get("/api/live-share/:token", async (req, res) => {
     const { rows } = await pool.query(
-      `SELECT sh.token, sh.expires_at AS "expiresAt", r.topic, r.finished_at AS "finishedAt",
+      `SELECT sh.token, sh.expires_at AS "expiresAt", r.id AS "roomId", r.room_code AS "roomCode", r.topic, r.finished_at AS "finishedAt",
               u.name AS "unitName", l.score, l.rank, l.correct_count AS "correctCount"
          FROM live_quiz_shares sh JOIN live_quiz_rooms r ON r.id = sh.room_id
          LEFT JOIN units u ON u.id = r.unit_id LEFT JOIN live_quiz_members m ON m.id = sh.member_id
@@ -2046,7 +2068,8 @@ export async function registerRoutes(
     const title = `Can you beat ${card.score} points in ${card.unitName || "clinical practice"}?`;
     const description = `I'm on a roll in ${card.unitName || "clinical practice"} — think you can beat me?`;
     const imageUrl = `${req.protocol}://${req.get("host")}/share/quiz/${encodeURIComponent(req.params.token)}/card.svg`;
-    res.type("html").send(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><meta name="description" content="${escapeHtml(description)}"><meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(description)}"><meta property="og:type" content="website"><meta property="og:image" content="${escapeHtml(imageUrl)}"></head><body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(description)}</p><p>Topic: ${escapeHtml(card.topic)}</p><a href="/student/live-rooms/share/${encodeURIComponent(req.params.token)}">Open MedQrown</a></main></body></html>`);
+    const appCardUrl = `/student/live-rooms/share/${encodeURIComponent(req.params.token)}`;
+    res.type("html").send(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><meta name="description" content="${escapeHtml(description)}"><meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(description)}"><meta property="og:type" content="website"><meta property="og:image" content="${escapeHtml(imageUrl)}"><script>window.location.replace(${JSON.stringify(appCardUrl)});</script></head><body style="margin:0;font-family:ui-sans-serif,system-ui;background:#f4fbfa;color:#102a2a"><main style="max-width:560px;margin:12vh auto;padding:28px"><section style="overflow:hidden;border-radius:24px;background:#fff;box-shadow:0 20px 50px #0f766e22"><div style="padding:42px 30px;background:linear-gradient(135deg,#0f766e,#4338ca);color:white"><p style="margin:0;font-size:12px;font-weight:700;letter-spacing:.16em">MEDQROWN LIVE ROOM</p><h1 style="margin:14px 0 0;font-size:30px">${escapeHtml(title)}</h1></div><div style="padding:28px"><p style="font-size:18px;font-weight:650">${escapeHtml(description)}</p><p style="color:#527070">Opening the interactive score card…</p><a style="display:inline-block;margin-top:10px;padding:12px 18px;border-radius:10px;background:#0f766e;color:white;text-decoration:none;font-weight:700" href="${appCardUrl}">Open challenge card</a></div></section></main></body></html>`);
   });
 
   app.get("/share/quiz/:token/card.svg", async (req, res) => {

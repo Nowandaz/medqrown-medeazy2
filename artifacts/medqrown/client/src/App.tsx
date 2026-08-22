@@ -42,6 +42,7 @@ import StudentSelfTestResults from "@/pages/student/self-test-results";
 import StudentLiveRooms from "@/pages/student/live-rooms";
 import StudentLiveRoom from "@/pages/student/live-room";
 import LiveQuizShare from "@/pages/student/live-quiz-share";
+import LiveRoomJoin from "@/pages/student/live-room-join";
 
 function StudentRoutes() {
   return (
@@ -89,8 +90,9 @@ function Router() {
       <Route path="/student/results" component={StudentResults} />
       <Route path="/student/self-tests/:id/run" component={StudentSelfTestRun} />
       <Route path="/student/self-tests/:id/results" component={StudentSelfTestResults} />
-       <Route path="/student/live-rooms/:id" component={StudentLiveRoom} />
        <Route path="/student/live-rooms/share/:token" component={LiveQuizShare} />
+       <Route path="/student/live-rooms/:id" component={StudentLiveRoom} />
+       <Route path="/join/:roomCode" component={LiveRoomJoin} />
       
       {/* Nested Shell Routes */}
       <Route path="/student/dashboard" component={StudentRoutes} />

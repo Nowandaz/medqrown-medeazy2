@@ -1,3 +1,4 @@
 - [Deployment verification](deployment-verification.md) — Replit secrets and Render environment variables are separate; verify SMTP auth and storage with non-destructive smoke tests.
 - [Fixed overlays in blurred headers](fixed-overlays-in-blurred-headers.md) — backdrop-filter/transform ancestors break position:fixed overlays; render menus/modals outside the header.
 - [Production schema migrations](production-schema-migrations.md) — production startup must apply idempotent schema changes before serving new database-backed features.
+- [Live-room fairness](live-room-fairness.md) — Keep quiz timers server-calibrated and score concurrent answers in full-second bands, with ties sharing rank.
