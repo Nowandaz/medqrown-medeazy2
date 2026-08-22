@@ -720,7 +720,11 @@ export async function generateSelfTestQuestions(input: {
   count: number;
 }): Promise<GeneratedSelfTestQuestion[]> {
   const providers = await getProvidersWithFallback();
-  const requestedTypes = input.questionType === "mixed" ? "a balanced mix of MCQ and SAQ" : input.questionType.toUpperCase();
+  const requestedTypes = input.questionType === "mixed"
+    ? "a balanced mix of MCQ and SAQ"
+    : input.questionType === "mcq"
+      ? "MCQ ONLY (every question object must have type exactly \"mcq\"; do not include any SAQ)"
+      : "SAQ ONLY (every question object must have type exactly \"saq\"; do not include any MCQ)";
   const requestedStyle = input.contentStyle === "mixed" ? "a balance of direct recall and short clinical cases" : input.contentStyle === "clinical" ? "clinical cases" : "direct knowledge questions";
   const prompt = `You create high-quality, educational medical self-test questions. Generate exactly ${input.count} questions for the unit "${input.unitName}"${input.focus ? ` focused on "${input.focus}"` : ""}. Use ${requestedTypes} and ${requestedStyle}. SAQs must have a concise, objectively markable answer. Avoid unsafe clinical advice, ambiguous wording, and trick questions.
 

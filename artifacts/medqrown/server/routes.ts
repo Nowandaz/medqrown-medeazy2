@@ -1357,20 +1357,35 @@ export async function registerRoutes(
       [test.id],
     );
     try {
-      const generated = await generateSelfTestQuestions({
+      let generated = await generateSelfTestQuestions({
         unitName: test.unitName,
         focus: test.focus,
         questionType: test.questionType,
         contentStyle: test.contentStyle,
         count: test.questionCount,
       });
-      const hasMcq = generated.some((question) => question.type === "mcq");
-      const hasSaq = generated.some((question) => question.type === "saq");
-      if (
-        (test.questionType === "mcq" && !generated.every((question) => question.type === "mcq")) ||
-        (test.questionType === "saq" && !generated.every((question) => question.type === "saq")) ||
-        (test.questionType === "mixed" && (!hasMcq || !hasSaq))
-      ) {
+      const matchesRequestedMix = (questions: typeof generated) => {
+        const hasMcq = questions.some((question) => question.type === "mcq");
+        const hasSaq = questions.some((question) => question.type === "saq");
+        return (
+          (test.questionType === "mcq" && questions.every((question) => question.type === "mcq")) ||
+          (test.questionType === "saq" && questions.every((question) => question.type === "saq")) ||
+          (test.questionType === "mixed" && hasMcq && hasSaq)
+        );
+      };
+      // Models occasionally follow the content format but miss one type in the
+      // requested mix. Retry the same provider response before surfacing a
+      // failure to the student; never persist a mismatched test.
+      for (let retry = 0; retry < 2 && !matchesRequestedMix(generated); retry++) {
+        generated = await generateSelfTestQuestions({
+          unitName: test.unitName,
+          focus: test.focus,
+          questionType: test.questionType,
+          contentStyle: test.contentStyle,
+          count: test.questionCount,
+        });
+      }
+      if (!matchesRequestedMix(generated)) {
         throw new Error("The generated question mix did not match your requested format. Please retry.");
       }
       const client = await pool.connect();
