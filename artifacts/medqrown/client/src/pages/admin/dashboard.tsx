@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
 import {
-  BookOpen, Plus, LogOut, Settings, Trash2, Play, Pause, Eye,
+  BookOpen, Plus, LogOut, Settings, Trash2, Play, Pause, Eye, Flag,
   Clock, GraduationCap, Users, Mail, CheckCircle, AlertCircle, UserPlus, Globe, ShieldCheck
 } from "lucide-react";
 import type { Exam } from "@shared/schema";
@@ -378,6 +378,9 @@ export default function AdminDashboard() {
              <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => setLocation("/admin/student-access")} title="Student eligibility, units, and access requests">
                <ShieldCheck className="w-3.5 h-3.5" /> Student Access
              </Button>
+              <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => setLocation("/admin/self-test-reports")} title="Review student-reported self-test questions">
+                <Flag className="w-3.5 h-3.5" /> Reports
+              </Button>
             <Button variant="ghost" size="icon" onClick={() => setLocation("/admin/settings")} data-testid="button-settings">
               <Settings className="w-4 h-4" />
             </Button>

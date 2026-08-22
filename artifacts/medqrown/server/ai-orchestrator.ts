@@ -701,3 +701,73 @@ export async function markSingleResponse(
   }
   throw new Error("All providers failed");
 }
+
+export type GeneratedSelfTestQuestion = {
+  type: "mcq" | "saq";
+  content: string;
+  options?: string[];
+  correctOptionIndex?: number;
+  expectedAnswer?: string;
+  explanation?: string;
+  marks?: number;
+};
+
+export async function generateSelfTestQuestions(input: {
+  unitName: string;
+  focus?: string | null;
+  questionType: "mcq" | "saq" | "mixed";
+  contentStyle: "direct" | "clinical" | "mixed";
+  count: number;
+}): Promise<GeneratedSelfTestQuestion[]> {
+  const providers = await getProvidersWithFallback();
+  const requestedTypes = input.questionType === "mixed" ? "a balanced mix of MCQ and SAQ" : input.questionType.toUpperCase();
+  const requestedStyle = input.contentStyle === "mixed" ? "a balance of direct recall and short clinical cases" : input.contentStyle === "clinical" ? "clinical cases" : "direct knowledge questions";
+  const prompt = `You create high-quality, educational medical self-test questions. Generate exactly ${input.count} questions for the unit "${input.unitName}"${input.focus ? ` focused on "${input.focus}"` : ""}. Use ${requestedTypes} and ${requestedStyle}. SAQs must have a concise, objectively markable answer. Avoid unsafe clinical advice, ambiguous wording, and trick questions.
+
+Return JSON only in this exact format:
+{"questions":[{"type":"mcq","content":"...","options":["...","...","...","..."],"correctOptionIndex":0,"explanation":"...","marks":1},{"type":"saq","content":"...","expectedAnswer":"...","explanation":"...","marks":1}]}`;
+
+  const errors: string[] = [];
+  for (const provider of getWeightedProviderOrder(providers, 0)) {
+    try {
+      const model = getModelName(provider);
+      let rawContent = "";
+      if (provider.type === "anthropic") {
+        const response = await getAnthropicClient(provider).messages.create({
+          model, max_tokens: Math.max(1400, input.count * 380),
+          messages: [{ role: "user", content: prompt }],
+        });
+        rawContent = response.content[0]?.type === "text" ? response.content[0].text : "";
+      } else if (provider.type === "gemini") {
+        const modelClient = getGeminiClient(provider).getGenerativeModel({ model });
+        const response = await modelClient.generateContent(prompt);
+        rawContent = response.response.text();
+      } else {
+        const response = await getOpenAiClient(provider).chat.completions.create({
+          model,
+          messages: [{ role: "system", content: "Return valid JSON only." }, { role: "user", content: prompt }],
+          max_tokens: Math.max(1400, input.count * 380),
+        });
+        rawContent = response.choices[0]?.message?.content || "";
+      }
+      const parsed = parseJsonSafe(rawContent);
+      if (!Array.isArray(parsed?.questions)) throw new Error("The AI response did not include a questions array");
+      const questions = parsed.questions.slice(0, input.count).map((question: any) => ({
+        type: String(question.type || "").toLowerCase() as "mcq" | "saq",
+        content: String(question.content || "").trim(),
+        options: Array.isArray(question.options) ? question.options.map((option: any) => String(option).trim()) : undefined,
+        correctOptionIndex: Number(question.correctOptionIndex),
+        expectedAnswer: question.expectedAnswer ? String(question.expectedAnswer).trim() : undefined,
+        explanation: question.explanation ? String(question.explanation).trim() : undefined,
+        marks: Math.max(1, Math.min(5, Number(question.marks) || 1)),
+      }));
+      if (questions.length !== input.count || questions.some((q: GeneratedSelfTestQuestion) => !q.content || !["mcq", "saq"].includes(q.type))) {
+        throw new Error("The AI returned incomplete questions");
+      }
+      return questions;
+    } catch (error: any) {
+      errors.push(`${provider.name}: ${error.message}`);
+    }
+  }
+  throw new Error(`Could not generate questions. ${errors.join(" | ")}`);
+}

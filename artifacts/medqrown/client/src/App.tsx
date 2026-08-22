@@ -15,6 +15,7 @@ import AdminSettings from "@/pages/admin/settings";
 import AdminDemoExams from "@/pages/admin/demo-exams";
 import AdminSiteContent from "@/pages/admin/site-content";
 import AdminStudentAccess from "@/pages/admin/student-access";
+import AdminSelfTestReports from "@/pages/admin/self-test-reports";
 import { TermsPage, PrivacyPage, FaqPage, InstitutionsPage } from "@/pages/landing/site-pages";
 import StudentLogin from "@/pages/student/login";
 import StudentSignup from "@/pages/student/signup";
@@ -35,6 +36,9 @@ import StudentPastExams from "@/pages/student/past-exams";
 import StudentPastExamDetail from "@/pages/student/past-exam-detail";
 import StudentProfile from "@/pages/student/profile";
 import StudentStats from "@/pages/student/stats";
+import StudentSelfTests from "@/pages/student/self-tests";
+import StudentSelfTestRun from "@/pages/student/self-test-run";
+import StudentSelfTestResults from "@/pages/student/self-test-results";
 
 function StudentRoutes() {
   return (
@@ -46,6 +50,7 @@ function StudentRoutes() {
         <Route path="/student/past-exams" component={StudentPastExams} />
         <Route path="/student/past-exams/:id" component={StudentPastExamDetail} />
         <Route path="/student/stats" component={StudentStats} />
+        <Route path="/student/self-tests" component={StudentSelfTests} />
         <Route path="/student/profile" component={StudentProfile} />
         <Route component={NotFound} />
       </Switch>
@@ -65,6 +70,7 @@ function Router() {
       <Route path="/admin/demo-exams" component={AdminDemoExams} />
       <Route path="/admin/site-content" component={AdminSiteContent} />
       <Route path="/admin/student-access" component={AdminStudentAccess} />
+      <Route path="/admin/self-test-reports" component={AdminSelfTestReports} />
       <Route path="/terms" component={TermsPage} />
       <Route path="/privacy" component={PrivacyPage} />
       <Route path="/faq" component={FaqPage} />
@@ -77,6 +83,8 @@ function Router() {
       <Route path="/student/instructions" component={StudentInstructions} />
       <Route path="/student/exam" component={StudentExam} />
       <Route path="/student/results" component={StudentResults} />
+      <Route path="/student/self-tests/:id/run" component={StudentSelfTestRun} />
+      <Route path="/student/self-tests/:id/results" component={StudentSelfTestResults} />
       
       {/* Nested Shell Routes */}
       <Route path="/student/dashboard" component={StudentRoutes} />
@@ -85,6 +93,7 @@ function Router() {
       <Route path="/student/past-exams" component={StudentRoutes} />
       <Route path="/student/past-exams/:id" component={StudentRoutes} />
       <Route path="/student/stats" component={StudentRoutes} />
+      <Route path="/student/self-tests" component={StudentRoutes} />
       <Route path="/student/profile" component={StudentRoutes} />
       
       <Route component={NotFound} />

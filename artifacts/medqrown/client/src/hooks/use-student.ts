@@ -97,6 +97,62 @@ export interface StudentStats {
   }>;
 }
 
+export type SelfTestQuestionType = "mcq" | "saq" | "mixed";
+export type SelfTestContentStyle = "direct" | "clinical" | "mixed";
+
+export interface SelfTestSetup {
+  unitId: number;
+  title?: string;
+  focus?: string;
+  questionType: SelfTestQuestionType;
+  contentStyle: SelfTestContentStyle;
+  questionCount: number;
+  timerSeconds?: number | null;
+  saveOnly?: boolean;
+}
+
+export interface SelfTestSummary {
+  id: number;
+  title: string;
+  unitName: string;
+  focus?: string | null;
+  questionType: SelfTestQuestionType;
+  contentStyle: SelfTestContentStyle;
+  questionCount: number;
+  timerSeconds?: number | null;
+  status: "draft" | "generating" | "generation_failed" | "ready";
+  generationError?: string | null;
+  latestAttemptId?: number | null;
+  latestAttemptStatus?: "in_progress" | "submitted" | null;
+  submittedAt?: string | null;
+  scorePercent?: number | null;
+  attempts?: Array<{
+    attemptId: number;
+    status: "in_progress" | "submitted";
+    startedAt: string;
+    submittedAt?: string | null;
+    scorePercent?: number | null;
+  }>;
+}
+
+export interface SelfTestAttemptPayload {
+  attemptId: number;
+  selfTestId: number;
+  title: string;
+  timerSeconds?: number | null;
+  currentQuestionIndex: number;
+  totalQuestions: number;
+  startedAt: string;
+  question: {
+    id: number;
+    type: "mcq" | "saq";
+    content: string;
+    marks: number;
+    options: Array<{ id: number; content: string; orderIndex: number }>;
+    savedAnswer?: string | null;
+  } | null;
+}
+
 export function useStudentMe() {
   return useQuery<StudentProfile>({
     queryKey: ["/api/student/me"],
@@ -178,6 +234,100 @@ export function useRequestReattempt() {
 export function useStudentStats() {
   return useQuery<StudentStats>({
     queryKey: ["/api/student/stats"],
+  });
+}
+
+export function useSelfTests() {
+  return useQuery<SelfTestSummary[]>({
+    queryKey: ["/api/student/self-tests"],
+  });
+}
+
+export function useSelfTest(id: string) {
+  return useQuery<SelfTestSummary & { questions: Array<{ id: number; type: string; content: string; marks: number }> }>({
+    queryKey: [`/api/student/self-tests/${id}`],
+    enabled: !!id,
+  });
+}
+
+export function useCreateSelfTest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: SelfTestSetup) => apiRequest("POST", "/api/student/self-tests", data).then((res) => res.json()),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/student/self-tests"] });
+    },
+  });
+}
+
+export function useGenerateSelfTest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/student/self-tests/${id}/generate`).then((res) => res.json()),
+    onSettled: (_, __, id) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/student/self-tests"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/student/self-tests/${id}`] });
+    },
+  });
+}
+
+export function useDeleteSelfTest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/student/self-tests/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/student/self-tests"] }),
+  });
+}
+
+export function useStartSelfTest() {
+  return useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/student/self-tests/${id}/start`).then((res) => res.json() as Promise<SelfTestAttemptPayload>),
+  });
+}
+
+export function useSelfTestAttempt(id: string) {
+  return useQuery<SelfTestAttemptPayload>({
+    queryKey: [`/api/student/self-test-attempts/${id}`],
+    enabled: !!id,
+  });
+}
+
+export function useSaveSelfTestAnswer() {
+  return useMutation({
+    mutationFn: ({ attemptId, questionId, answer }: { attemptId: number; questionId: number; answer: string }) =>
+      apiRequest("POST", `/api/student/self-test-attempts/${attemptId}/answer`, { questionId, answer }),
+  });
+}
+
+export function useAdvanceSelfTest() {
+  return useMutation({
+    mutationFn: ({ attemptId, expectedCurrentQuestionIndex }: { attemptId: number; expectedCurrentQuestionIndex: number }) =>
+      apiRequest("POST", `/api/student/self-test-attempts/${attemptId}/next`, { expectedCurrentQuestionIndex })
+        .then((res) => res.json() as Promise<SelfTestAttemptPayload>),
+  });
+}
+
+export function useSubmitSelfTest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (attemptId: number) => apiRequest("POST", `/api/student/self-test-attempts/${attemptId}/submit`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/student/self-tests"] });
+    },
+  });
+}
+
+export function useSelfTestResults(id: string) {
+  return useQuery<any>({
+    queryKey: [`/api/student/self-test-attempts/${id}/results`],
+    enabled: !!id,
+  });
+}
+
+export function useReportSelfTestQuestion() {
+  return useMutation({
+    mutationFn: ({ questionId, reason }: { questionId: number; reason: string }) =>
+      apiRequest("POST", `/api/student/self-test-questions/${questionId}/report`, { reason }),
   });
 }
 

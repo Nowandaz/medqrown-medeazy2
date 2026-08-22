@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
-import { markSAQResponses, markSingleResponse, markStudentSAQResponses } from "./ai-orchestrator";
+import { generateSelfTestQuestions, markSAQResponses, markSingleResponse, markStudentSAQResponses } from "./ai-orchestrator";
 import { enqueueMarking } from "./marking-queue";
 import { getExamStructure, invalidateExamCache } from "./exam-cache";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
@@ -1335,6 +1335,503 @@ export async function registerRoutes(
         .map((unit) => ({ ...unit, averageScore: Math.round(unit.scoreSum / unit.total) }))
         .sort((a, b) => b.averageScore - a.averageScore),
     });
+  });
+
+  // ── Student self-tests ─────────────────────────────────────────────────────
+  const loadSelfTestForStudent = async (testId: number, studentId: number) => {
+    const { rows } = await pool.query(
+      `SELECT st.*, st.question_type AS "questionType", st.content_style AS "contentStyle",
+              st.question_count AS "questionCount", st.timer_seconds AS "timerSeconds",
+              st.generation_error AS "generationError",
+              u.name AS "unitName", u.code AS "unitCode"
+         FROM self_tests st JOIN units u ON u.id = st.unit_id
+        WHERE st.id = $1 AND st.student_id = $2`,
+      [testId, studentId],
+    );
+    return rows[0];
+  };
+
+  const generateSelfTest = async (test: any) => {
+    await pool.query(
+      "UPDATE self_tests SET status = 'generating', generation_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+      [test.id],
+    );
+    try {
+      const generated = await generateSelfTestQuestions({
+        unitName: test.unitName,
+        focus: test.focus,
+        questionType: test.questionType,
+        contentStyle: test.contentStyle,
+        count: test.questionCount,
+      });
+      const hasMcq = generated.some((question) => question.type === "mcq");
+      const hasSaq = generated.some((question) => question.type === "saq");
+      if (
+        (test.questionType === "mcq" && !generated.every((question) => question.type === "mcq")) ||
+        (test.questionType === "saq" && !generated.every((question) => question.type === "saq")) ||
+        (test.questionType === "mixed" && (!hasMcq || !hasSaq))
+      ) {
+        throw new Error("The generated question mix did not match your requested format. Please retry.");
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("DELETE FROM self_test_questions WHERE self_test_id = $1", [test.id]);
+        for (let index = 0; index < generated.length; index++) {
+          const item = generated[index];
+          if (!["mcq", "saq"].includes(item.type) || !item.content) {
+            throw new Error(`Question ${index + 1} has an invalid format`);
+          }
+          if (item.type === "mcq") {
+            if (!item.options || item.options.length < 2 || item.options.some((option) => !option)) {
+              throw new Error(`Question ${index + 1} needs at least two answer options`);
+            }
+            if (!Number.isInteger(item.correctOptionIndex) || item.correctOptionIndex! < 0 || item.correctOptionIndex! >= item.options.length) {
+              throw new Error(`Question ${index + 1} does not identify a correct option`);
+            }
+          } else if (!item.expectedAnswer) {
+            throw new Error(`Question ${index + 1} needs a model answer`);
+          }
+          const { rows: createdQuestions } = await client.query(
+            `INSERT INTO self_test_questions
+               (self_test_id, type, content, expected_answer, explanation, marks, order_index)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             RETURNING id`,
+            [test.id, item.type, item.content, item.expectedAnswer || null, item.explanation || null, item.marks || 1, index],
+          );
+          if (item.type === "mcq") {
+            for (let optionIndex = 0; optionIndex < item.options!.length; optionIndex++) {
+              await client.query(
+                `INSERT INTO self_test_question_options (question_id, content, is_correct, order_index)
+                 VALUES ($1, $2, $3, $4)`,
+                [createdQuestions[0].id, item.options![optionIndex], optionIndex === item.correctOptionIndex, optionIndex],
+              );
+            }
+          }
+        }
+        await client.query(
+          "UPDATE self_tests SET status = 'ready', generation_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+          [test.id],
+        );
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    } catch (error: any) {
+      await pool.query(
+        "UPDATE self_tests SET status = 'generation_failed', generation_error = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+        [test.id, String(error?.message || "Question generation failed").slice(0, 600)],
+      );
+      throw error;
+    }
+  };
+
+  const selfTestQuestionPayload = async (attempt: any) => {
+    const { rows: attemptRows } = await pool.query(
+      `SELECT sta.id AS "attemptId", sta.self_test_id AS "selfTestId",
+              sta.current_question_index AS "currentQuestionIndex", sta.started_at AS "startedAt",
+              st.title, st.timer_seconds AS "timerSeconds", st.question_count AS "questionCount"
+         FROM self_test_attempts sta JOIN self_tests st ON st.id = sta.self_test_id
+        WHERE sta.id = $1`,
+      [attempt.id],
+    );
+    const meta = attemptRows[0];
+    const { rows: questions } = await pool.query(
+      "SELECT id, type, content, marks, order_index AS \"orderIndex\" FROM self_test_questions WHERE self_test_id = $1 ORDER BY order_index",
+      [meta.selfTestId],
+    );
+    const question = questions[meta.currentQuestionIndex];
+    if (!question) return { ...meta, totalQuestions: questions.length, question: null };
+    const { rows: options } = question.type === "mcq"
+      ? await pool.query(
+          "SELECT id, content, order_index AS \"orderIndex\" FROM self_test_question_options WHERE question_id = $1 ORDER BY order_index",
+          [question.id],
+        )
+      : { rows: [] };
+    const { rows: saved } = await pool.query(
+      "SELECT answer FROM self_test_responses WHERE attempt_id = $1 AND question_id = $2",
+      [attempt.id, question.id],
+    );
+    return {
+      ...meta,
+      totalQuestions: questions.length,
+      question: { ...question, options, savedAnswer: saved[0]?.answer || null },
+    };
+  };
+
+  const selfTestTimerExpired = (attempt: { timerSeconds?: number | null; started_at?: string | Date; startedAt?: string | Date }) => {
+    if (!attempt.timerSeconds) return false;
+    const startedAt = attempt.startedAt || attempt.started_at;
+    return !!startedAt && Date.now() >= new Date(startedAt).getTime() + attempt.timerSeconds * 1000;
+  };
+
+  app.get("/api/student/self-tests", requireStudent, async (req: any, res) => {
+    const { rows } = await pool.query(
+      `SELECT st.id, st.title, st.focus, st.question_type AS "questionType",
+              st.content_style AS "contentStyle", st.question_count AS "questionCount",
+              st.timer_seconds AS "timerSeconds", st.status, st.generation_error AS "generationError",
+              st.created_at AS "createdAt", st.updated_at AS "updatedAt", u.name AS "unitName",
+              latest.id AS "latestAttemptId", latest.status AS "latestAttemptStatus",
+              latest.submitted_at AS "submittedAt",
+              COALESCE((SELECT SUM(q.marks) FROM self_test_questions q WHERE q.self_test_id = st.id), 0)::float AS "totalMarks",
+              COALESCE((SELECT SUM(r.marks_awarded) FROM self_test_responses r WHERE r.attempt_id = latest.id), 0)::float AS "earnedMarks"
+         FROM self_tests st
+         JOIN units u ON u.id = st.unit_id
+         LEFT JOIN LATERAL (
+           SELECT id, status, submitted_at FROM self_test_attempts
+            WHERE self_test_id = st.id AND student_id = $1
+            ORDER BY started_at DESC, id DESC LIMIT 1
+         ) latest ON true
+        WHERE st.student_id = $1
+        ORDER BY st.updated_at DESC`,
+      [req.student.id],
+    );
+    const withAttemptHistory = await Promise.all(rows.map(async (row) => {
+      const { rows: attempts } = await pool.query(
+        `SELECT a.id AS "attemptId", a.status, a.started_at AS "startedAt", a.submitted_at AS "submittedAt",
+                COALESCE((SELECT SUM(q.marks) FROM self_test_questions q WHERE q.self_test_id = a.self_test_id), 0)::float AS "totalMarks",
+                COALESCE((SELECT SUM(r.marks_awarded) FROM self_test_responses r WHERE r.attempt_id = a.id), 0)::float AS "earnedMarks"
+           FROM self_test_attempts a
+          WHERE a.self_test_id = $1 AND a.student_id = $2
+          ORDER BY a.started_at DESC, a.id DESC`,
+        [row.id, req.student.id],
+      );
+      return {
+        ...row,
+        scorePercent: row.latestAttemptStatus === "submitted" && row.totalMarks
+          ? Math.round((row.earnedMarks / row.totalMarks) * 100)
+          : null,
+        attempts: attempts.map((attempt) => ({
+          ...attempt,
+          scorePercent: attempt.status === "submitted" && attempt.totalMarks
+            ? Math.round((attempt.earnedMarks / attempt.totalMarks) * 100)
+            : null,
+        })),
+      };
+    }));
+    res.json(withAttemptHistory);
+  });
+
+  app.post("/api/student/self-tests", requireStudent, async (req: any, res) => {
+    const unitId = Number(req.body?.unitId);
+    const questionCount = Number(req.body?.questionCount);
+    const timerSeconds = req.body?.timerSeconds == null || req.body.timerSeconds === "" ? null : Number(req.body.timerSeconds);
+    const questionType = String(req.body?.questionType || "mixed");
+    const contentStyle = String(req.body?.contentStyle || "mixed");
+    const focus = String(req.body?.focus || "").trim();
+    if (!Number.isInteger(unitId) || !Number.isInteger(questionCount) || questionCount < 3 || questionCount > 20) {
+      return res.status(400).json({ message: "Choose an enrolled unit and between 3 and 20 questions" });
+    }
+    if (!["mcq", "saq", "mixed"].includes(questionType) || !["direct", "clinical", "mixed"].includes(contentStyle)) {
+      return res.status(400).json({ message: "Choose valid question and content styles" });
+    }
+    if (timerSeconds !== null && (!Number.isInteger(timerSeconds) || timerSeconds < 30 || timerSeconds > 3600)) {
+      return res.status(400).json({ message: "Timer must be between 30 seconds and 60 minutes" });
+    }
+    const { rows: units } = await pool.query(
+      `SELECT u.name, u.code FROM units u JOIN unit_memberships um ON um.unit_id = u.id
+        WHERE u.id = $1 AND um.student_id = $2 AND um.status = 'enrolled'`,
+      [unitId, req.student.id],
+    );
+    if (!units[0]) return res.status(403).json({ message: "Choose one of your enrolled units" });
+    const title = String(req.body?.title || `${units[0].code} practice`).trim().slice(0, 100) || `${units[0].code} practice`;
+    const isDraft = req.body?.saveOnly === true;
+    const { rows: created } = await pool.query(
+      `INSERT INTO self_tests
+        (student_id, unit_id, title, focus, question_type, content_style, question_count, timer_seconds, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id`,
+      [req.student.id, unitId, title, focus || null, questionType, contentStyle, questionCount, timerSeconds, isDraft ? "draft" : "generating"],
+    );
+    const test = { ...created[0], studentId: req.student.id, unitName: units[0].name, ...{
+      focus: focus || null, questionType, contentStyle, questionCount,
+    } };
+    if (isDraft) return res.status(201).json({ ...test, status: "draft" });
+    try {
+      await generateSelfTest(test);
+      res.status(201).json(await loadSelfTestForStudent(test.id, req.student.id));
+    } catch (error: any) {
+      res.status(502).json({ message: "We could not generate this self-test. Your setup was saved so you can retry.", testId: test.id });
+    }
+  });
+
+  app.post("/api/student/self-tests/:id/generate", requireStudent, async (req: any, res) => {
+    const test = await loadSelfTestForStudent(Number(req.params.id), req.student.id);
+    if (!test) return res.status(404).json({ message: "Self-test not found" });
+    if (test.status === "ready") return res.json(test);
+    try {
+      await generateSelfTest(test);
+      res.json(await loadSelfTestForStudent(test.id, req.student.id));
+    } catch {
+      res.status(502).json({ message: "We could not generate this self-test. Please try again shortly.", testId: test.id });
+    }
+  });
+
+  app.delete("/api/student/self-tests/:id", requireStudent, async (req: any, res) => {
+    const { rowCount } = await pool.query(
+      "DELETE FROM self_tests WHERE id = $1 AND student_id = $2",
+      [Number(req.params.id), req.student.id],
+    );
+    if (!rowCount) return res.status(404).json({ message: "Self-test not found" });
+    res.json({ ok: true });
+  });
+
+  app.get("/api/student/self-tests/:id", requireStudent, async (req: any, res) => {
+    const test = await loadSelfTestForStudent(Number(req.params.id), req.student.id);
+    if (!test) return res.status(404).json({ message: "Self-test not found" });
+    const { rows: questions } = await pool.query(
+      "SELECT id, type, content, marks, order_index AS \"orderIndex\" FROM self_test_questions WHERE self_test_id = $1 ORDER BY order_index",
+      [test.id],
+    );
+    res.json({ ...test, questions });
+  });
+
+  app.post("/api/student/self-tests/:id/start", requireStudent, async (req: any, res) => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows: tests } = await client.query(
+        `SELECT st.* FROM self_tests st WHERE st.id = $1 AND st.student_id = $2 FOR UPDATE`,
+        [Number(req.params.id), req.student.id],
+      );
+      const test = tests[0];
+      if (!test) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ message: "Self-test not found" });
+      }
+      if (test.status !== "ready") {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ message: "Generate this self-test before starting it" });
+      }
+      const { rows: questionCount } = await client.query(
+        "SELECT COUNT(*)::int AS count FROM self_test_questions WHERE self_test_id = $1",
+        [test.id],
+      );
+      if (!questionCount[0]?.count) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ message: "This self-test has no questions yet" });
+      }
+      const { rows: existing } = await client.query(
+        `SELECT * FROM self_test_attempts
+          WHERE self_test_id = $1 AND student_id = $2 AND status = 'in_progress'
+          ORDER BY started_at DESC LIMIT 1`,
+        [test.id, req.student.id],
+      );
+      let attempt = existing[0];
+      if (!attempt) {
+        const { rows } = await client.query(
+          `INSERT INTO self_test_attempts (self_test_id, student_id, status)
+           VALUES ($1, $2, 'in_progress') RETURNING *`,
+          [test.id, req.student.id],
+        );
+        attempt = rows[0];
+      }
+      await client.query("COMMIT");
+      res.json(await selfTestQuestionPayload(attempt));
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+
+  app.get("/api/student/self-test-attempts/:attemptId", requireStudent, async (req: any, res) => {
+    const { rows } = await pool.query(
+      "SELECT * FROM self_test_attempts WHERE id = $1 AND student_id = $2 AND status = 'in_progress'",
+      [Number(req.params.attemptId), req.student.id],
+    );
+    if (!rows[0]) return res.status(404).json({ message: "Active self-test attempt not found" });
+    res.json(await selfTestQuestionPayload(rows[0]));
+  });
+
+  app.post("/api/student/self-test-attempts/:attemptId/answer", requireStudent, async (req: any, res) => {
+    const attemptId = Number(req.params.attemptId);
+    const questionId = Number(req.body?.questionId);
+    const answer = String(req.body?.answer || "").trim();
+    const { rows: attempts } = await pool.query(
+      `SELECT sta.*, st.timer_seconds AS "timerSeconds"
+         FROM self_test_attempts sta JOIN self_tests st ON st.id = sta.self_test_id
+        WHERE sta.id = $1 AND sta.student_id = $2 AND sta.status = 'in_progress'`,
+      [attemptId, req.student.id],
+    );
+    const attempt = attempts[0];
+    if (!attempt) return res.status(404).json({ message: "Active self-test attempt not found" });
+    if (selfTestTimerExpired(attempt)) {
+      return res.status(409).json({ message: "The time limit has expired.", code: "TIME_LIMIT_EXPIRED" });
+    }
+    const { rows: questions } = await pool.query(
+      "SELECT * FROM self_test_questions WHERE id = $1 AND self_test_id = $2",
+      [questionId, attempt.self_test_id],
+    );
+    const question = questions[0];
+    if (!question) return res.status(400).json({ message: "Question does not belong to this self-test" });
+    let isCorrect: boolean | null = null;
+    let marksAwarded: number | null = null;
+    let feedback: string | null = null;
+    if (question.type === "mcq") {
+      const { rows: options } = await pool.query(
+        "SELECT is_correct AS \"isCorrect\" FROM self_test_question_options WHERE id = $1 AND question_id = $2",
+        [Number(answer), question.id],
+      );
+      if (!options[0]) return res.status(400).json({ message: "Choose a valid answer option" });
+      isCorrect = options[0].isCorrect;
+      marksAwarded = isCorrect ? question.marks : 0;
+    } else if (answer) {
+      const normalise = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const submitted = normalise(answer);
+      const expected = normalise(question.expected_answer || "");
+      isCorrect = !!expected && (submitted === expected || (expected.length > 4 && submitted.includes(expected)));
+      marksAwarded = isCorrect ? question.marks : 0;
+      feedback = question.expected_answer ? `Model answer: ${question.expected_answer}` : null;
+    }
+    await pool.query(
+      `INSERT INTO self_test_responses (attempt_id, question_id, answer, is_correct, marks_awarded, ai_feedback)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (attempt_id, question_id) DO UPDATE
+       SET answer = EXCLUDED.answer, is_correct = EXCLUDED.is_correct,
+           marks_awarded = EXCLUDED.marks_awarded, ai_feedback = EXCLUDED.ai_feedback`,
+      [attemptId, question.id, answer || null, isCorrect, marksAwarded, feedback],
+    );
+    res.json({ ok: true });
+  });
+
+  app.post("/api/student/self-test-attempts/:attemptId/next", requireStudent, async (req: any, res) => {
+    const attemptId = Number(req.params.attemptId);
+    const expectedIndex = Number(req.body?.expectedCurrentQuestionIndex);
+    const { rows } = await pool.query(
+      `SELECT sta.*, st.timer_seconds AS "timerSeconds"
+         FROM self_test_attempts sta JOIN self_tests st ON st.id = sta.self_test_id
+        WHERE sta.id = $1 AND sta.student_id = $2 AND sta.status = 'in_progress'`,
+      [attemptId, req.student.id],
+    );
+    const attempt = rows[0];
+    if (!attempt) return res.status(404).json({ message: "Active self-test attempt not found" });
+    if (selfTestTimerExpired(attempt)) {
+      return res.status(409).json({ message: "The time limit has expired.", code: "TIME_LIMIT_EXPIRED" });
+    }
+    if (!Number.isInteger(expectedIndex) || expectedIndex !== attempt.current_question_index) {
+      return res.status(409).json({ message: "This self-test has already moved forward", staleRequest: true });
+    }
+    const { rows: questionCount } = await pool.query(
+      "SELECT COUNT(*)::int AS count FROM self_test_questions WHERE self_test_id = $1",
+      [attempt.self_test_id],
+    );
+    if (attempt.current_question_index + 1 >= questionCount[0].count) {
+      return res.status(400).json({ message: "No more questions", isLastQuestion: true });
+    }
+    await pool.query(
+      "UPDATE self_test_attempts SET current_question_index = current_question_index + 1 WHERE id = $1",
+      [attemptId],
+    );
+    res.json(await selfTestQuestionPayload({ id: attemptId }));
+  });
+
+  app.post("/api/student/self-test-attempts/:attemptId/submit", requireStudent, async (req: any, res) => {
+    const attemptId = Number(req.params.attemptId);
+    const { rows: activeAttempts } = await pool.query(
+      `SELECT sta.*, st.timer_seconds AS "timerSeconds"
+         FROM self_test_attempts sta JOIN self_tests st ON st.id = sta.self_test_id
+        WHERE sta.id = $1 AND sta.student_id = $2 AND sta.status = 'in_progress'`,
+      [attemptId, req.student.id],
+    );
+    const activeAttempt = activeAttempts[0];
+    if (!activeAttempt) return res.status(404).json({ message: "Active self-test attempt not found" });
+    const timedOut = selfTestTimerExpired(activeAttempt);
+    const { rowCount } = await pool.query(
+      `UPDATE self_test_attempts SET status = 'submitted', submitted_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND student_id = $2 AND status = 'in_progress'`,
+      [attemptId, req.student.id],
+    );
+    if (!rowCount) return res.status(404).json({ message: "Active self-test attempt not found" });
+    res.json({ ok: true, timedOut });
+  });
+
+  app.get("/api/student/self-test-attempts/:attemptId/results", requireStudent, async (req: any, res) => {
+    const { rows: attempts } = await pool.query(
+      `SELECT sta.*, st.title, st.focus, u.name AS "unitName"
+         FROM self_test_attempts sta
+         JOIN self_tests st ON st.id = sta.self_test_id JOIN units u ON u.id = st.unit_id
+        WHERE sta.id = $1 AND sta.student_id = $2 AND sta.status = 'submitted'`,
+      [Number(req.params.attemptId), req.student.id],
+    );
+    const attempt = attempts[0];
+    if (!attempt) return res.status(404).json({ message: "Completed self-test not found" });
+    const { rows: questions } = await pool.query(
+      `SELECT q.*, q.expected_answer AS "modelAnswer", r.answer AS "studentAnswer",
+              r.is_correct AS "isCorrect", r.marks_awarded AS "marksAwarded", r.ai_feedback AS "aiFeedback"
+         FROM self_test_questions q LEFT JOIN self_test_responses r ON r.question_id = q.id AND r.attempt_id = $2
+        WHERE q.self_test_id = $1 ORDER BY q.order_index`,
+      [attempt.self_test_id, attempt.id],
+    );
+    const enriched = await Promise.all(questions.map(async (question) => {
+      const { rows: options } = question.type === "mcq"
+        ? await pool.query(
+            "SELECT id, content, is_correct AS \"isCorrect\", order_index AS \"orderIndex\" FROM self_test_question_options WHERE question_id = $1 ORDER BY order_index",
+            [question.id],
+          )
+        : { rows: [] };
+      return { ...question, options };
+    }));
+    const totalMarks = enriched.reduce((sum, question) => sum + question.marks, 0);
+    const earnedMarks = enriched.reduce((sum, question) => sum + (question.marksAwarded || 0), 0);
+    res.json({
+      attemptId: attempt.id, title: attempt.title, testTitle: attempt.title, focus: attempt.focus, unitName: attempt.unitName,
+      submittedAt: attempt.submitted_at, totalMarks, earnedMarks, totalScore: earnedMarks, maxScore: totalMarks,
+      scorePercent: totalMarks ? Math.round((earnedMarks / totalMarks) * 100) : 0,
+      percentage: totalMarks ? Math.round((earnedMarks / totalMarks) * 100) : 0,
+      questions: enriched,
+    });
+  });
+
+  app.post("/api/student/self-test-questions/:questionId/report", requireStudent, async (req: any, res) => {
+    const reason = String(req.body?.reason || "").trim();
+    if (!reason || reason.length > 500) return res.status(400).json({ message: "Provide a report reason of up to 500 characters" });
+    const { rows: questions } = await pool.query(
+      `SELECT q.id FROM self_test_questions q JOIN self_tests st ON st.id = q.self_test_id
+        WHERE q.id = $1 AND st.student_id = $2`,
+      [Number(req.params.questionId), req.student.id],
+    );
+    if (!questions[0]) return res.status(404).json({ message: "Question not found" });
+    await pool.query(
+      `INSERT INTO self_test_question_reports (question_id, student_id, reason)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (question_id, student_id) DO UPDATE SET reason = EXCLUDED.reason, status = 'pending', created_at = CURRENT_TIMESTAMP`,
+      [questions[0].id, req.student.id, reason],
+    );
+    res.json({ ok: true });
+  });
+
+  app.get("/api/admin/self-test-question-reports", requireAdmin, async (_req, res) => {
+    const { rows } = await pool.query(
+      `SELECT r.id, r.reason, r.status, r.created_at AS "createdAt",
+              s.name AS "studentName", s.email AS "studentEmail",
+              q.id AS "questionId", q.type, q.content, q.expected_answer AS "modelAnswer",
+              st.title AS "selfTestTitle", u.name AS "unitName"
+         FROM self_test_question_reports r
+         JOIN students s ON s.id = r.student_id
+         JOIN self_test_questions q ON q.id = r.question_id
+         JOIN self_tests st ON st.id = q.self_test_id
+         JOIN units u ON u.id = st.unit_id
+        ORDER BY CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END, r.created_at DESC`,
+    );
+    res.json(rows);
+  });
+
+  app.patch("/api/admin/self-test-question-reports/:id", requireAdmin, async (req, res) => {
+    const status = String(req.body?.status || "");
+    if (!["reviewed", "dismissed"].includes(status)) {
+      return res.status(400).json({ message: "Set the report to reviewed or dismissed" });
+    }
+    const { rowCount } = await pool.query(
+      "UPDATE self_test_question_reports SET status = $1 WHERE id = $2",
+      [status, Number(req.params.id)],
+    );
+    if (!rowCount) return res.status(404).json({ message: "Report not found" });
+    res.json({ ok: true });
   });
 
   app.get("/api/student/past-exams", requireStudent, async (req: any, res) => {

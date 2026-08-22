@@ -263,6 +263,84 @@ export const aiMarkingJobs = pgTable("ai_marking_jobs", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+// ── Student self-tests ───────────────────────────────────────────────────────
+// These remain separate from administrator-managed official exams and attempts.
+export const selfTests = pgTable("self_tests", {
+  id: serial("id").primaryKey(),
+  studentId: integer("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  unitId: integer("unit_id").references(() => units.id, { onDelete: "set null" }),
+  title: text("title").notNull(),
+  focus: text("focus"),
+  questionType: text("question_type").notNull().default("mixed"),
+  contentStyle: text("content_style").notNull().default("mixed"),
+  questionCount: integer("question_count").notNull(),
+  timerSeconds: integer("timer_seconds"),
+  status: text("status").notNull().default("draft"),
+  generationError: text("generation_error"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index("idx_self_tests_student_created").on(table.studentId, table.createdAt),
+]);
+
+export const selfTestQuestions = pgTable("self_test_questions", {
+  id: serial("id").primaryKey(),
+  selfTestId: integer("self_test_id").notNull().references(() => selfTests.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  content: text("content").notNull(),
+  expectedAnswer: text("expected_answer"),
+  explanation: text("explanation"),
+  marks: integer("marks").notNull().default(1),
+  orderIndex: integer("order_index").notNull(),
+}, (table) => [
+  index("idx_self_test_questions_test_order").on(table.selfTestId, table.orderIndex),
+]);
+
+export const selfTestQuestionOptions = pgTable("self_test_question_options", {
+  id: serial("id").primaryKey(),
+  questionId: integer("question_id").notNull().references(() => selfTestQuestions.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  isCorrect: boolean("is_correct").notNull().default(false),
+  orderIndex: integer("order_index").notNull(),
+}, (table) => [
+  index("idx_self_test_options_question").on(table.questionId),
+]);
+
+export const selfTestAttempts = pgTable("self_test_attempts", {
+  id: serial("id").primaryKey(),
+  selfTestId: integer("self_test_id").notNull().references(() => selfTests.id, { onDelete: "cascade" }),
+  studentId: integer("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("in_progress"),
+  currentQuestionIndex: integer("current_question_index").notNull().default(0),
+  startedAt: timestamp("started_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  submittedAt: timestamp("submitted_at"),
+}, (table) => [
+  index("idx_self_test_attempts_student_test").on(table.studentId, table.selfTestId),
+]);
+
+export const selfTestResponses = pgTable("self_test_responses", {
+  id: serial("id").primaryKey(),
+  attemptId: integer("attempt_id").notNull().references(() => selfTestAttempts.id, { onDelete: "cascade" }),
+  questionId: integer("question_id").notNull().references(() => selfTestQuestions.id, { onDelete: "cascade" }),
+  answer: text("answer"),
+  isCorrect: boolean("is_correct"),
+  marksAwarded: real("marks_awarded"),
+  aiFeedback: text("ai_feedback"),
+}, (table) => [
+  uniqueIndex("self_test_responses_attempt_question_unique").on(table.attemptId, table.questionId),
+]);
+
+export const selfTestQuestionReports = pgTable("self_test_question_reports", {
+  id: serial("id").primaryKey(),
+  questionId: integer("question_id").notNull().references(() => selfTestQuestions.id, { onDelete: "cascade" }),
+  studentId: integer("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  reason: text("reason").notNull(),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  uniqueIndex("self_test_question_reports_one_per_student").on(table.questionId, table.studentId),
+]);
+
 export const studentSignups = pgTable("student_signups", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -354,6 +432,9 @@ export type University = typeof universities.$inferSelect;
 export type InsertUniversity = z.infer<typeof insertUniversitySchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type AiMarkingJob = typeof aiMarkingJobs.$inferSelect;
+export type SelfTest = typeof selfTests.$inferSelect;
+export type SelfTestQuestion = typeof selfTestQuestions.$inferSelect;
+export type SelfTestAttempt = typeof selfTestAttempts.$inferSelect;
 export type StudentSignup = typeof studentSignups.$inferSelect;
 export const insertStudentSignupSchema = createInsertSchema(studentSignups).omit({ id: true, createdAt: true });
 export type InsertStudentSignup = z.infer<typeof insertStudentSignupSchema>;

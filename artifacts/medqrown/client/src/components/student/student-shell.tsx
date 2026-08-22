@@ -5,6 +5,7 @@ import { MedQrownBrand } from "@/components/MedQrownBrand";
 import { 
   LayoutDashboard, 
   BookOpen, 
+  BrainCircuit,
   History, 
   BarChart3,
   User, 
@@ -22,6 +23,7 @@ import {
 const NAV_ITEMS = [
   { href: "/student/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/student/units", label: "My Units", icon: BookOpen },
+  { href: "/student/self-tests", label: "Self-tests", icon: BrainCircuit },
   { href: "/student/past-exams", label: "Past Exams", icon: History },
   { href: "/student/stats", label: "Stats", icon: BarChart3 },
   { href: "/student/profile", label: "Profile", icon: User },
