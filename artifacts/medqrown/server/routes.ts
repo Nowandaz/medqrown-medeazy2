@@ -1076,9 +1076,10 @@ export async function registerRoutes(
                 (SELECT COUNT(DISTINCT a.id)::int
                    FROM exam_students es JOIN attempts a ON a.exam_student_id = es.id
                   WHERE es.student_id = $1 AND es.exam_id IN (SELECT id FROM exams WHERE unit_id = u.id) AND a.status = 'submitted') AS "completedAttempts",
-                COALESCE((SELECT ROUND(100.0 * SUM(r.marks_awarded) / NULLIF(SUM(q.marks), 0))::int
+                COALESCE((SELECT ROUND(100.0 * SUM(r.marks_awarded) / NULLIF(SUM(CASE WHEN r.subquestion_id IS NOT NULL THEN sq.marks ELSE q.marks END), 0))::int
                    FROM exam_students es JOIN attempts a ON a.exam_student_id = es.id
                    JOIN responses r ON r.attempt_id = a.id JOIN questions q ON q.id = r.question_id
+                   LEFT JOIN subquestions sq ON sq.id = r.subquestion_id
                   WHERE es.student_id = $1 AND es.exam_id IN (SELECT id FROM exams WHERE unit_id = u.id) AND a.status = 'submitted'), 0) AS "averageScore"
            FROM units u JOIN unit_memberships um ON um.unit_id = u.id
           WHERE um.student_id = $1 AND um.status = 'enrolled' AND u.is_active = true
@@ -1089,13 +1090,14 @@ export async function registerRoutes(
         `SELECT es.id AS "examStudentId", e.id AS "examId", e.title, u.name AS "unitName",
                 a.submitted_at AS "submittedAt",
                 COALESCE(SUM(r.marks_awarded), 0)::float AS "earnedMarks",
-                COALESCE(SUM(q.marks), 0)::float AS "totalMarks"
+              COALESCE(SUM(CASE WHEN r.subquestion_id IS NOT NULL THEN sq.marks ELSE q.marks END), 0)::float AS "totalMarks"
            FROM exam_students es
            JOIN exams e ON e.id = es.exam_id
            LEFT JOIN units u ON u.id = e.unit_id
            JOIN attempts a ON a.exam_student_id = es.id AND a.status = 'submitted'
            LEFT JOIN responses r ON r.attempt_id = a.id
            LEFT JOIN questions q ON q.id = r.question_id
+            LEFT JOIN subquestions sq ON sq.id = r.subquestion_id
           WHERE es.student_id = $1
           GROUP BY es.id, e.id, e.title, u.name, a.submitted_at
           ORDER BY a.submitted_at DESC LIMIT 4`,
@@ -1120,9 +1122,10 @@ export async function registerRoutes(
               (SELECT COUNT(DISTINCT a.id)::int
                  FROM exam_students es JOIN attempts a ON a.exam_student_id = es.id
                 WHERE es.student_id = $1 AND es.exam_id IN (SELECT id FROM exams WHERE unit_id = u.id) AND a.status = 'submitted') AS "completedAttempts"
-             ,COALESCE((SELECT ROUND(100.0 * SUM(r.marks_awarded) / NULLIF(SUM(q.marks), 0))::int
+              ,COALESCE((SELECT ROUND(100.0 * SUM(r.marks_awarded) / NULLIF(SUM(CASE WHEN r.subquestion_id IS NOT NULL THEN sq.marks ELSE q.marks END), 0))::int
                  FROM exam_students es JOIN attempts a ON a.exam_student_id = es.id
                  JOIN responses r ON r.attempt_id = a.id JOIN questions q ON q.id = r.question_id
+                  LEFT JOIN subquestions sq ON sq.id = r.subquestion_id
                 WHERE es.student_id = $1 AND es.exam_id IN (SELECT id FROM exams WHERE unit_id = u.id) AND a.status = 'submitted'), 0) AS "averageScore"
          FROM units u WHERE u.is_active = true ORDER BY u.code, u.name`,
       [req.student.id],
@@ -1261,6 +1264,16 @@ export async function registerRoutes(
     if (entitlement.pendingRequestStatus) {
       return res.status(409).json({ message: "You already have a reattempt request awaiting review" });
     }
+    const { rows: recentRequests } = await pool.query(
+      `SELECT id FROM exam_reattempt_requests
+        WHERE exam_id = $1 AND student_id = $2
+          AND created_at > CURRENT_TIMESTAMP - INTERVAL '1 hour'
+        ORDER BY created_at DESC LIMIT 1`,
+      [examId, req.student.id],
+    );
+    if (recentRequests[0]) {
+      return res.status(429).json({ message: "Please wait before submitting another reattempt request" });
+    }
     try {
       await pool.query(
         `INSERT INTO exam_reattempt_requests (exam_id, student_id, reason)
@@ -1280,13 +1293,14 @@ export async function registerRoutes(
     const { rows } = await pool.query(
       `SELECT a.id AS "attemptId", e.id AS "examId", e.title, COALESCE(u.name, 'Independent exam') AS "unitName",
               a.submitted_at AS "submittedAt", COALESCE(SUM(r.marks_awarded), 0)::float AS "earnedMarks",
-              COALESCE(SUM(q.marks), 0)::float AS "totalMarks"
+              COALESCE(SUM(CASE WHEN r.subquestion_id IS NOT NULL THEN sq.marks ELSE q.marks END), 0)::float AS "totalMarks"
          FROM attempts a
          JOIN exam_students es ON es.id = a.exam_student_id
          JOIN exams e ON e.id = es.exam_id
          LEFT JOIN units u ON u.id = e.unit_id
          LEFT JOIN responses r ON r.attempt_id = a.id
          LEFT JOIN questions q ON q.id = r.question_id
+          LEFT JOIN subquestions sq ON sq.id = r.subquestion_id
         WHERE es.student_id = $1 AND a.status = 'submitted'
         GROUP BY a.id, e.id, e.title, u.name, a.submitted_at
         ORDER BY a.submitted_at DESC`,
@@ -1328,13 +1342,14 @@ export async function registerRoutes(
       `SELECT a.id AS "attemptId", es.id AS "examStudentId", e.id AS "examId", e.title, u.name AS "unitName",
               a.submitted_at AS "submittedAt",
               COALESCE(SUM(r.marks_awarded), 0)::float AS "earnedMarks",
-              COALESCE(SUM(q.marks), 0)::float AS "totalMarks"
+               COALESCE(SUM(CASE WHEN r.subquestion_id IS NOT NULL THEN sq.marks ELSE q.marks END), 0)::float AS "totalMarks"
          FROM exam_students es
          JOIN exams e ON e.id = es.exam_id
          LEFT JOIN units u ON u.id = e.unit_id
          JOIN attempts a ON a.exam_student_id = es.id AND a.status = 'submitted'
          LEFT JOIN responses r ON r.attempt_id = a.id
          LEFT JOIN questions q ON q.id = r.question_id
+           LEFT JOIN subquestions sq ON sq.id = r.subquestion_id
         WHERE es.student_id = $1
          GROUP BY a.id, es.id, e.id, e.title, u.name, a.submitted_at
         ORDER BY a.submitted_at DESC`,
@@ -1355,27 +1370,32 @@ export async function registerRoutes(
       `SELECT a.id AS "attemptId", es.id AS "examStudentId", e.id AS "examId", e.title, u.name AS "unitName",
               a.submitted_at AS "submittedAt",
               COALESCE(SUM(r.marks_awarded), 0)::float AS "earnedMarks",
-              COALESCE(SUM(q.marks), 0)::float AS "totalMarks"
+              COALESCE(SUM(CASE WHEN r.subquestion_id IS NOT NULL THEN sq.marks ELSE q.marks END), 0)::float AS "totalMarks"
          FROM exam_students es JOIN exams e ON e.id = es.exam_id
          LEFT JOIN units u ON u.id = e.unit_id
          JOIN attempts a ON a.exam_student_id = es.id AND a.status = 'submitted'
          LEFT JOIN responses r ON r.attempt_id = a.id LEFT JOIN questions q ON q.id = r.question_id
+         LEFT JOIN subquestions sq ON sq.id = r.subquestion_id
          WHERE a.id = $1 GROUP BY a.id, es.id, e.id, e.title, u.name, a.submitted_at`,
       [attemptId],
     );
     if (!details[0]) return res.status(404).json({ message: "Submitted attempt not found" });
     const { rows: responses } = await pool.query(
-      `SELECT q.content AS question, q.explanation, q.marks, r.answer, r.is_correct AS "isCorrect",
+      `SELECT CASE WHEN r.subquestion_id IS NOT NULL THEN sq.content ELSE q.content END AS question,
+               q.explanation,
+               CASE WHEN r.subquestion_id IS NOT NULL THEN sq.marks ELSE q.marks END AS marks,
+               r.subquestion_id AS "subquestionId", r.answer, r.is_correct AS "isCorrect",
                r.marks_awarded AS "marksAwarded", r.ai_feedback AS "aiFeedback",
                selected_option.content AS "answerDisplay"
          FROM attempts a JOIN responses r ON r.attempt_id = a.id JOIN questions q ON q.id = r.question_id
+          LEFT JOIN subquestions sq ON sq.id = r.subquestion_id
           LEFT JOIN question_options selected_option
             ON selected_option.question_id = q.id
            AND selected_option.id = CASE
              WHEN r.answer ~ '^[0-9]+$' THEN r.answer::integer
              ELSE NULL
            END
-         WHERE a.id = $1 ORDER BY q.order_index`,
+          WHERE a.id = $1 ORDER BY q.order_index, sq.order_index NULLS FIRST`,
       [attemptId],
     );
     const detail = details[0];

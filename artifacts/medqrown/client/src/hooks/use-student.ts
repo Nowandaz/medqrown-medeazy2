@@ -52,6 +52,8 @@ export interface PastExam {
     explanation?: string | null;
     marks?: number;
     answer?: string | null;
+    answerDisplay?: string | null;
+    subquestionId?: number | null;
     isCorrect?: boolean | null;
     marksAwarded?: number | null;
     aiFeedback?: string | null;
@@ -166,8 +168,9 @@ export function useRequestReattempt() {
   return useMutation({
     mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
       apiRequest("POST", `/api/student/exams/${id}/request-reattempt`, { reason }),
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/student/units"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/student/units/${variables.id}`] });
     },
   });
 }

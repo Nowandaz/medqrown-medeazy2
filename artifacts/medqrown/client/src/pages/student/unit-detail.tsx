@@ -220,7 +220,7 @@ export default function StudentUnitDetail() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Request another attempt</DialogTitle>
-            <DialogDescription>Explain why you need another attempt for {reattemptExam?.title}. Your administrator will review this request.</DialogDescription>
+            <DialogDescription>Explain why you need another attempt for {reattemptExam?.title}. Your administrator will review this request. To prevent spam, another request cannot be submitted for one hour.</DialogDescription>
           </DialogHeader>
           <Textarea
             value={reattemptReason}
