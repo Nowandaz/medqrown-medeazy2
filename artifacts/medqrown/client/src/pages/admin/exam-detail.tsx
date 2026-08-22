@@ -24,6 +24,7 @@ import {
   Loader2, XCircle, Star, Pencil, AlertTriangle, Reply, Sparkles
 } from "lucide-react";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
+import { TEXT_LIMITS } from "@/lib/text-limits";
 
 export default function AdminExamDetail() {
   const [, params] = useRoute("/admin/exams/:id");
@@ -896,7 +897,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
                           </div>
                           <div className="flex-[2] space-y-1">
                             <Label className="text-xs">Expected Answer</Label>
-                            <Input value={sq.expectedAnswer} onChange={(e) => {
+                            <Input maxLength={TEXT_LIMITS.answer} value={sq.expectedAnswer} onChange={(e) => {
                               const copy = [...subQs]; copy[i] = { ...copy[i], expectedAnswer: e.target.value }; setSubQs(copy);
                             }} />
                           </div>
@@ -934,7 +935,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
               {qType === "saq" && !hasSubQ && (
                 <div className="space-y-2">
                   <Label>Expected Answer (to guide AI marking)</Label>
-                  <Textarea value={qExpected} onChange={(e) => setQExpected(e.target.value)} placeholder="Enter the expected answer..." data-testid="input-expected-answer" />
+                  <Textarea maxLength={TEXT_LIMITS.answer} value={qExpected} onChange={(e) => setQExpected(e.target.value)} placeholder="Enter the expected answer..." data-testid="input-expected-answer" />
                 </div>
               )}
 
@@ -1006,7 +1007,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
               {editQ.type === "saq" && !editQ.hasSubquestions && (
                 <div className="space-y-2">
                   <Label>Expected Answer</Label>
-                  <Textarea value={editExpected} onChange={(e) => setEditExpected(e.target.value)} data-testid="input-edit-expected-answer" />
+                  <Textarea maxLength={TEXT_LIMITS.answer} value={editExpected} onChange={(e) => setEditExpected(e.target.value)} data-testid="input-edit-expected-answer" />
                 </div>
               )}
               {editQ.type === "mcq" && (
@@ -1030,7 +1031,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
                           </div>
                           <div className="flex-[2] space-y-1">
                             <Label className="text-xs">Expected Answer</Label>
-                            <Input value={sq.expectedAnswer} onChange={(e) => { const c = [...editSubQs]; c[i] = { ...c[i], expectedAnswer: e.target.value }; setEditSubQs(c); }} />
+                            <Input maxLength={TEXT_LIMITS.answer} value={sq.expectedAnswer} onChange={(e) => { const c = [...editSubQs]; c[i] = { ...c[i], expectedAnswer: e.target.value }; setEditSubQs(c); }} />
                           </div>
                         </div>
                       </CardContent>

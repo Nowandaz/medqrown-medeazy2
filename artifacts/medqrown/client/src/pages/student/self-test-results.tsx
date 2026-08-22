@@ -12,6 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TEXT_LIMITS } from "@/lib/text-limits";
 
 const ReportDialog = ({ questionId }: { questionId: number }) => {
   const [reason, setReason] = useState("");
@@ -50,7 +51,9 @@ const ReportDialog = ({ questionId }: { questionId: number }) => {
             onChange={e => setReason(e.target.value)} 
             placeholder="Describe the issue..."
             rows={4}
+            maxLength={TEXT_LIMITS.reportReason}
           />
+          <p className="mt-1 text-right text-xs text-muted-foreground">{reason.length}/{TEXT_LIMITS.reportReason}</p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
@@ -143,6 +146,11 @@ export default function StudentSelfTestResults() {
   }
 
   const passed = results.percentage >= 50;
+  const getSaQExplanation = (question: any) => {
+    const feedback = String(question.aiFeedback || "").trim();
+    if (/^model answer:\s*/i.test(feedback)) return question.explanation || null;
+    return feedback || question.explanation || null;
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-primary/3">
@@ -271,13 +279,6 @@ export default function StudentSelfTestResults() {
                               <span className="font-medium bg-background px-2 py-1 rounded-sm border block whitespace-pre-wrap">{q.studentAnswer}</span>
                             )}
                           </p>
-                          
-                          {q.modelAnswer && (
-                            <div className="bg-primary/5 rounded-md px-3 py-2 border border-primary/15 mt-3">
-                              <span className="text-xs font-semibold text-primary block mb-1">Model Answer:</span>
-                              <p className="text-sm text-foreground/90 whitespace-pre-wrap">{q.modelAnswer}</p>
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>
@@ -289,14 +290,14 @@ export default function StudentSelfTestResults() {
                     )}
                   </div>
 
-                  {q.explanation && (
+                  {(q.type === "saq" ? getSaQExplanation(q) : q.explanation) && (
                     <div className="bg-primary/5 rounded-md px-3 py-2.5 border border-primary/15 flex gap-2 mt-3 ml-7">
                       <span className="text-xs font-semibold text-primary shrink-0 mt-0.5">Explanation:</span>
-                      <p className="text-xs text-foreground/80 leading-relaxed">{q.explanation}</p>
+                      <p className="text-xs text-foreground/80 leading-relaxed">{q.type === "saq" ? getSaQExplanation(q) : q.explanation}</p>
                     </div>
                   )}
 
-                  {q.aiFeedback && (
+                  {q.type !== "saq" && q.aiFeedback && (
                     <div className="bg-background rounded-md px-3 py-2.5 border border-primary/10 mt-3 ml-7">
                       <span className="text-xs font-semibold text-muted-foreground shrink-0 block mb-0.5">AI Feedback:</span>
                       <p className="text-xs text-foreground/80 italic leading-relaxed">{q.aiFeedback}</p>

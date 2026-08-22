@@ -13,6 +13,7 @@ import {
   BookOpen, Clock, ChevronRight, Send, AlertTriangle, Loader2, ImageIcon
 } from "lucide-react";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
+import { TEXT_LIMITS } from "@/lib/text-limits";
 
 export default function StudentExam() {
   const [, setLocation] = useLocation();
@@ -426,10 +427,12 @@ export default function StudentExam() {
                           <Textarea
                             value={subAnswers[sq.id] || ""}
                             onChange={(e) => setSubAnswers({ ...subAnswers, [sq.id]: e.target.value })}
+                            maxLength={TEXT_LIMITS.answer}
                             placeholder="Type your answer..."
                             className="min-h-[80px] bg-background"
                             data-testid={`textarea-sub-${sq.id}`}
                           />
+                          <p className="text-right text-xs text-muted-foreground">{(subAnswers[sq.id] || "").length}/{TEXT_LIMITS.answer}</p>
                         </div>
                       ))}
                     </div>
@@ -457,13 +460,17 @@ export default function StudentExam() {
                       </div>
                     </RadioGroup>
                   ) : (
-                    <Textarea
-                      value={answer}
-                      onChange={(e) => setAnswer(e.target.value)}
-                      placeholder="Type your answer here..."
-                      className="min-h-[140px] bg-background text-sm"
-                      data-testid="textarea-answer"
-                    />
+                    <div>
+                      <Textarea
+                        value={answer}
+                        onChange={(e) => setAnswer(e.target.value)}
+                        maxLength={TEXT_LIMITS.answer}
+                        placeholder="Type your answer here..."
+                        className="min-h-[140px] bg-background text-sm"
+                        data-testid="textarea-answer"
+                      />
+                      <p className="mt-1 text-right text-xs text-muted-foreground">{answer.length}/{TEXT_LIMITS.answer}</p>
+                    </div>
                   )}
                 </div>
               </CardContent>

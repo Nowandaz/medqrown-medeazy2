@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useStudentMe, useLogout } from "@/hooks/use-student";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
+import { getStudentAvatarUrl } from "@/lib/avatar";
 import { 
   LayoutDashboard, 
   BookOpen, 
@@ -56,6 +57,7 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
       }
     });
   };
+  const avatarUrl = getStudentAvatarUrl(user.avatarKey, 96);
 
   const NavLinks = ({ onClick }: { onClick?: () => void }) => (
     <nav className="flex-1 space-y-1.5 px-3 py-4">
@@ -101,8 +103,8 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
             <NavLinks onClick={() => setMobileMenuOpen(false)} />
             <div className="border-t p-4">
               <div className="mb-4 flex items-center gap-3 px-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 font-bold text-primary">
-                  {user.name.charAt(0)}
+                <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-primary/15 bg-primary/10">
+                  <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
                 </div>
                 <div className="flex flex-col">
                   <span className="text-sm font-medium">{user.name}</span>
@@ -132,8 +134,8 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
         <NavLinks />
         <div className="border-t p-4">
           <div className="mb-4 flex items-center gap-3 px-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 font-bold text-primary">
-              {user.name.charAt(0)}
+            <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-primary/15 bg-primary/10">
+              <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
             </div>
             <div className="flex flex-col overflow-hidden">
               <span className="truncate text-sm font-medium">{user.name}</span>

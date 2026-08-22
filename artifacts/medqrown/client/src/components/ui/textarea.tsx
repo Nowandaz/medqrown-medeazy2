@@ -1,11 +1,12 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
+import { TEXT_LIMITS } from "@/lib/text-limits"
 
 const Textarea = React.forwardRef<
   HTMLTextAreaElement,
   React.ComponentProps<"textarea">
->(({ className, ...props }, ref) => {
+>(({ className, maxLength, ...props }, ref) => {
   return (
     <textarea
       className={cn(
@@ -13,6 +14,7 @@ const Textarea = React.forwardRef<
         className
       )}
       ref={ref}
+        maxLength={maxLength ?? TEXT_LIMITS.long}
       {...props}
     />
   )

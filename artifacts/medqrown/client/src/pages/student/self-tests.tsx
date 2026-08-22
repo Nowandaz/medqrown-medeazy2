@@ -20,6 +20,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Plus, Play, Brain, RefreshCw, AlertTriangle, Clock, BrainCircuit, CheckCircle, Trash2 } from "lucide-react";
+import { TEXT_LIMITS } from "@/lib/text-limits";
 
 function CreateSelfTestDialog() {
   const [open, setOpen] = useState(false);
@@ -82,12 +83,13 @@ function CreateSelfTestDialog() {
           
           <div className="space-y-2">
             <Label>Title (Optional)</Label>
-            <Input placeholder="e.g. Endocrine System Review" value={setup.title} onChange={e => setSetup({...setup, title: e.target.value})} />
+            <Input maxLength={120} placeholder="e.g. Endocrine System Review" value={setup.title} onChange={e => setSetup({...setup, title: e.target.value})} />
           </div>
           
           <div className="space-y-2">
             <Label>Focus Area (Optional)</Label>
-            <Textarea placeholder="What specific topics should the AI focus on?" value={setup.focus} onChange={e => setSetup({...setup, focus: e.target.value})} rows={2} />
+            <Textarea maxLength={TEXT_LIMITS.selfTestFocus} placeholder="What specific topics should the AI focus on?" value={setup.focus} onChange={e => setSetup({...setup, focus: e.target.value})} rows={2} />
+            <p className="text-right text-xs text-muted-foreground">{setup.focus.length}/{TEXT_LIMITS.selfTestFocus}</p>
           </div>
           
           <div className="grid grid-cols-2 gap-4">

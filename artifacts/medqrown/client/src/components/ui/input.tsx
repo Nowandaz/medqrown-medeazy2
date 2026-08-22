@@ -1,10 +1,18 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
+import { TEXT_LIMITS } from "@/lib/text-limits"
 
 const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
-  ({ className, type, ...props }, ref) => {
+  ({ className, type, maxLength, ...props }, ref) => {
     // h-9 to match icon buttons and default buttons.
+    const defaultMaxLength = type === "email"
+      ? TEXT_LIMITS.email
+      : type === "password"
+        ? TEXT_LIMITS.password
+        : type === "number" || type === "checkbox" || type === "file"
+          ? undefined
+          : TEXT_LIMITS.short;
     return (
       <input
         type={type}
@@ -13,6 +21,7 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
           className
         )}
         ref={ref}
+        maxLength={maxLength ?? defaultMaxLength}
         {...props}
       />
     )

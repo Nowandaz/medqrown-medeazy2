@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, ChevronRight, Clock, Send, AlertTriangle } from "lucide-react";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
+import { TEXT_LIMITS } from "@/lib/text-limits";
 
 export default function StudentSelfTestRun() {
   const { id } = useParams<{ id: string }>();
@@ -242,12 +243,16 @@ export default function StudentSelfTestRun() {
                       </div>
                     </RadioGroup>
                   ) : (
-                    <Textarea
-                      value={answer}
-                      onChange={(e) => setAnswer(e.target.value)}
-                      placeholder="Type your answer here... Be as specific as possible."
-                      className="min-h-[140px] bg-background text-sm leading-relaxed"
-                    />
+                    <div>
+                      <Textarea
+                        value={answer}
+                        onChange={(e) => setAnswer(e.target.value)}
+                        maxLength={TEXT_LIMITS.answer}
+                        placeholder="Type your answer here... Be as specific as possible."
+                        className="min-h-[140px] bg-background text-sm leading-relaxed"
+                      />
+                      <p className="mt-1 text-right text-xs text-muted-foreground">{answer.length}/{TEXT_LIMITS.answer}</p>
+                    </div>
                   )}
                 </div>
               </CardContent>

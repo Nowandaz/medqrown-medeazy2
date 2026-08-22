@@ -29,6 +29,8 @@ import {
 } from "@/components/ui/select";
 import { Check, CheckCircle2, Clock, AlertCircle, Palette, Sparkles } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getStudentAvatarUrl } from "@/lib/avatar";
+import { TEXT_LIMITS } from "@/lib/text-limits";
 
 type AvatarStyle = "adventurer" | "fun-emoji" | "open-peeps";
 
@@ -64,10 +66,6 @@ const AVATAR_FILTERS: Array<{ value: "all" | AvatarStyle; label: string }> = [
   { value: "fun-emoji", label: "Fun Emoji" },
   { value: "open-peeps", label: "Open Peeps" },
 ];
-
-function avatarUrl(style: AvatarStyle, seed: string, size = 160) {
-  return `https://api.dicebear.com/10.x/${style}/svg?seed=${encodeURIComponent(seed)}&size=${size}&radius=50&backgroundColor=f1f5f9`;
-}
 
 function getSelectedAvatar(key: string) {
   return AVATAR_OPTIONS.find((avatar) => avatar.key === key)
@@ -179,7 +177,7 @@ export default function StudentProfile() {
             <div className="flex flex-col items-center rounded-2xl bg-gradient-to-br from-primary/10 via-background to-accent/20 px-4 py-5">
               <div className="h-32 w-32 overflow-hidden rounded-full border-4 border-background bg-white shadow-lg ring-1 ring-primary/20">
                 <img
-                  src={avatarUrl(selectedAvatar.style, selectedAvatar.seed, 256)}
+                  src={getStudentAvatarUrl(selectedAvatar.key, 256)}
                   alt={`${selectedAvatar.name} avatar`}
                   className="h-full w-full object-cover"
                 />
@@ -229,7 +227,7 @@ export default function StudentProfile() {
                     }`}
                   >
                     <img
-                      src={avatarUrl(avatar.style, avatar.seed)}
+                      src={getStudentAvatarUrl(avatar.key)}
                       alt=""
                       className="h-full w-full object-cover transition-transform group-hover:scale-105"
                     />
@@ -360,7 +358,9 @@ export default function StudentProfile() {
                 className="resize-none"
                 value={reason}
                 onChange={e => setReason(e.target.value)}
+                maxLength={TEXT_LIMITS.reportReason}
               />
+              <p className="text-right text-xs text-muted-foreground">{reason.length}/{TEXT_LIMITS.reportReason}</p>
             </div>
           </div>
           <DialogFooter>

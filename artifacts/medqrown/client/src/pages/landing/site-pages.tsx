@@ -372,6 +372,7 @@ export function InstitutionsPage() {
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="Dr. Jane Mwangi"
+                  maxLength={250}
                   className="w-full bg-background border border-input rounded-xl px-4 py-3 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
               </div>
@@ -383,6 +384,7 @@ export function InstitutionsPage() {
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
                   placeholder="jane@university.ac.ke"
+                  maxLength={254}
                   className="w-full bg-background border border-input rounded-xl px-4 py-3 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
               </div>
@@ -394,6 +396,7 @@ export function InstitutionsPage() {
                   value={form.institution}
                   onChange={(e) => setForm({ ...form, institution: e.target.value })}
                   placeholder="University of Nairobi — School of Medicine"
+                  maxLength={250}
                   className="w-full bg-background border border-input rounded-xl px-4 py-3 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
               </div>
@@ -404,6 +407,7 @@ export function InstitutionsPage() {
                   value={form.message}
                   onChange={(e) => setForm({ ...form, message: e.target.value })}
                   placeholder="e.g. We'd like to run end-of-rotation exams for 250 students…"
+                  maxLength={2000}
                   className="w-full bg-background border border-input rounded-xl px-4 py-3 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
                 />
               </div>
@@ -413,6 +417,7 @@ export function InstitutionsPage() {
                 name="website"
                 value={form.website}
                 onChange={(e) => setForm({ ...form, website: e.target.value })}
+                  maxLength={250}
                 tabIndex={-1}
                 autoComplete="off"
                 aria-hidden="true"

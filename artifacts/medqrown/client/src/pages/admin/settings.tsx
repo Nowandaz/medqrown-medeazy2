@@ -157,7 +157,7 @@ function AiProvidersSection({ providers }: { providers: any[] }) {
       </div>
       <div className="space-y-2">
         <Label>API Key {editingId ? "(leave empty to keep current)" : ""}</Label>
-        <Input type="password" value={form.apiKeyValue} onChange={(e) => setForm({ ...form, apiKeyValue: e.target.value })} placeholder={editingId ? "Leave empty to keep existing key" : "sk-or-v1-..."} data-testid="input-provider-apiKeyValue" />
+        <Input type="password" maxLength={2000} value={form.apiKeyValue} onChange={(e) => setForm({ ...form, apiKeyValue: e.target.value })} placeholder={editingId ? "Leave empty to keep existing key" : "sk-or-v1-..."} data-testid="input-provider-apiKeyValue" />
         <p className="text-xs text-muted-foreground">Your API key — stored securely in the database, persists across restarts.</p>
       </div>
       <div className="space-y-2">

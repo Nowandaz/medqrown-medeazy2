@@ -12,6 +12,46 @@ import { registerObjectStorageRoutes } from "./replit_integrations/object_storag
 import { listBucketObjects, deleteSupabaseStorageObjects, urlForObjectPath } from "./supabase-storage";
 import { pool } from "./db";
 
+const TEXT_LIMITS = {
+  email: 254,
+  password: 128,
+  short: 250,
+  long: 2000,
+  selfTestFocus: 1000,
+  answer: 4000,
+  reportReason: 500,
+} as const;
+
+function getTextLimitForField(fieldName: string) {
+  const key = fieldName.toLowerCase();
+  if (key.includes("email")) return TEXT_LIMITS.email;
+  if (key.includes("apikey") || key.includes("api_key") || key.includes("endpoint") || key.includes("url")) return TEXT_LIMITS.long;
+  if (key.includes("password")) return TEXT_LIMITS.password;
+  if (key === "answer" || key.includes("response") || key.includes("expectedanswer")) return TEXT_LIMITS.answer;
+  if (key.includes("focus")) return TEXT_LIMITS.selfTestFocus;
+  if (key.includes("report") || key.includes("reason")) return TEXT_LIMITS.reportReason;
+  if (key.includes("subject") || /^(name|title|code|institution|category|slug|label|avatar|avatarkey)$/.test(key)) return TEXT_LIMITS.short;
+  if (key.includes("content") || key.includes("question") || key.includes("explanation") || key.includes("feedback") || key.includes("description") || key.includes("message")) return TEXT_LIMITS.long;
+  // Shared textareas allow up to 2,000 characters. Treat unfamiliar fields as
+  // long-form to avoid rejecting valid existing content such as email bodies.
+  return TEXT_LIMITS.long;
+}
+
+function findOversizedText(value: unknown, fieldName = "text"): string | null {
+  if (typeof value === "string") {
+    return value.length > getTextLimitForField(fieldName) ? fieldName : null;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => findOversizedText(item, fieldName)).find(Boolean) || null;
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => findOversizedText(item, key))
+      .find(Boolean) || null;
+  }
+  return null;
+}
+
 function generatePassword(email: string): string {
   const prefix = email.split("@")[0].slice(0, 4).toLowerCase();
   const random = crypto.randomBytes(3).toString("hex");
@@ -41,6 +81,14 @@ export async function registerRoutes(
   );
 
   registerObjectStorageRoutes(app);
+  app.use((req, res, next) => {
+    if (!req.path.startsWith("/api/") || !req.body) return next();
+    const oversizedField = findOversizedText(req.body);
+    if (oversizedField) {
+      return res.status(400).json({ message: `The ${oversizedField} field is too long. Please shorten it and try again.` });
+    }
+    next();
+  });
 
   // Health check (used by Render deployment)
   // ── Demo tables migration (runs once at startup) ──────────────────────────
@@ -157,6 +205,9 @@ export async function registerRoutes(
   app.post("/api/admin/login", async (req, res) => {
     try {
       const { email, password } = req.body;
+      if (typeof email !== "string" || typeof password !== "string" || email.length > TEXT_LIMITS.email || password.length > TEXT_LIMITS.password) {
+        return res.status(400).json({ message: "Enter a valid email and password" });
+      }
       const normalizedEmail = (email || "").trim().toLowerCase();
       const admin = await storage.getAdminByEmail(normalizedEmail);
       if (!admin) return res.status(401).json({ message: "Invalid credentials" });
@@ -1537,6 +1588,9 @@ export async function registerRoutes(
     const questionType = String(req.body?.questionType || "mixed");
     const contentStyle = String(req.body?.contentStyle || "mixed");
     const focus = String(req.body?.focus || "").trim();
+    if (focus.length > TEXT_LIMITS.selfTestFocus) {
+      return res.status(400).json({ message: `Focus area must be ${TEXT_LIMITS.selfTestFocus} characters or fewer` });
+    }
     if (!Number.isInteger(unitId) || !Number.isInteger(questionCount) || questionCount < 3 || questionCount > 20) {
       return res.status(400).json({ message: "Choose an enrolled unit and between 3 and 20 questions" });
     }
@@ -1552,14 +1606,15 @@ export async function registerRoutes(
       [unitId, req.student.id],
     );
     if (!units[0]) return res.status(403).json({ message: "Choose one of your enrolled units" });
-    const title = String(req.body?.title || `${units[0].code} practice`).trim().slice(0, 100) || `${units[0].code} practice`;
+    const title = String(req.body?.title || `${units[0].code} practice`).trim();
+    if (title.length > 120) return res.status(400).json({ message: "Title must be 120 characters or fewer" });
     const isDraft = req.body?.saveOnly === true;
     const { rows: created } = await pool.query(
       `INSERT INTO self_tests
         (student_id, unit_id, title, focus, question_type, content_style, question_count, timer_seconds, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING id`,
-      [req.student.id, unitId, title, focus || null, questionType, contentStyle, questionCount, timerSeconds, isDraft ? "draft" : "generating"],
+       [req.student.id, unitId, title || `${units[0].code} practice`, focus || null, questionType, contentStyle, questionCount, timerSeconds, isDraft ? "draft" : "generating"],
     );
     const test = { ...created[0], studentId: req.student.id, unitName: units[0].name, ...{
       focus: focus || null, questionType, contentStyle, questionCount,
@@ -1667,6 +1722,9 @@ export async function registerRoutes(
     const attemptId = Number(req.params.attemptId);
     const questionId = Number(req.body?.questionId);
     const answer = String(req.body?.answer || "").trim();
+    if (answer.length > TEXT_LIMITS.answer) {
+      return res.status(400).json({ message: `Answers must be ${TEXT_LIMITS.answer} characters or fewer` });
+    }
     const { rows: attempts } = await pool.query(
       `SELECT sta.*, st.timer_seconds AS "timerSeconds"
          FROM self_test_attempts sta JOIN self_tests st ON st.id = sta.self_test_id
@@ -1701,7 +1759,7 @@ export async function registerRoutes(
       const expected = normalise(question.expected_answer || "");
       isCorrect = !!expected && (submitted === expected || (expected.length > 4 && submitted.includes(expected)));
       marksAwarded = isCorrect ? question.marks : 0;
-      feedback = question.expected_answer ? `Model answer: ${question.expected_answer}` : null;
+      feedback = null;
     }
     await pool.query(
       `INSERT INTO self_test_responses (attempt_id, question_id, answer, is_correct, marks_awarded, ai_feedback)
@@ -1776,7 +1834,8 @@ export async function registerRoutes(
     const attempt = attempts[0];
     if (!attempt) return res.status(404).json({ message: "Completed self-test not found" });
     const { rows: questions } = await pool.query(
-      `SELECT q.*, q.expected_answer AS "modelAnswer", r.answer AS "studentAnswer",
+      `SELECT q.id, q.type, q.content, q.explanation, q.marks,
+              q.order_index AS "orderIndex", r.answer AS "studentAnswer",
               r.is_correct AS "isCorrect", r.marks_awarded AS "marksAwarded", r.ai_feedback AS "aiFeedback"
          FROM self_test_questions q LEFT JOIN self_test_responses r ON r.question_id = q.id AND r.attempt_id = $2
         WHERE q.self_test_id = $1 ORDER BY q.order_index`,
@@ -1940,12 +1999,13 @@ export async function registerRoutes(
     const fieldMap: Record<string, string> = { name: "name", university: "university" };
     const fieldName = fieldMap[String(req.body?.fieldName || "")];
     const requestedValue = String(req.body?.requestedValue || "").trim();
-    if (!fieldName || !requestedValue || requestedValue.length > 120) {
+    const reason = String(req.body?.reason || "").trim();
+    if (!fieldName || !requestedValue || requestedValue.length > 120 || reason.length > TEXT_LIMITS.reportReason) {
       return res.status(400).json({ message: "Provide a valid profile change request" });
     }
     await pool.query(
       "INSERT INTO profile_change_requests (student_id, field_name, requested_value, reason) VALUES ($1, $2, $3, $4)",
-      [req.student.id, fieldName, requestedValue, String(req.body?.reason || "").trim().slice(0, 500) || null],
+      [req.student.id, fieldName, requestedValue, reason || null],
     );
     res.json({ ok: true });
   });
@@ -1964,6 +2024,9 @@ export async function registerRoutes(
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ message: "Email and password are required" });
+    }
+    if (typeof email !== "string" || typeof password !== "string" || email.length > TEXT_LIMITS.email || password.length > TEXT_LIMITS.password) {
+      return res.status(400).json({ message: "Enter a valid email and password" });
     }
     const normalizedEmail = String(email).trim().toLowerCase();
 
@@ -2511,6 +2574,10 @@ export async function registerRoutes(
       if (!name || !email || !university || !password) {
         return res.status(400).json({ message: "Name, email, university and password are required" });
       }
+      if (typeof name !== "string" || typeof email !== "string" || typeof university !== "string" || typeof password !== "string"
+        || name.length > TEXT_LIMITS.short || email.length > TEXT_LIMITS.email || university.length > TEXT_LIMITS.short || password.length > TEXT_LIMITS.password) {
+        return res.status(400).json({ message: "One or more signup fields are too long" });
+      }
       const normalizedEmail = (email || "").trim().toLowerCase();
       const emailDomain = normalizedEmail.split("@")[1];
       const { rows: allowedDomains } = await pool.query(
@@ -2679,6 +2746,7 @@ export async function registerRoutes(
     try {
       const { email } = req.body;
       if (!email) return res.status(400).json({ message: "Email is required" });
+      if (typeof email !== "string" || email.length > TEXT_LIMITS.email) return res.status(400).json({ message: "Enter a valid email address" });
       const normalizedEmail = email.trim().toLowerCase();
 
       const rateKey = `reset:${normalizedEmail}`;
@@ -2736,6 +2804,10 @@ export async function registerRoutes(
       const { email, code, newPassword } = req.body;
       if (!email || !code || !newPassword) {
         return res.status(400).json({ message: "Email, code and new password are required" });
+      }
+      if (typeof email !== "string" || typeof code !== "string" || typeof newPassword !== "string"
+        || email.length > TEXT_LIMITS.email || code.length > TEXT_LIMITS.short || newPassword.length > TEXT_LIMITS.password) {
+        return res.status(400).json({ message: "One or more reset fields are too long" });
       }
       if (newPassword.length < 6) {
         return res.status(400).json({ message: "Password must be at least 6 characters" });
