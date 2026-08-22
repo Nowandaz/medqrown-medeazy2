@@ -27,12 +27,55 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { User, CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { Check, CheckCircle2, Clock, AlertCircle, Palette, Sparkles } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
-const AVATAR_OPTIONS = [
-  "teal", "navy", "violet", "amber", "rose", "forest"
+type AvatarStyle = "adventurer" | "fun-emoji" | "open-peeps";
+
+const AVATAR_OPTIONS: Array<{
+  key: string;
+  style: AvatarStyle;
+  seed: string;
+  name: string;
+}> = [
+  { key: "adventurer:Amara", style: "adventurer", seed: "Amara", name: "Amara" },
+  { key: "adventurer:Baraka", style: "adventurer", seed: "Baraka", name: "Baraka" },
+  { key: "adventurer:Imani", style: "adventurer", seed: "Imani", name: "Imani" },
+  { key: "adventurer:Zuri", style: "adventurer", seed: "Zuri", name: "Zuri" },
+  { key: "adventurer:Kato", style: "adventurer", seed: "Kato", name: "Kato" },
+  { key: "adventurer:Nia", style: "adventurer", seed: "Nia", name: "Nia" },
+  { key: "fun-emoji:Sunshine", style: "fun-emoji", seed: "Sunshine", name: "Sunshine" },
+  { key: "fun-emoji:Stethoscope", style: "fun-emoji", seed: "Stethoscope", name: "Stethoscope" },
+  { key: "fun-emoji:Star", style: "fun-emoji", seed: "Star", name: "Star" },
+  { key: "fun-emoji:Study", style: "fun-emoji", seed: "Study", name: "Study" },
+  { key: "fun-emoji:Focus", style: "fun-emoji", seed: "Focus", name: "Focus" },
+  { key: "fun-emoji:Bright", style: "fun-emoji", seed: "Bright", name: "Bright" },
+  { key: "open-peeps:Joy", style: "open-peeps", seed: "Joy", name: "Joy" },
+  { key: "open-peeps:Hope", style: "open-peeps", seed: "Hope", name: "Hope" },
+  { key: "open-peeps:Calm", style: "open-peeps", seed: "Calm", name: "Calm" },
+  { key: "open-peeps:Energy", style: "open-peeps", seed: "Energy", name: "Energy" },
+  { key: "open-peeps:Kind", style: "open-peeps", seed: "Kind", name: "Kind" },
+  { key: "open-peeps:Brave", style: "open-peeps", seed: "Brave", name: "Brave" },
 ];
+
+const AVATAR_FILTERS: Array<{ value: "all" | AvatarStyle; label: string }> = [
+  { value: "all", label: "All styles" },
+  { value: "adventurer", label: "Adventurer" },
+  { value: "fun-emoji", label: "Fun Emoji" },
+  { value: "open-peeps", label: "Open Peeps" },
+];
+
+function avatarUrl(style: AvatarStyle, seed: string, size = 160) {
+  return `https://api.dicebear.com/10.x/${style}/svg?seed=${encodeURIComponent(seed)}&size=${size}&radius=50&backgroundColor=f1f5f9`;
+}
+
+function getSelectedAvatar(key: string) {
+  return AVATAR_OPTIONS.find((avatar) => avatar.key === key)
+    ?? (key.includes(":")
+      ? { key, style: key.split(":")[0] as AvatarStyle, seed: key.split(":").slice(1).join(":"),
+          name: "Your avatar" }
+      : { key, style: "adventurer" as AvatarStyle, seed: key || "student", name: "Your avatar" });
+}
 
 const READONLY_FIELDS = [
   { key: "name", label: "Full Name" },
@@ -51,6 +94,7 @@ export default function StudentProfile() {
   const [selectedField, setSelectedField] = useState("");
   const [requestedValue, setRequestedValue] = useState("");
   const [reason, setReason] = useState("");
+  const [avatarFilter, setAvatarFilter] = useState<"all" | AvatarStyle>("all");
 
   if (loadingUser || loadingRequests) {
     return (
@@ -74,6 +118,11 @@ export default function StudentProfile() {
       }
     });
   };
+
+  const selectedAvatar = getSelectedAvatar(user.avatarKey);
+  const visibleAvatars = avatarFilter === "all"
+    ? AVATAR_OPTIONS
+    : AVATAR_OPTIONS.filter((avatar) => avatar.style === avatarFilter);
 
   const handleRequestSubmit = () => {
     if (!selectedField || !requestedValue || !reason) {
@@ -114,37 +163,87 @@ export default function StudentProfile() {
 
       <div className="grid gap-8 md:grid-cols-3">
         {/* Avatar Selection */}
-        <Card className="md:col-span-1 border-primary/20 shadow-sm">
+        <Card className="md:col-span-1 border-primary/20 shadow-sm overflow-hidden">
           <CardHeader>
-            <CardTitle className="text-lg">Avatar</CardTitle>
-            <CardDescription>Choose how you appear on the platform.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col items-center">
-            <div className="h-32 w-32 rounded-full bg-primary/10 border-4 border-background shadow-md flex items-center justify-center mb-8 relative">
-              <User className="w-12 h-12 text-primary" />
-              {/* If we had actual images, we'd render them here based on user.avatarKey */}
-              <div className="absolute -bottom-2 right-2 bg-primary text-primary-foreground text-xs font-bold px-2 py-1 rounded-full shadow">
-                {user.avatarKey || "default"}
+            <div className="flex items-center gap-2">
+              <div className="rounded-lg bg-primary/10 p-2 text-primary">
+                <Palette className="h-4 w-4" />
               </div>
+              <div>
+                <CardTitle className="text-lg">Your avatar</CardTitle>
+                <CardDescription>Choose how you appear on the platform.</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="flex flex-col items-center rounded-2xl bg-gradient-to-br from-primary/10 via-background to-accent/20 px-4 py-5">
+              <div className="h-32 w-32 overflow-hidden rounded-full border-4 border-background bg-white shadow-lg ring-1 ring-primary/20">
+                <img
+                  src={avatarUrl(selectedAvatar.style, selectedAvatar.seed, 256)}
+                  alt={`${selectedAvatar.name} avatar`}
+                  className="h-full w-full object-cover"
+                />
+              </div>
+              <div className="mt-3 flex items-center gap-1.5 text-sm font-semibold">
+                <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                {selectedAvatar.name}
+              </div>
+              <p className="mt-1 text-center text-xs text-muted-foreground">
+                This is how you’ll appear to classmates.
+              </p>
             </div>
             
             <div className="w-full">
-              <h4 className="text-sm font-medium mb-3">Available Avatars</h4>
-              <div className="flex flex-wrap gap-2 justify-center">
-                {AVATAR_OPTIONS.map(key => (
+              <div className="mb-3 flex items-center justify-between">
+                <h4 className="text-sm font-semibold">Choose an avatar</h4>
+                <span className="text-[11px] text-muted-foreground">{AVATAR_OPTIONS.length} options</span>
+              </div>
+              <div className="mb-4 flex gap-1 rounded-lg bg-muted/60 p-1">
+                {AVATAR_FILTERS.map((filter) => (
                   <button
-                    key={key}
-                    onClick={() => handleAvatarSelect(key)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-full transition-all ${
-                      user.avatarKey === key 
-                        ? "bg-primary text-primary-foreground shadow-sm scale-105 ring-2 ring-primary ring-offset-2 ring-offset-background" 
-                        : "bg-muted text-muted-foreground hover:bg-primary/20 hover:text-primary"
+                    key={filter.value}
+                    type="button"
+                    onClick={() => setAvatarFilter(filter.value)}
+                    className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-medium transition-colors ${
+                      avatarFilter === filter.value
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    {key}
+                    {filter.label}
                   </button>
                 ))}
               </div>
+              <div className="grid grid-cols-3 gap-2.5">
+                {visibleAvatars.map((avatar) => (
+                  <button
+                    key={avatar.key}
+                    type="button"
+                    aria-label={`Choose ${avatar.name} avatar`}
+                    aria-pressed={user.avatarKey === avatar.key}
+                    onClick={() => handleAvatarSelect(avatar.key)}
+                    className={`group relative aspect-square overflow-hidden rounded-xl border-2 bg-muted/40 transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md ${
+                      user.avatarKey === avatar.key
+                        ? "border-primary bg-primary/10 shadow-md ring-2 ring-primary/20"
+                        : "border-transparent"
+                    }`}
+                  >
+                    <img
+                      src={avatarUrl(avatar.style, avatar.seed)}
+                      alt=""
+                      className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                    />
+                    {user.avatarKey === avatar.key && (
+                      <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow">
+                        <Check className="h-3 w-3" />
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-3 text-center text-[11px] text-muted-foreground">
+                Your choice is saved automatically.
+              </p>
             </div>
           </CardContent>
         </Card>

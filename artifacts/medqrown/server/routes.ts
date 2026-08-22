@@ -1413,10 +1413,15 @@ export async function registerRoutes(
   });
 
   app.post("/api/student/profile/avatar", requireStudent, async (req: any, res) => {
-    const allowedAvatars = ["teal", "navy", "violet", "amber", "rose", "forest"];
-    if (!allowedAvatars.includes(req.body?.avatarKey)) return res.status(400).json({ message: "Choose an avatar from the available collection" });
-    await pool.query("UPDATE students SET avatar_key = $1 WHERE id = $2", [req.body.avatarKey, req.student.id]);
-    res.json({ ok: true, avatarKey: req.body.avatarKey });
+    const avatarKey = req.body?.avatarKey;
+    const legacyAvatarKeys = ["teal", "navy", "violet", "amber", "rose", "forest"];
+    const isGalleryAvatar = typeof avatarKey === "string"
+      && /^(adventurer|fun-emoji|open-peeps):[A-Za-z0-9_-]+$/.test(avatarKey);
+    if (!legacyAvatarKeys.includes(avatarKey) && !isGalleryAvatar) {
+      return res.status(400).json({ message: "Choose an avatar from the available collection" });
+    }
+    await pool.query("UPDATE students SET avatar_key = $1 WHERE id = $2", [avatarKey, req.student.id]);
+    res.json({ ok: true, avatarKey });
   });
 
   app.post("/api/student/profile/requests", requireStudent, async (req: any, res) => {
