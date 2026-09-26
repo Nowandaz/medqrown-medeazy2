@@ -1,17 +1,36 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
 import { storage } from "./storage";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import nodemailer from "nodemailer";
 import { generateSelfTestQuestions, generateLiveQuizQuestions, markSAQResponses, markSingleResponse, markStudentSAQResponses } from "./ai-orchestrator";
 import { enqueueMarking } from "./marking-queue";
 import { getExamStructure, invalidateExamCache } from "./exam-cache";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { listBucketObjects, deleteSupabaseStorageObjects, urlForObjectPath } from "./supabase-storage";
 import { pool } from "./db";
+import { normalizeMpesaCode, registerStage4Routes, validatePaymentCode } from "./stage4";
+import { registerStage5Routes } from "./stage5";
+import { registerStage6Routes, submitDueStage6Attempts } from "./stage6";
+import { registerStage7Routes } from "./stage7";
+import { registerStage8Routes } from "./stage8";
+import { registerStage9Routes, updateStage9SiteSettings } from "./stage9";
+import { registerStage10Routes } from "./stage10";
+import { registerStage11Routes } from "./stage11";
+import { registerTimetableRoutes } from "./timetable";
+import { sendLoggedEmail } from "./stage11-email";
 import { broadcastLiveQuiz, issueLiveQuizTicket } from "./live-quiz";
+import { featureForPath, isFeatureEnabled } from "./feature-flags";
+import {
+  cohortEndDate,
+  ensureCurrentAndNextCohorts,
+  getMembership,
+  isDate,
+  listAdminMemberships,
+  listCohorts,
+} from "./stage3-storage";
 
 const TEXT_LIMITS = {
   email: 254,
@@ -53,10 +72,18 @@ function findOversizedText(value: unknown, fieldName = "text"): string | null {
   return null;
 }
 
-function generatePassword(email: string): string {
-  const prefix = email.split("@")[0].slice(0, 4).toLowerCase();
-  const random = crypto.randomBytes(3).toString("hex");
-  return `${prefix}${random}`;
+function parseNairobiExamTime(value: unknown): Date | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const input = value.trim();
+  const hasZone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(input);
+  const parsed = new Date(hasZone ? input : `${input}+03:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+async function generateUnavailableExamCredentialHash(): Promise<string> {
+  // The exam_students legacy column is required, but exam access now uses the
+  // student's bcrypt-backed portal account. Store only an unusable hash there.
+  return bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
 }
 
 export async function registerRoutes(
@@ -68,8 +95,12 @@ export async function registerRoutes(
     app.set("trust proxy", 1);
   }
 
+  // Sessions live in Postgres so logins (and in-progress exams) survive restarts and redeploys.
+  // The "session" table is created by migrateStage3().
+  const PgSessionStore = connectPgSimple(session);
   app.use(
     session({
+      store: new PgSessionStore({ pool, tableName: "session", createTableIfMissing: false, pruneSessionInterval: 60 * 60 }),
       secret: process.env.SESSION_SECRET || "medqrown-secret-key",
       resave: false,
       saveUninitialized: false,
@@ -82,6 +113,29 @@ export async function registerRoutes(
   );
 
   registerObjectStorageRoutes(app);
+  app.use((req, res, next) => {
+    const feature = featureForPath(req.path);
+    if (feature && !isFeatureEnabled(feature)) {
+      return res.status(403).json({ message: "This feature is currently disabled." });
+    }
+    if (
+      req.path.startsWith("/api/admin/self-test-question-reports") &&
+      (!isFeatureEnabled("selfTests") || !isFeatureEnabled("adminReports"))
+    ) {
+      return res.status(403).json({ message: "This feature is currently disabled." });
+    }
+    if (
+      req.path === "/api/admin/site-settings" &&
+      req.method === "PUT" &&
+      Object.prototype.hasOwnProperty.call(req.body || {}, "demoVideoUrl") &&
+      req.body.demoVideoUrl !== "" &&
+      req.body.demoVideoUrl != null &&
+      !isFeatureEnabled("demoVideoMedia")
+    ) {
+      return res.status(403).json({ message: "Demo video media is currently disabled." });
+    }
+    next();
+  });
   app.use((req, res, next) => {
     if (!req.path.startsWith("/api/") || !req.body) return next();
     const oversizedField = findOversizedText(req.body);
@@ -303,9 +357,9 @@ export async function registerRoutes(
       }
       const normalizedEmail = (email || "").trim().toLowerCase();
       const admin = await storage.getAdminByEmail(normalizedEmail);
-      if (!admin) return res.status(401).json({ message: "Invalid credentials" });
+      if (!admin) return res.status(401).json({ message: "Incorrect email or password." });
       const valid = await bcrypt.compare(password, admin.passwordHash);
-      if (!valid) return res.status(401).json({ message: "Invalid credentials" });
+      if (!valid) return res.status(401).json({ message: "Incorrect email or password." });
       (req.session as any).adminId = admin.id;
       res.json({ id: admin.id, email: admin.email, name: admin.name, role: admin.role });
     } catch (error) {
@@ -362,6 +416,380 @@ export async function registerRoutes(
     next();
   };
 
+  registerStage5Routes(app, requireAdmin, requireStudent);
+  registerStage6Routes(app, requireAdmin, requireStudent);
+  registerStage7Routes(app, requireAdmin, requireStudent);
+  registerStage8Routes(app, requireStudent);
+  registerStage9Routes(app, requireAdmin);
+  registerStage10Routes(app, requireAdmin);
+  registerStage11Routes(app, requireAdmin);
+  registerTimetableRoutes(app, requireAdmin, requireStudent);
+  registerStage4Routes(app, requireAdmin);
+
+  // ── Stage 3: global cohorts, membership, classes, pricing and payments ─────
+  app.get("/api/admin/cohorts", requireAdmin, async (_req, res) => {
+    res.json(await listCohorts());
+  });
+
+  app.patch("/api/admin/cohorts/:id", requireAdmin, async (req: any, res) => {
+    const id = Number(req.params.id);
+    const startDate = req.body?.startDate;
+    const endDate = req.body?.endDate;
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+    if (!Number.isInteger(id) || id < 1 || !isDate(startDate) || !isDate(endDate) || !reason) {
+      return res.status(400).json({ message: "id, valid startDate/endDate, and reason are required" });
+    }
+    if (endDate !== cohortEndDate(startDate)) {
+      return res.status(400).json({ message: "endDate must equal startDate plus one calendar month minus one day" });
+    }
+    const { current, next } = await listCohorts();
+    if (![current?.id, next?.id].includes(id)) {
+      return res.status(403).json({ message: "Only current and next cohort dates can be edited" });
+    }
+    try {
+      const updated = await pool.query(
+        `UPDATE medqrown_cohorts SET start_date = $2, end_date = $3, updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1
+          RETURNING id, start_date::text AS "startDate", end_date::text AS "endDate",
+                    created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [id, startDate, endDate],
+      );
+      if (!updated.rows[0]) return res.status(404).json({ message: "Cohort not found" });
+      await storage.createAuditLog({
+        adminId: req.admin.id,
+        action: "edit_cohort_dates",
+        details: `Cohort ${id}: ${startDate} to ${endDate}; ${reason}`,
+      });
+      res.json(updated.rows[0]);
+    } catch (error: any) {
+      if (error?.code === "23505") return res.status(409).json({ message: "A cohort already uses that startDate" });
+      throw error;
+    }
+  });
+
+  app.get("/api/admin/classes", requireAdmin, async (_req, res) => {
+    const { rows } = await pool.query(
+      `SELECT c.id, c.name, c.description, c.status, c.created_at AS "createdAt",
+              c.updated_at AS "updatedAt",
+              COALESCE(array_agg(cs.student_id ORDER BY cs.student_id)
+                FILTER (WHERE cs.student_id IS NOT NULL), ARRAY[]::integer[]) AS "studentIds",
+              COUNT(cs.student_id)::int AS "studentCount",
+              (SELECT json_build_object('id', e.id, 'title', e.title, 'opensAt', e.opens_at, 'closesAt', e.closes_at)
+                 FROM exams e WHERE e.class_id = c.id AND e.status = 'active'
+                   AND (e.closes_at IS NULL OR e.closes_at >= CURRENT_TIMESTAMP)
+                ORDER BY e.opens_at NULLS LAST, e.id LIMIT 1) AS "nextExam"
+         FROM medqrown_classes c
+         LEFT JOIN medqrown_class_students cs ON cs.class_id = c.id
+        GROUP BY c.id ORDER BY c.name, c.id`,
+    );
+    res.json(rows);
+  });
+
+  app.post("/api/admin/classes", requireAdmin, async (req, res) => {
+    const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+    const description = typeof req.body?.description === "string" ? req.body.description.trim() : null;
+    const status = req.body?.status ?? "active";
+    if (!name || name.length > 250 || !["active", "archived"].includes(status)) {
+      return res.status(400).json({ message: "name is required and status must be active or archived" });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO medqrown_classes (name, description, status) VALUES ($1, $2, $3)
+       RETURNING id, name, description, status, created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [name, description, status],
+    );
+    res.status(201).json({ ...rows[0], studentIds: [], studentCount: 0 });
+  });
+
+  app.patch("/api/admin/classes/:id", requireAdmin, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ message: "Invalid class id" });
+    const { name, description, status } = req.body || {};
+    if (name !== undefined && (typeof name !== "string" || !name.trim() || name.trim().length > 250)) {
+      return res.status(400).json({ message: "name must be a non-empty string of at most 250 characters" });
+    }
+    if (description !== undefined && description !== null && typeof description !== "string") {
+      return res.status(400).json({ message: "description must be a string or null" });
+    }
+    if (status !== undefined && !["active", "archived"].includes(status)) {
+      return res.status(400).json({ message: "status must be active or archived" });
+    }
+    const { rows } = await pool.query(
+      `UPDATE medqrown_classes
+          SET name = COALESCE($2, name), description = CASE WHEN $3 THEN $4 ELSE description END,
+              status = COALESCE($5, status), updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+        RETURNING id, name, description, status, created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [id, name === undefined ? null : name.trim(), description !== undefined, description ?? null, status ?? null],
+    );
+    if (!rows[0]) return res.status(404).json({ message: "Class not found" });
+    res.json(rows[0]);
+  });
+
+  // Classes are archived, never destructively deleted, to preserve membership history.
+  app.delete("/api/admin/classes/:id", requireAdmin, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ message: "Invalid class id" });
+    const { rows } = await pool.query(
+      `UPDATE medqrown_classes SET status = 'archived', updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 RETURNING id, name, description, status, updated_at AS "updatedAt"`,
+      [id],
+    );
+    if (!rows[0]) return res.status(404).json({ message: "Class not found" });
+    res.json(rows[0]);
+  });
+
+  app.put("/api/admin/classes/:id/students", requireAdmin, async (req, res) => {
+    const id = Number(req.params.id);
+    const studentIds = req.body?.studentIds;
+    if (!Number.isInteger(id) || id < 1 || !Array.isArray(studentIds)
+        || studentIds.some((studentId: unknown) => !Number.isInteger(studentId) || Number(studentId) < 1)) {
+      return res.status(400).json({ message: "A class id and an array of positive integer studentIds are required" });
+    }
+    const uniqueIds = [...new Set(studentIds as number[])];
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const classResult = await client.query("SELECT id FROM medqrown_classes WHERE id = $1 FOR UPDATE", [id]);
+      if (!classResult.rows[0]) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ message: "Class not found" });
+      }
+      if (uniqueIds.length) {
+        const students = await client.query("SELECT id FROM students WHERE id = ANY($1::int[])", [uniqueIds]);
+        if (students.rows.length !== uniqueIds.length) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ message: "One or more studentIds do not exist" });
+        }
+      }
+      await client.query("DELETE FROM medqrown_class_students WHERE class_id = $1", [id]);
+      if (uniqueIds.length) {
+        await client.query(
+          `INSERT INTO medqrown_class_students (class_id, student_id)
+           SELECT $1, unnest($2::int[]) ON CONFLICT DO NOTHING`,
+          [id, uniqueIds],
+        );
+      }
+      await client.query("COMMIT");
+      res.json({ classId: id, studentIds: uniqueIds });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+
+  app.get("/api/admin/memberships", requireAdmin, async (req, res) => {
+    const status = typeof req.query.status === "string" ? req.query.status : undefined;
+    if (status && !["invited", "active", "grace", "expired"].includes(status)) {
+      return res.status(400).json({ message: "status must be invited, active, grace, or expired" });
+    }
+    let memberships = await listAdminMemberships(status);
+    const search = typeof req.query.search === "string" ? req.query.search.trim().toLowerCase() : "";
+    if (search) {
+      memberships = memberships.filter((item: any) =>
+        item.studentName.toLowerCase().includes(search) || item.studentEmail.toLowerCase().includes(search));
+    }
+    res.json(memberships);
+  });
+
+  app.get("/api/admin/memberships/:studentId/audit", requireAdmin, async (req, res) => {
+    const studentId = Number(req.params.studentId);
+    if (!Number.isInteger(studentId) || studentId < 1) return res.status(400).json({ message: "Invalid student id" });
+    const { rows } = await pool.query(
+      `SELECT a.id, a.student_id AS "studentId", a.admin_id AS "adminId",
+              admins.name AS "adminName", a.reason, a.previous_values AS "previousValues",
+              a.new_values AS "newValues", a.created_at AS "createdAt"
+         FROM medqrown_membership_audit a
+         LEFT JOIN admins ON admins.id = a.admin_id
+        WHERE a.student_id = $1 ORDER BY a.created_at DESC, a.id DESC`,
+      [studentId],
+    );
+    res.json(rows);
+  });
+
+  app.put("/api/admin/memberships/:studentId", requireAdmin, async (req: any, res) => {
+    const studentId = Number(req.params.studentId);
+    const cohortId = Number(req.body?.cohortId);
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+    if (!Number.isInteger(studentId) || studentId < 1 || !Number.isInteger(cohortId) || cohortId < 1 || !reason) {
+      return res.status(400).json({ message: "studentId, cohortId, and a non-empty reason are required" });
+    }
+    const cohort = await pool.query(
+      `SELECT id, start_date::text AS "startDate", end_date::text AS "endDate"
+         FROM medqrown_cohorts WHERE id = $1`,
+      [cohortId],
+    );
+    if (!cohort.rows[0]) return res.status(404).json({ message: "Cohort not found" });
+    const startDate = req.body.startDate ?? cohort.rows[0].startDate;
+    const endDate = req.body.endDate ?? cohort.rows[0].endDate;
+    if (!isDate(startDate) || !isDate(endDate) || endDate < startDate) {
+      return res.status(400).json({ message: "startDate/endDate must be valid dates with endDate on or after startDate" });
+    }
+    const student = await storage.getStudent(studentId);
+    if (!student) return res.status(404).json({ message: "Student not found" });
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const previous = await client.query(
+        `SELECT cohort_id AS "cohortId", start_date::text AS "startDate", end_date::text AS "endDate"
+           FROM medqrown_memberships WHERE student_id = $1 FOR UPDATE`,
+        [studentId],
+      );
+      await client.query(
+        `INSERT INTO medqrown_memberships (student_id, cohort_id, start_date, end_date)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (student_id) DO UPDATE
+           SET cohort_id = EXCLUDED.cohort_id, start_date = EXCLUDED.start_date,
+               end_date = EXCLUDED.end_date, updated_at = CURRENT_TIMESTAMP`,
+        [studentId, cohortId, startDate, endDate],
+      );
+      await client.query(
+        `INSERT INTO medqrown_membership_audit (student_id, admin_id, reason, previous_values, new_values)
+         VALUES ($1, $2, $3, $4::jsonb, $5::jsonb)`,
+        [
+          studentId, req.admin.id, reason,
+          previous.rows[0] ? JSON.stringify(previous.rows[0]) : null,
+          JSON.stringify({ cohortId, startDate, endDate }),
+        ],
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+    res.json(await getMembership(studentId));
+  });
+
+  app.get("/api/admin/settings", requireAdmin, async (_req, res) => {
+    const { rows } = await pool.query(
+      `SELECT individual_price AS "individualPrice", group_price AS "groupPrice",
+              paybill, account_number AS "accountNumber", bank_name AS "bankName",
+              grace_days AS "graceDays", updated_at AS "updatedAt"
+         FROM medqrown_settings WHERE id = 1`,
+    );
+    res.json(rows[0]);
+  });
+
+  app.patch("/api/admin/settings", requireAdmin, async (req, res) => {
+    const { individualPrice, groupPrice, paybill, accountNumber, bankName, graceDays } = req.body || {};
+    for (const [key, value] of Object.entries({ individualPrice, groupPrice })) {
+      if (value !== undefined && (!Number.isInteger(Number(value)) || Number(value) < 0)) {
+        return res.status(400).json({ message: `${key} must be a non-negative integer` });
+      }
+    }
+    if (graceDays !== undefined && (!Number.isInteger(Number(graceDays)) || Number(graceDays) < 0 || Number(graceDays) > 90)) {
+      return res.status(400).json({ message: "graceDays must be an integer from 0 to 90" });
+    }
+    for (const [key, value] of Object.entries({ paybill, accountNumber, bankName })) {
+      if (value !== undefined && (typeof value !== "string" || !value.trim() || value.length > 250)) {
+        return res.status(400).json({ message: `${key} must be a non-empty string of at most 250 characters` });
+      }
+    }
+    const { rows } = await pool.query(
+      `UPDATE medqrown_settings
+          SET individual_price = COALESCE($1, individual_price),
+              group_price = COALESCE($2, group_price),
+              paybill = COALESCE($3, paybill),
+              account_number = COALESCE($4, account_number),
+              bank_name = COALESCE($5, bank_name),
+              grace_days = COALESCE($6, grace_days),
+              updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+        RETURNING individual_price AS "individualPrice", group_price AS "groupPrice",
+                  paybill, account_number AS "accountNumber", bank_name AS "bankName",
+                  grace_days AS "graceDays", updated_at AS "updatedAt"`,
+      [
+        individualPrice === undefined ? null : Number(individualPrice),
+        groupPrice === undefined ? null : Number(groupPrice),
+        paybill ?? null, accountNumber ?? null, bankName ?? null,
+        graceDays === undefined ? null : Number(graceDays),
+      ],
+    );
+    res.json(rows[0]);
+  });
+
+  app.get("/api/admin/payments", requireAdmin, async (_req, res) => {
+    const { rows } = await pool.query(
+      `SELECT UPPER(REGEXP_REPLACE(p.code, '[[:space:]]', '', 'g')) AS code,
+              json_agg(json_build_object(
+                'id', p.id, 'studentId', p.student_id, 'studentName', s.name,
+                'studentEmail', s.email, 'plan', p.plan, 'amount', p.amount,
+                'source', p.source, 'status', p.status, 'reviewerId', p.reviewer_id,
+                'reviewerName', a.name, 'reason', p.reason, 'createdAt', p.created_at,
+                'reviewedAt', p.reviewed_at
+              ) ORDER BY p.created_at DESC) AS entries
+         FROM medqrown_payment_entries p
+         JOIN students s ON s.id = p.student_id
+         LEFT JOIN admins a ON a.id = p.reviewer_id
+         GROUP BY UPPER(REGEXP_REPLACE(p.code, '[[:space:]]', '', 'g'))
+         ORDER BY MAX(p.created_at) DESC`,
+    );
+    res.json(rows);
+  });
+
+  app.post("/api/admin/payments", requireAdmin, async (req, res) => {
+    const { studentId, code, plan, amount, source } = req.body || {};
+    const normalizedCode = normalizeMpesaCode(code);
+    if (!Number.isInteger(Number(studentId)) || Number(studentId) < 1
+        || !normalizedCode
+        || !["Individual", "Group"].includes(plan)
+        || !Number.isInteger(Number(amount)) || Number(amount) < 0
+        || typeof source !== "string" || !source.trim() || source.length > 250) {
+      return res.status(400).json({ message: "studentId, code, plan, non-negative integer amount, and source are required" });
+    }
+    const client = await pool.connect();
+    let rows: any[];
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`code:${normalizedCode}`]);
+      const student = await client.query("SELECT id FROM students WHERE id = $1", [Number(studentId)]);
+      if (!student.rows[0]) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ message: "Student not found" });
+      }
+      const validationErrors = await validatePaymentCode(client, Number(studentId), normalizedCode, plan);
+      if (validationErrors.length) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ message: validationErrors[0], errors: validationErrors });
+      }
+      const result = await client.query(
+        `INSERT INTO medqrown_payment_entries (student_id, code, plan, amount, source)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, student_id AS "studentId", code, plan, amount, source, status,
+                    reviewer_id AS "reviewerId", reason, created_at AS "createdAt", reviewed_at AS "reviewedAt"`,
+        [Number(studentId), normalizedCode, plan, Number(amount), source.trim()],
+      );
+      rows = result.rows;
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+    res.status(201).json(rows[0]);
+  });
+
+  app.get("/api/student/membership", requireStudent, async (req: any, res) => {
+    await ensureCurrentAndNextCohorts();
+    res.json(await getMembership(req.student.id));
+  });
+
+  app.get("/api/student/classes", requireStudent, async (req: any, res) => {
+    const { rows } = await pool.query(
+      `SELECT c.id, c.name, c.description, c.status,
+              cs.created_at AS "joinedAt"
+         FROM medqrown_class_students cs
+         JOIN medqrown_classes c ON c.id = cs.class_id
+        WHERE cs.student_id = $1 ORDER BY c.name, c.id`,
+      [req.student.id],
+    );
+    res.json(rows);
+  });
+
   const getAttemptEntitlement = async (examId: number, studentId: number) => {
     const { rows } = await pool.query(
       `SELECT COALESCE(e.max_attempts, 1)::int AS "maxAttempts",
@@ -376,6 +804,8 @@ export async function registerRoutes(
                 WHERE rr.exam_id = e.id AND rr.student_id = $2
                   AND rr.status = 'approved' AND rr.consumed_at IS NULL
                 ORDER BY rr.reviewed_at DESC NULLS LAST, rr.created_at DESC LIMIT 1) AS "approvedRequestId",
+              (SELECT COUNT(*)::int FROM exam_reattempt_requests rr
+                WHERE rr.exam_id = e.id AND rr.student_id = $2 AND rr.status = 'approved') AS "approvedReattempts",
               (SELECT rr.status FROM exam_reattempt_requests rr
                 WHERE rr.exam_id = e.id AND rr.student_id = $2 AND rr.status = 'pending'
                 ORDER BY rr.created_at DESC LIMIT 1) AS "pendingRequestStatus"
@@ -387,8 +817,81 @@ export async function registerRoutes(
       submittedAttempts: number;
       hasInProgressAttempt: boolean;
       approvedRequestId: number | null;
+      approvedReattempts: number;
       pendingRequestStatus: string | null;
     } | undefined;
+  };
+
+  const studentExamAccess = async (examId: number, studentId: number) => {
+    const { rows } = await pool.query(
+      `SELECT id, class_id AS "classId", opens_at AS "opensAt", closes_at AS "closesAt",
+              duration_minutes AS "durationMinutes", timer_mode AS "timerMode",
+              per_question_seconds AS "perQuestionSeconds", status
+         FROM exams WHERE id = $1`,
+      [examId],
+    );
+    const exam = rows[0];
+    if (!exam) return { allowed: false, status: 404, message: "Exam not found" };
+    if (exam.classId == null) return { allowed: true, exam };
+    if (exam.status !== "active") return { allowed: false, status: 403, message: "This exam is not available" };
+    const { rows: classMembership } = await pool.query(
+      "SELECT 1 FROM medqrown_class_students WHERE class_id = $1 AND student_id = $2",
+      [exam.classId, studentId],
+    );
+    if (!classMembership[0]) return { allowed: false, status: 403, message: "You are not a member of this exam's class" };
+    const membership = await getMembership(studentId);
+    if (!membership || !["active", "grace"].includes(membership.status)) {
+      return { allowed: false, status: 403, message: "Renew to access this exam", code: "MEMBERSHIP_EXPIRED" };
+    }
+    const now = Date.now();
+    // Timed either for the whole exam (duration) or per question.
+    const timed = exam.timerMode === "per_question" ? Number(exam.perQuestionSeconds) > 0 : Number(exam.durationMinutes) > 0;
+    if (!exam.opensAt || !exam.closesAt || !timed) {
+      return { allowed: false, status: 403, message: "The exam schedule is incomplete" };
+    }
+    if (new Date(exam.opensAt).getTime() > now) {
+      return { allowed: false, status: 403, message: "This exam has not opened yet", code: "EXAM_NOT_OPEN" };
+    }
+    if (new Date(exam.closesAt).getTime() <= now) {
+      return { allowed: false, status: 403, message: "This exam is closed", code: "EXAM_CLOSED" };
+    }
+    return { allowed: true, exam, membership };
+  };
+
+  const ensureExamStudentLink = async (examId: number, studentId: number) => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock($1::int, $2::int)", [examId, studentId]);
+      const { rows: existing } = await client.query(
+        `SELECT id, exam_id AS "examId", student_id AS "studentId", password,
+                attempt_status AS "attemptStatus", reset_count AS "resetCount", email_sent AS "emailSent",
+                created_at AS "createdAt"
+           FROM exam_students WHERE exam_id = $1 AND student_id = $2
+          ORDER BY id LIMIT 1 FOR UPDATE`,
+        [examId, studentId],
+      );
+      if (existing[0]) {
+        await client.query("COMMIT");
+        return existing[0];
+      }
+      const password = await generateUnavailableExamCredentialHash();
+      const { rows } = await client.query(
+        `INSERT INTO exam_students (exam_id, student_id, password, attempt_status, reset_count, email_sent)
+         VALUES ($1, $2, $3, 'not_started', 0, false)
+         RETURNING id, exam_id AS "examId", student_id AS "studentId", password,
+                   attempt_status AS "attemptStatus", reset_count AS "resetCount",
+                   email_sent AS "emailSent", created_at AS "createdAt"`,
+        [examId, studentId, password],
+      );
+      await client.query("COMMIT");
+      return rows[0];
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   };
 
   // Exams
@@ -405,13 +908,118 @@ export async function registerRoutes(
   });
 
   app.post("/api/exams", requireAdmin, async (req, res) => {
-    const exam = await storage.createExam({ ...req.body, createdBy: (req as any).admin.id });
+    const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+    const classId = Number(req.body?.classId);
+    const opensAt = parseNairobiExamTime(req.body?.opensAt);
+    const closesAt = parseNairobiExamTime(req.body?.closesAt);
+    const timerMode = req.body?.timerMode === "per_question" ? "per_question" : "full_exam";
+    const perQuestionSeconds = timerMode === "per_question" ? Number(req.body?.perQuestionSeconds) : null;
+    const durationMinutes = timerMode === "full_exam" ? Number(req.body?.durationMinutes) : null;
+    const maxAttempts = req.body?.maxAttempts === undefined ? 1 : Number(req.body.maxAttempts);
+    if (timerMode === "per_question" && (!Number.isInteger(perQuestionSeconds) || perQuestionSeconds! < 10 || perQuestionSeconds! > 3600)) {
+      return res.status(400).json({ message: "Time per question must be between 10 and 3600 seconds" });
+    }
+    if (!title || title.length > 250 || !Number.isInteger(classId) || classId < 1
+        || !opensAt || !closesAt || opensAt >= closesAt
+        || (timerMode === "full_exam" && (!Number.isInteger(durationMinutes) || durationMinutes! < 1 || durationMinutes! > 1440))
+        || !Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 100
+        || (req.body?.status !== undefined && !["draft", "active", "archived"].includes(req.body.status))
+        || (req.body?.instructions !== undefined && req.body.instructions !== null && typeof req.body.instructions !== "string")
+        || (req.body?.autoMarkEnabled !== undefined && typeof req.body.autoMarkEnabled !== "boolean")) {
+      return res.status(400).json({
+        message: "title, classId, valid Nairobi opensAt/closesAt, durationMinutes, and maxAttempts (1-100) are required",
+      });
+    }
+    const { rows: classes } = await pool.query(
+      "SELECT id FROM medqrown_classes WHERE id = $1 AND status = 'active'",
+      [classId],
+    );
+    if (!classes[0]) return res.status(400).json({ message: "Choose an active class for this exam" });
+    const exam = await storage.createExam({
+      title,
+      classId,
+      opensAt,
+      closesAt,
+      durationMinutes,
+      maxAttempts,
+      // Per-question exams are limited by the per-question timer and the close time only.
+      fullExamSeconds: durationMinutes ? durationMinutes * 60 : null,
+      perQuestionSeconds,
+      timerMode,
+      instructions: typeof req.body?.instructions === "string" ? req.body.instructions.trim() || null : null,
+      autoMarkEnabled: req.body?.autoMarkEnabled ?? true,
+      status: req.body?.status ?? "draft",
+      createdBy: (req as any).admin.id,
+    } as any);
     await storage.createAuditLog({ adminId: (req as any).admin.id, action: "create_exam", details: exam.title });
     res.json(exam);
   });
 
   app.patch("/api/exams/:id", requireAdmin, async (req, res) => {
     const updates = { ...req.body };
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ message: "Invalid exam id" });
+    const current = await storage.getExam(id);
+    if (!current) return res.status(404).json({ message: "Exam not found" });
+    if (updates.title !== undefined && (typeof updates.title !== "string" || !updates.title.trim() || updates.title.trim().length > 250)) {
+      return res.status(400).json({ message: "title must be a non-empty string of at most 250 characters" });
+    }
+    if (updates.title !== undefined) updates.title = updates.title.trim();
+    if (updates.classId !== undefined) {
+      updates.classId = Number(updates.classId);
+      if (!Number.isInteger(updates.classId) || updates.classId < 1) {
+        return res.status(400).json({ message: "classId must identify an active class" });
+      }
+      const { rows: classes } = await pool.query(
+        "SELECT id FROM medqrown_classes WHERE id = $1 AND status = 'active'",
+        [updates.classId],
+      );
+      if (!classes[0]) return res.status(400).json({ message: "Choose an active class for this exam" });
+    }
+    for (const field of ["opensAt", "closesAt"] as const) {
+      if (updates[field] !== undefined) {
+        const parsed = parseNairobiExamTime(updates[field]);
+        if (!parsed) return res.status(400).json({ message: `${field} must be a valid Nairobi date and time` });
+        updates[field] = parsed;
+      }
+    }
+    const finalOpensAt = updates.opensAt ?? current.opensAt;
+    const finalClosesAt = updates.closesAt ?? current.closesAt;
+    if ((updates.opensAt !== undefined || updates.closesAt !== undefined) &&
+        (!finalOpensAt || !finalClosesAt || new Date(finalOpensAt).getTime() >= new Date(finalClosesAt).getTime())) {
+      return res.status(400).json({ message: "closesAt must be after opensAt" });
+    }
+    if (updates.timerMode !== undefined && !["full_exam", "per_question"].includes(updates.timerMode)) {
+      return res.status(400).json({ message: "timerMode must be full_exam or per_question" });
+    }
+    const nextTimerMode = updates.timerMode ?? current.timerMode;
+    if (nextTimerMode === "per_question") {
+      const seconds = Number(updates.perQuestionSeconds ?? current.perQuestionSeconds);
+      if (!Number.isInteger(seconds) || seconds < 10 || seconds > 3600) {
+        return res.status(400).json({ message: "Time per question must be between 10 and 3600 seconds" });
+      }
+      updates.timerMode = "per_question";
+      updates.perQuestionSeconds = seconds;
+      updates.durationMinutes = null;
+      updates.fullExamSeconds = null;
+    } else if (updates.durationMinutes !== undefined || updates.timerMode === "full_exam") {
+      updates.durationMinutes = Number(updates.durationMinutes ?? current.durationMinutes);
+      if (!Number.isInteger(updates.durationMinutes) || updates.durationMinutes < 1 || updates.durationMinutes > 1440) {
+        return res.status(400).json({ message: "Duration must be a whole number of minutes from 1 to 1440" });
+      }
+      updates.fullExamSeconds = updates.durationMinutes * 60;
+      updates.timerMode = "full_exam";
+      delete updates.perQuestionSeconds;
+    }
+    if (updates.instructions !== undefined && updates.instructions !== null && typeof updates.instructions !== "string") {
+      return res.status(400).json({ message: "instructions must be a string or null" });
+    }
+    if (updates.autoMarkEnabled !== undefined && typeof updates.autoMarkEnabled !== "boolean") {
+      return res.status(400).json({ message: "autoMarkEnabled must be a boolean" });
+    }
+    if (updates.status !== undefined && !["draft", "active", "archived"].includes(updates.status)) {
+      return res.status(400).json({ message: "status must be draft, active, or archived" });
+    }
     if (updates.maxAttempts !== undefined) {
       const maxAttempts = Number(updates.maxAttempts);
       if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 100) {
@@ -419,7 +1027,7 @@ export async function registerRoutes(
       }
       updates.maxAttempts = maxAttempts;
     }
-    const exam = await storage.updateExam(parseInt(req.params.id), updates);
+    const exam = await storage.updateExam(id, updates);
     res.json(exam);
   });
 
@@ -445,7 +1053,8 @@ export async function registerRoutes(
       const attempt = await storage.getAttemptByExamStudent(es.id);
       const currentQuestionType = (attempt && qs[attempt.currentQuestionIndex])
         ? qs[attempt.currentQuestionIndex].type : null;
-      return { ...es, attempt, totalQuestions: qs.length, currentQuestionType };
+      const { password: _legacyPassword, ...safeExamStudent } = es;
+      return { ...safeExamStudent, attempt, totalQuestions: qs.length, currentQuestionType };
     }));
     res.json(studentsWithAttempts);
   });
@@ -463,19 +1072,16 @@ export async function registerRoutes(
     }
     const existing = await storage.getExamStudentByExamAndStudent(examId, student.id);
     if (existing) return res.status(400).json({ message: "Student already added to this exam" });
-    // Reuse the student's existing password if they're already enrolled in other exams,
-    // so they can access all their exams with the same credentials.
-    const existingEnrolment = await storage.getAnyExamStudentByStudent(student.id);
-    const password = existingEnrolment ? existingEnrolment.password : generatePassword(email);
     const examStudent = await storage.createExamStudent({
       examId,
       studentId: student.id,
-      password,
+      password: await generateUnavailableExamCredentialHash(),
       attemptStatus: "not_started",
       resetCount: 0,
       emailSent: false,
     });
-    res.json({ ...examStudent, student });
+    const { password: _legacyPassword, ...safeExamStudent } = examStudent;
+    res.json({ ...safeExamStudent, student });
   });
 
   app.delete("/api/exams/:examId/students/:esId", requireAdmin, async (req, res) => {
@@ -801,24 +1407,15 @@ export async function registerRoutes(
     const fb = feedbacks.find(f => f.id === feedbackId);
     if (!fb) return res.status(404).json({ message: "Feedback not found" });
     if (!(fb as any).studentEmail) return res.status(400).json({ message: "No email address for this student" });
-    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return res.status(503).json({ message: "Email not configured. Set SMTP_USER and SMTP_PASS." });
     const exam = await storage.getExam(examId);
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || "smtp.gmail.com",
-      port: parseInt(process.env.SMTP_PORT || "587"),
-      secure: false, family: 4,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      connectionTimeout: 15000, greetingTimeout: 10000, socketTimeout: 20000,
-    } as any);
-    try { await transporter.verify(); } catch (e: any) { return res.status(503).json({ message: `SMTP connection failed: ${e.message}` }); }
-    await transporter.sendMail({
-      from: `"${process.env.SMTP_FROM_NAME || "MedQrown MedEazy"}" <${process.env.SMTP_USER}>`,
+    const delivery = await sendLoggedEmail({
       to: (fb as any).studentEmail,
+      templateKey: "custom:exam_feedback_reply",
       subject: `Re: Your feedback on ${exam?.title || "your exam"} — MedQrown`,
-      text: replyContent,
-      html: `<div style="font-family:Arial,sans-serif;max-width:600px;line-height:1.6">${replyContent.replace(/\n/g, "<br>")}</div>`,
-    } as any);
-    res.json({ ok: true });
+      body: replyContent,
+    });
+    if (delivery.status === "failed") return res.status(503).json({ message: delivery.error });
+    res.json({ ok: true, status: delivery.status });
   });
 
   // All students (master database)
@@ -850,11 +1447,14 @@ export async function registerRoutes(
   app.post("/api/admin/students/:id/add-to-exam", requireAdmin, async (req, res) => {
     const studentId = parseInt(req.params.id);
     if (isNaN(studentId)) return res.status(400).json({ message: "Invalid student id" });
-    const { examId, password } = req.body;
-    if (!examId || !password) return res.status(400).json({ message: "examId and password required" });
+    const { examId } = req.body;
+    if (!examId) return res.status(400).json({ message: "examId required" });
     const existing = await storage.getExamStudentByExamAndStudent(examId, studentId);
     if (existing) return res.status(409).json({ message: "Student already enrolled in this exam" });
-    await storage.createExamStudent({ examId, studentId, password, attemptStatus: "not_started", resetCount: 0, emailSent: false });
+    await storage.createExamStudent({
+      examId, studentId, password: await generateUnavailableExamCredentialHash(),
+      attemptStatus: "not_started", resetCount: 0, emailSent: false,
+    });
     res.json({ ok: true });
   });
 
@@ -1040,10 +1640,6 @@ export async function registerRoutes(
     const examId = parseInt(req.params.examId);
     const { templateId, studentIds, customSubject, customBody, onlySendNew } = req.body;
 
-    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-      return res.status(503).json({ message: "Email is not configured. Set SMTP_USER and SMTP_PASS environment variables." });
-    }
-
     const exam = await storage.getExam(examId);
     if (!exam) return res.status(404).json({ message: "Exam not found" });
 
@@ -1056,30 +1652,12 @@ export async function registerRoutes(
       targets = targets.filter((s: any) => !s.emailSent);
     }
 
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || "smtp.gmail.com",
-      port: parseInt(process.env.SMTP_PORT || "587"),
-      secure: false,
-      family: 4, // Force IPv4 — Render cannot reach Gmail over IPv6
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-      connectionTimeout: 15000,
-      greetingTimeout: 10000,
-      socketTimeout: 20000,
-    } as any);
-
-    // Verify SMTP connection before looping — fail fast with clear error
-    try {
-      await transporter.verify();
-    } catch (verifyErr: any) {
-      return res.status(503).json({ message: `SMTP connection failed: ${verifyErr.message}` });
-    }
-
     const subjectTemplate = customSubject || template?.subject || "MedQrown MedEazy {exam_name} - Your Access Credentials";
     const bodyTemplate = customBody || template?.body || getDefaultEmailBody();
     const customPlaceholders: Record<string, string> = (template as any)?.placeholders || {};
+    if (/password/i.test(`${subjectTemplate}\n${bodyTemplate}`)) {
+      return res.status(400).json({ message: "Exam access passwords cannot be included in email templates." });
+    }
 
     const results = [];
     let successCount = 0;
@@ -1096,7 +1674,6 @@ export async function registerRoutes(
         .replace(/{student_name}/g, customPlaceholders.student_name || es.student.name)
         .replace(/{exam_name}/g, customPlaceholders.exam_name || exam.title)
         .replace(/{email}/g, customPlaceholders.email || es.student.email)
-        .replace(/{password}/g, customPlaceholders.password || es.password)
         .replace(/{portal_link}/g, customPlaceholders.portal_link || req.headers.origin || "");
 
       for (const [key, val] of Object.entries(customPlaceholders)) {
@@ -1106,42 +1683,34 @@ export async function registerRoutes(
         }
       }
 
-      let status = "failed";
-      try {
-        const delivery = await transporter.sendMail({
-          from: `"${process.env.SMTP_FROM_NAME || "MedQrown MedEazy"}" <${process.env.SMTP_USER}>`,
-          to: es.student.email,
-          subject,
-          text: body,
-        });
-        status = "sent";
+      const delivery = await sendLoggedEmail({
+        to: es.student.email,
+        templateKey: `exam_template:${template?.id ?? "default"}`,
+        subject,
+        body,
+      });
+      const status = delivery.status;
+      if (status === "sent") {
         successCount++;
-        smtpAcceptedCount += delivery.accepted?.length || 0;
-        smtpRejectedCount += delivery.rejected?.length || 0;
+        smtpAcceptedCount++;
         await storage.updateExamStudent(es.id, { emailSent: true });
-        await storage.createEmailLog({
-          templateId: template?.id,
-          recipientEmail: es.student.email,
-          subject,
-          status,
-          sentAt: new Date(),
-        });
-      } catch (err: any) {
-        console.error(`Email to ${es.student.email} failed:`, err.message);
-        status = "failed";
+      } else {
         failCount++;
-        await storage.createEmailLog({
-          templateId: template?.id,
-          recipientEmail: es.student.email,
-          subject,
-          status,
-        });
+        smtpRejectedCount++;
       }
+      await storage.createEmailLog({
+        templateId: template?.id,
+        recipientEmail: es.student.email,
+        subject,
+        status,
+        ...(status === "sent" ? { sentAt: new Date() } : {}),
+      });
 
       results.push({
         studentName: es.student.name,
         email: es.student.email,
         status,
+        ...(delivery.error ? { error: delivery.error } : {}),
       });
     }
 
@@ -1212,10 +1781,17 @@ export async function registerRoutes(
 
   app.get("/api/student/me", requireStudent, async (req: any, res) => {
     const { rows } = await pool.query(
-      "SELECT id, name, email, university, avatar_key AS \"avatarKey\" FROM students WHERE id = $1",
+      `SELECT id, name, email, university, avatar_key AS "avatarKey", onboarded_at AS "onboardedAt"
+         FROM students WHERE id = $1`,
       [req.student.id],
     );
     res.json(rows[0]);
+  });
+
+  // First-login walkthrough: shown until the student finishes (or skips) it once.
+  app.post("/api/student/onboarding/complete", requireStudent, async (req: any, res) => {
+    await pool.query("UPDATE students SET onboarded_at = COALESCE(onboarded_at, CURRENT_TIMESTAMP) WHERE id = $1", [req.student.id]);
+    res.json({ ok: true });
   });
 
   app.get("/api/student/dashboard", requireStudent, async (req: any, res) => {
@@ -1226,12 +1802,7 @@ export async function registerRoutes(
                 (SELECT COUNT(*)::int FROM exams e WHERE e.unit_id = u.id AND e.status = 'active') AS "activeExamCount",
                 (SELECT COUNT(DISTINCT a.id)::int
                    FROM exam_students es JOIN attempts a ON a.exam_student_id = es.id
-                  WHERE es.student_id = $1 AND es.exam_id IN (SELECT id FROM exams WHERE unit_id = u.id) AND a.status = 'submitted') AS "completedAttempts",
-                COALESCE((SELECT ROUND(100.0 * SUM(r.marks_awarded) / NULLIF(SUM(CASE WHEN r.subquestion_id IS NOT NULL THEN sq.marks ELSE q.marks END), 0))::int
-                   FROM exam_students es JOIN attempts a ON a.exam_student_id = es.id
-                   JOIN responses r ON r.attempt_id = a.id JOIN questions q ON q.id = r.question_id
-                   LEFT JOIN subquestions sq ON sq.id = r.subquestion_id
-                  WHERE es.student_id = $1 AND es.exam_id IN (SELECT id FROM exams WHERE unit_id = u.id) AND a.status = 'submitted'), 0) AS "averageScore"
+                   WHERE es.student_id = $1 AND es.exam_id IN (SELECT id FROM exams WHERE unit_id = u.id) AND a.status = 'submitted') AS "completedAttempts"
            FROM units u JOIN unit_memberships um ON um.unit_id = u.id
           WHERE um.student_id = $1 AND um.status = 'enrolled' AND u.is_active = true
           ORDER BY u.code`,
@@ -1249,7 +1820,7 @@ export async function registerRoutes(
            LEFT JOIN responses r ON r.attempt_id = a.id
            LEFT JOIN questions q ON q.id = r.question_id
             LEFT JOIN subquestions sq ON sq.id = r.subquestion_id
-          WHERE es.student_id = $1
+          WHERE es.student_id = $1 AND e.results_released = true
           GROUP BY es.id, e.id, e.title, u.name, a.submitted_at
           ORDER BY a.submitted_at DESC LIMIT 4`,
         [studentId],
@@ -1259,10 +1830,7 @@ export async function registerRoutes(
       ...row,
       scorePercent: row.totalMarks ? Math.round((row.earnedMarks / row.totalMarks) * 100) : 0,
     }));
-    const averageScore = recent.length
-      ? Math.round(recent.reduce((sum, exam) => sum + exam.scorePercent, 0) / recent.length)
-      : 0;
-    res.json({ enrolledUnits: unitRows, recentActivity: recent, averageScore, totalExamsCompleted: recent.length });
+    res.json({ enrolledUnits: unitRows, recentActivity: recent, totalExamsCompleted: recent.length });
   });
 
   app.get("/api/student/units", requireStudent, async (req: any, res) => {
@@ -1273,11 +1841,6 @@ export async function registerRoutes(
               (SELECT COUNT(DISTINCT a.id)::int
                  FROM exam_students es JOIN attempts a ON a.exam_student_id = es.id
                 WHERE es.student_id = $1 AND es.exam_id IN (SELECT id FROM exams WHERE unit_id = u.id) AND a.status = 'submitted') AS "completedAttempts"
-              ,COALESCE((SELECT ROUND(100.0 * SUM(r.marks_awarded) / NULLIF(SUM(CASE WHEN r.subquestion_id IS NOT NULL THEN sq.marks ELSE q.marks END), 0))::int
-                 FROM exam_students es JOIN attempts a ON a.exam_student_id = es.id
-                 JOIN responses r ON r.attempt_id = a.id JOIN questions q ON q.id = r.question_id
-                  LEFT JOIN subquestions sq ON sq.id = r.subquestion_id
-                WHERE es.student_id = $1 AND es.exam_id IN (SELECT id FROM exams WHERE unit_id = u.id) AND a.status = 'submitted'), 0) AS "averageScore"
          FROM units u WHERE u.is_active = true ORDER BY u.code, u.name`,
       [req.student.id],
     );
@@ -1371,7 +1934,12 @@ export async function registerRoutes(
 
   app.post("/api/student/exams/:id/enter", requireStudent, async (req: any, res) => {
     const examId = Number(req.params.id);
-    const examStudent = await storage.getExamStudentByExamAndStudent(examId, req.student.id);
+    const access = await studentExamAccess(examId, req.student.id);
+    if (!access.allowed) return res.status(access.status || 403).json({ message: access.message, code: (access as any).code });
+    let examStudent = await storage.getExamStudentByExamAndStudent(examId, req.student.id);
+    if (!examStudent && access.exam?.classId != null) {
+      examStudent = await ensureExamStudentLink(examId, req.student.id);
+    }
     if (!examStudent) return res.status(403).json({ message: "Your exam access has not been approved" });
     const entitlement = await getAttemptEntitlement(examId, req.student.id);
     if (!entitlement) return res.status(404).json({ message: "Exam not found" });
@@ -1402,7 +1970,12 @@ export async function registerRoutes(
 
   app.post("/api/student/exams/:id/request-reattempt", requireStudent, async (req: any, res) => {
     const examId = Number(req.params.id);
-    const examStudent = await storage.getExamStudentByExamAndStudent(examId, req.student.id);
+    const access = await studentExamAccess(examId, req.student.id);
+    if (!access.allowed) return res.status(access.status || 403).json({ message: access.message, code: (access as any).code });
+    let examStudent = await storage.getExamStudentByExamAndStudent(examId, req.student.id);
+    if (!examStudent && access.exam?.classId != null) {
+      examStudent = await ensureExamStudentLink(examId, req.student.id);
+    }
     if (!examStudent) return res.status(403).json({ message: "Your exam access has not been approved" });
     const entitlement = await getAttemptEntitlement(examId, req.student.id);
     if (!entitlement) return res.status(404).json({ message: "Exam not found" });
@@ -1452,7 +2025,7 @@ export async function registerRoutes(
          LEFT JOIN responses r ON r.attempt_id = a.id
          LEFT JOIN questions q ON q.id = r.question_id
           LEFT JOIN subquestions sq ON sq.id = r.subquestion_id
-        WHERE es.student_id = $1 AND a.status = 'submitted'
+        WHERE es.student_id = $1 AND a.status = 'submitted' AND e.results_released = true
         GROUP BY a.id, e.id, e.title, u.name, a.submitted_at
         ORDER BY a.submitted_at DESC`,
       [req.student.id],
@@ -1462,29 +2035,15 @@ export async function registerRoutes(
       scorePercent: row.totalMarks ? Math.round((row.earnedMarks / row.totalMarks) * 100) : 0,
     }));
     const totalAttempts = attempts.length;
-    const averageScore = totalAttempts
-      ? Math.round(attempts.reduce((sum, attempt) => sum + attempt.scorePercent, 0) / totalAttempts)
-      : 0;
     const bestScore = totalAttempts ? Math.max(...attempts.map((attempt) => attempt.scorePercent)) : 0;
     const passRate = totalAttempts
       ? Math.round((attempts.filter((attempt) => attempt.scorePercent >= 50).length / totalAttempts) * 100)
       : 0;
-    const byUnit = new Map<string, { unitName: string; total: number; scoreSum: number }>();
-    for (const attempt of attempts) {
-      const current = byUnit.get(attempt.unitName) || { unitName: attempt.unitName, total: 0, scoreSum: 0 };
-      current.total += 1;
-      current.scoreSum += attempt.scorePercent;
-      byUnit.set(attempt.unitName, current);
-    }
     res.json({
       totalAttempts,
-      averageScore,
       bestScore,
       passRate,
       recentScores: attempts.slice(0, 8).reverse(),
-      unitPerformance: Array.from(byUnit.values())
-        .map((unit) => ({ ...unit, averageScore: Math.round(unit.scoreSum / unit.total) }))
-        .sort((a, b) => b.averageScore - a.averageScore),
     });
   });
 
@@ -2631,7 +3190,7 @@ export async function registerRoutes(
          LEFT JOIN responses r ON r.attempt_id = a.id
          LEFT JOIN questions q ON q.id = r.question_id
            LEFT JOIN subquestions sq ON sq.id = r.subquestion_id
-        WHERE es.student_id = $1
+         WHERE es.student_id = $1 AND e.results_released = true
          GROUP BY a.id, es.id, e.id, e.title, u.name, a.submitted_at
         ORDER BY a.submitted_at DESC`,
       [req.student.id],
@@ -2643,7 +3202,8 @@ export async function registerRoutes(
     const attemptId = Number(req.params.attemptId);
     const { rows: access } = await pool.query(
       `SELECT a.id FROM attempts a JOIN exam_students es ON es.id = a.exam_student_id
-        WHERE a.id = $1 AND es.student_id = $2 AND a.status = 'submitted'`,
+        JOIN exams e ON e.id = es.exam_id
+        WHERE a.id = $1 AND es.student_id = $2 AND a.status = 'submitted' AND e.results_released = true`,
       [attemptId, req.student.id],
     );
     if (!access[0]) return res.status(404).json({ message: "Past exam not found" });
@@ -2697,7 +3257,7 @@ export async function registerRoutes(
     const avatarKey = req.body?.avatarKey;
     const legacyAvatarKeys = ["teal", "navy", "violet", "amber", "rose", "forest"];
     const isGalleryAvatar = typeof avatarKey === "string"
-      && /^(adventurer|fun-emoji|open-peeps):[A-Za-z0-9_-]+$/.test(avatarKey);
+      && /^(adventurer|lorelei|notionists|big-smile|avataaars|micah|personas|open-peeps|fun-emoji|pixel-art|bottts|thumbs):[A-Za-z0-9_-]+$/.test(avatarKey);
     if (!legacyAvatarKeys.includes(avatarKey) && !isGalleryAvatar) {
       return res.status(400).json({ message: "Choose an avatar from the available collection" });
     }
@@ -2747,8 +3307,21 @@ export async function registerRoutes(
       [normalizedEmail],
     );
     const account = rows[0];
-    if (!account || !account.isActive || !(await bcrypt.compare(password, account.passwordHash))) {
-      return res.status(401).json({ message: "Invalid email or password" });
+    if (!account) {
+      // Invite-only accounts: say whether the email is unknown or just not activated yet.
+      const { rows: pending } = await pool.query("SELECT 1 FROM students WHERE LOWER(email) = $1", [normalizedEmail]);
+      return res.status(401).json({
+        code: pending[0] ? "NOT_ACTIVATED" : "NO_ACCOUNT",
+        message: pending[0]
+          ? "Your account isn't activated yet. Use the set-password link in your invite email (check Spam), or ask us to resend it."
+          : "We couldn't find an account with that email. Check the spelling, or use the email you registered with.",
+      });
+    }
+    if (!account.isActive) {
+      return res.status(403).json({ code: "DISABLED", message: "This account has been disabled. Please contact us on WhatsApp or email." });
+    }
+    if (!(await bcrypt.compare(password, account.passwordHash))) {
+      return res.status(401).json({ code: "WRONG_PASSWORD", message: "Incorrect password. Try again, or tap \"Forgot password?\" to reset it." });
     }
     (req.session as any).studentId = account.studentId;
     delete (req.session as any).examStudentId;
@@ -2767,6 +3340,10 @@ export async function registerRoutes(
     if (!esId) return res.status(401).json({ message: "Not authenticated" });
     const es = await storage.getExamStudent(esId);
     if (!es) return res.status(401).json({ message: "Not authenticated" });
+    const authenticatedStudentId = (req.session as any)?.studentId;
+    if (authenticatedStudentId && Number(authenticatedStudentId) !== es.studentId) {
+      return res.status(403).json({ message: "This exam session belongs to another student" });
+    }
     const student = await storage.getStudent(es.studentId);
     res.json({
       examStudentId: es.id,
@@ -2785,6 +3362,12 @@ export async function registerRoutes(
     if (!esId) return res.status(401).json({ message: "Not authenticated" });
     const es = await storage.getExamStudent(esId);
     if (!es) return res.status(401).json({ message: "Not authenticated" });
+    const authenticatedStudentId = (req.session as any)?.studentId;
+    if (authenticatedStudentId && Number(authenticatedStudentId) !== es.studentId) {
+      return res.status(403).json({ message: "This exam session belongs to another student" });
+    }
+    const access = await studentExamAccess(es.examId, es.studentId);
+    if (!access.allowed) return res.status(access.status || 403).json({ message: access.message, code: (access as any).code });
     const exam = await storage.getExam(es.examId);
     if (!exam) return res.status(404).json({ message: "Exam not found" });
     const qs = await storage.getQuestionsByExam(exam.id);
@@ -2801,7 +3384,8 @@ export async function registerRoutes(
       mcqCount,
       saqCount,
       attemptStatus: es.attemptStatus,
-      maxAttempts: entitlement?.maxAttempts ?? exam.maxAttempts,
+      // Approved reattempts extend the allowance, so "Attempt N of M" never exceeds M.
+      maxAttempts: (entitlement?.maxAttempts ?? exam.maxAttempts ?? 1) + (entitlement?.approvedReattempts ?? 0),
       attemptsUsed: entitlement?.submittedAttempts ?? 0,
       instructions: exam.instructions ?? null,
     });
@@ -2817,11 +3401,24 @@ export async function registerRoutes(
   app.post("/api/student/start-exam", async (req, res) => {
     const esId = (req.session as any)?.examStudentId;
     if (!esId) return res.status(401).json({ message: "Not authenticated" });
+    const initialExamStudent = await storage.getExamStudent(esId);
+    if (!initialExamStudent) return res.status(401).json({ message: "Session expired" });
+    const authenticatedStudentId = (req.session as any)?.studentId;
+    if (authenticatedStudentId && Number(authenticatedStudentId) !== initialExamStudent.studentId) {
+      return res.status(403).json({ message: "This exam session belongs to another student" });
+    }
+    const access = await studentExamAccess(initialExamStudent.examId, initialExamStudent.studentId);
+    if (!access.allowed) return res.status(access.status || 403).json({ message: access.message, code: (access as any).code });
+    await submitDueStage6Attempts();
     let es: { id: number; examId: number; studentId: number } | undefined;
     let attempt: any;
     const transaction = await pool.connect();
     try {
       await transaction.query("BEGIN");
+      await transaction.query(
+        "SELECT pg_advisory_xact_lock($1::int, $2::int)",
+        [initialExamStudent.examId, initialExamStudent.studentId],
+      );
       const { rows: examStudents } = await transaction.query(
         `SELECT id, exam_id AS "examId", student_id AS "studentId"
            FROM exam_students WHERE id = $1 FOR UPDATE`,
@@ -2834,19 +3431,22 @@ export async function registerRoutes(
       }
 
       const { rows: existingAttempts } = await transaction.query(
-        `SELECT id, exam_student_id AS "examStudentId", status,
-                current_question_index AS "currentQuestionIndex", remaining_time AS "remainingTime",
-                started_at AS "startedAt", question_started_at AS "questionStartedAt",
-                submitted_at AS "submittedAt"
-           FROM attempts WHERE exam_student_id = $1
-          ORDER BY started_at DESC, id DESC LIMIT 1`,
-        [es.id],
+        `SELECT a.id, a.exam_student_id AS "examStudentId", a.status,
+                a.current_question_index AS "currentQuestionIndex", a.remaining_time AS "remainingTime",
+                a.started_at AS "startedAt", a.question_started_at AS "questionStartedAt",
+                a.submitted_at AS "submittedAt"
+           FROM attempts a JOIN exam_students owner_es ON owner_es.id = a.exam_student_id
+          WHERE owner_es.exam_id = $1 AND owner_es.student_id = $2
+          ORDER BY a.started_at DESC, a.id DESC LIMIT 1`,
+        [es.examId, es.studentId],
       );
       attempt = existingAttempts[0];
 
       if (attempt?.status !== "in_progress") {
         const { rows: examRows } = await transaction.query(
-          "SELECT COALESCE(max_attempts, 1)::int AS \"maxAttempts\" FROM exams WHERE id = $1",
+          `SELECT COALESCE(max_attempts, 1)::int AS "maxAttempts",
+                  duration_minutes AS "durationMinutes", closes_at AS "closesAt"
+             FROM exams WHERE id = $1`,
           [es.examId],
         );
         if (!examRows[0]) {
@@ -2854,8 +3454,10 @@ export async function registerRoutes(
           return res.status(404).json({ message: "Exam not found" });
         }
         const { rows: counts } = await transaction.query(
-          "SELECT COUNT(*)::int AS count FROM attempts WHERE exam_student_id = $1 AND status = 'submitted'",
-          [es.id],
+          `SELECT COUNT(*)::int AS count FROM attempts a
+            JOIN exam_students owner_es ON owner_es.id = a.exam_student_id
+           WHERE owner_es.exam_id = $1 AND owner_es.student_id = $2 AND a.status = 'submitted'`,
+          [es.examId, es.studentId],
         );
         const submittedAttempts = counts[0].count;
         let approvedRequestId: number | null = null;
@@ -2880,12 +3482,12 @@ export async function registerRoutes(
 
         const { rows: newAttempts } = await transaction.query(
           `INSERT INTO attempts (exam_student_id, status, current_question_index, remaining_time, question_started_at)
-           VALUES ($1, 'in_progress', 0, NULL, CURRENT_TIMESTAMP)
+           VALUES ($1, 'in_progress', 0, $2, CURRENT_TIMESTAMP)
            RETURNING id, exam_student_id AS "examStudentId", status,
                      current_question_index AS "currentQuestionIndex", remaining_time AS "remainingTime",
                      started_at AS "startedAt", question_started_at AS "questionStartedAt",
                      submitted_at AS "submittedAt"`,
-          [es.id],
+          [es.id, examRows[0].durationMinutes ? Number(examRows[0].durationMinutes) * 60 : null],
         );
         attempt = newAttempts[0];
         if (approvedRequestId) {
@@ -2906,6 +3508,7 @@ export async function registerRoutes(
     }
 
     const exam = await storage.getExam(es.examId);
+    (req.session as any).examStudentId = attempt.examStudentId;
     if (!attempt.questionStartedAt) {
       const now = new Date();
       await storage.updateAttempt(attempt.id, { questionStartedAt: now });
@@ -2921,6 +3524,7 @@ export async function registerRoutes(
       questionData = {
         ...currentQ,
         expectedAnswer: undefined,
+        explanation: undefined, // never reveal explanations before results are released
         options: options.map(o => ({ id: o.id, content: o.content, orderIndex: o.orderIndex })),
         subquestions: subs.map(s => ({ id: s.id, content: s.content, marks: s.marks, orderIndex: s.orderIndex })),
         savedAnswer: existingResponse?.answer || null,
@@ -2937,6 +3541,13 @@ export async function registerRoutes(
     }
 
     const upcomingImageUrl = qs[attempt.currentQuestionIndex + 1]?.imageUrl || null;
+    const durationDeadline = exam?.durationMinutes
+      ? new Date(new Date(attempt.startedAt).getTime() + Number(exam.durationMinutes) * 60_000)
+      : null;
+    const closeDeadline = exam?.closesAt ? new Date(exam.closesAt) : null;
+    const deadlineAt = durationDeadline && closeDeadline
+      ? (durationDeadline < closeDeadline ? durationDeadline : closeDeadline)
+      : durationDeadline || closeDeadline;
 
     res.json({
       attemptId: attempt.id,
@@ -2947,6 +3558,9 @@ export async function registerRoutes(
       fullExamSeconds: exam?.fullExamSeconds,
       questionStartedAt: attempt.questionStartedAt?.toISOString() ?? null,
       startedAt: attempt.startedAt?.toISOString() ?? null,
+      deadlineAt: deadlineAt?.toISOString() ?? null,
+      // Lets the client correct for a wrong device clock when counting down to deadlineAt.
+      serverNow: new Date().toISOString(),
       question: questionData,
       upcomingImageUrl,
     });
@@ -2955,18 +3569,38 @@ export async function registerRoutes(
   app.post("/api/student/save-answer", async (req, res) => {
     const esId = (req.session as any)?.examStudentId;
     if (!esId) return res.status(401).json({ message: "Not authenticated" });
+    await submitDueStage6Attempts();
     const { attemptId, questionId, subquestionId, answer } = req.body;
 
     const attempt = await storage.getAttempt(attemptId);
-    if (!attempt || attempt.status === "submitted") {
+    if (!attempt || attempt.status !== "in_progress") {
       return res.status(400).json({ message: "Invalid attempt" });
     }
     if (attempt.examStudentId !== esId) {
       return res.status(403).json({ message: "Forbidden" });
     }
 
+    const examStudent = await storage.getExamStudent(esId);
+    if (!examStudent) return res.status(401).json({ message: "Session expired" });
+    const authenticatedStudentId = (req.session as any)?.studentId;
+    if (authenticatedStudentId && Number(authenticatedStudentId) !== examStudent.studentId) {
+      return res.status(403).json({ message: "This exam session belongs to another student" });
+    }
+    const access = await studentExamAccess(examStudent.examId, examStudent.studentId);
+    if (!access.allowed) return res.status(access.status || 403).json({ message: access.message, code: (access as any).code });
     const question = await storage.getQuestion(questionId);
     if (!question) return res.status(404).json({ message: "Question not found" });
+    const questionsForAttempt = await storage.getQuestionsByExam(examStudent.examId);
+    if (question.examId !== examStudent.examId
+        || questionsForAttempt[attempt.currentQuestionIndex]?.id !== question.id) {
+      return res.status(403).json({ message: "Answers can only be saved for the current question" });
+    }
+    if (subquestionId != null) {
+      const validSubquestions = question.hasSubquestions ? await storage.getSubquestions(question.id) : [];
+      if (question.type !== "saq" || !validSubquestions.some((item) => item.id === Number(subquestionId))) {
+        return res.status(400).json({ message: "subquestionId must belong to the current SAQ" });
+      }
+    }
 
     if (question.type === "mcq" && !subquestionId) {
       const options = await storage.getQuestionOptions(questionId);
@@ -2990,10 +3624,19 @@ export async function registerRoutes(
   app.post("/api/student/next-question", async (req, res) => {
     const esId = (req.session as any)?.examStudentId;
     if (!esId) return res.status(401).json({ message: "Not authenticated" });
+    await submitDueStage6Attempts();
     const { attemptId, expectedCurrentQuestionIndex } = req.body;
     const attempt = await storage.getAttempt(attemptId);
-    if (!attempt) return res.status(404).json({ message: "Attempt not found" });
+    if (!attempt || attempt.status !== "in_progress") return res.status(404).json({ message: "Attempt not found or already submitted" });
     if (attempt.examStudentId !== esId) return res.status(403).json({ message: "Forbidden" });
+    const examStudent = await storage.getExamStudent(esId);
+    if (!examStudent) return res.status(401).json({ message: "Session expired" });
+    const authenticatedStudentId = (req.session as any)?.studentId;
+    if (authenticatedStudentId && Number(authenticatedStudentId) !== examStudent.studentId) {
+      return res.status(403).json({ message: "This exam session belongs to another student" });
+    }
+    const access = await studentExamAccess(examStudent.examId, examStudent.studentId);
+    if (!access.allowed) return res.status(access.status || 403).json({ message: access.message, code: (access as any).code });
 
     // Optimistic concurrency: if the client tells us which index it thinks it's on
     // and that doesn't match the server, this is a stale/duplicate request
@@ -3033,6 +3676,7 @@ export async function registerRoutes(
     const questionData: any = {
       ...nextQ,
       expectedAnswer: undefined,
+      explanation: undefined, // never reveal explanations before results are released
       options: options.map(o => ({ id: o.id, content: o.content, orderIndex: o.orderIndex })),
       subquestions: subs.map(s => ({ id: s.id, content: s.content, marks: s.marks, orderIndex: s.orderIndex })),
       savedAnswer: existingResponse?.answer || null,
@@ -3062,9 +3706,19 @@ export async function registerRoutes(
   app.post("/api/student/update-timer", async (req, res) => {
     const esId = (req.session as any)?.examStudentId;
     if (!esId) return res.status(401).json({ message: "Not authenticated" });
+    await submitDueStage6Attempts();
     const { attemptId, remainingTime } = req.body;
     const attempt = await storage.getAttempt(attemptId);
-    if (!attempt || attempt.examStudentId !== esId) return res.status(403).json({ message: "Forbidden" });
+    if (!attempt || attempt.status !== "in_progress" || attempt.examStudentId !== esId) return res.status(403).json({ message: "Forbidden" });
+    if (!Number.isInteger(remainingTime) || remainingTime < 0) return res.status(400).json({ message: "remainingTime must be a non-negative integer" });
+    const examStudent = await storage.getExamStudent(esId);
+    if (!examStudent) return res.status(401).json({ message: "Session expired" });
+    const authenticatedStudentId = (req.session as any)?.studentId;
+    if (authenticatedStudentId && Number(authenticatedStudentId) !== examStudent.studentId) {
+      return res.status(403).json({ message: "This exam session belongs to another student" });
+    }
+    const access = await studentExamAccess(examStudent.examId, examStudent.studentId);
+    if (!access.allowed) return res.status(access.status || 403).json({ message: access.message, code: (access as any).code });
     await storage.updateAttempt(attemptId, { remainingTime });
     res.json({ ok: true });
   });
@@ -3072,9 +3726,19 @@ export async function registerRoutes(
   app.post("/api/student/submit-exam", async (req, res) => {
     const esId = (req.session as any)?.examStudentId;
     if (!esId) return res.status(401).json({ message: "Not authenticated" });
+    await submitDueStage6Attempts();
     const { attemptId } = req.body;
     const attempt = await storage.getAttempt(attemptId);
     if (!attempt || attempt.examStudentId !== esId) return res.status(403).json({ message: "Forbidden" });
+    const examStudent = await storage.getExamStudent(esId);
+    if (!examStudent) return res.status(401).json({ message: "Session expired" });
+    const authenticatedStudentId = (req.session as any)?.studentId;
+    if (authenticatedStudentId && Number(authenticatedStudentId) !== examStudent.studentId) {
+      return res.status(403).json({ message: "This exam session belongs to another student" });
+    }
+    if (attempt.status === "submitted") return res.json({ ok: true, autoSubmitted: true });
+    const access = await studentExamAccess(examStudent.examId, examStudent.studentId);
+    if (!access.allowed) return res.status(access.status || 403).json({ message: access.message, code: (access as any).code });
     await storage.updateAttempt(attemptId, { status: "submitted", submittedAt: new Date() });
     await storage.updateExamStudent(esId, { attemptStatus: "submitted" });
     res.json({ ok: true });
@@ -3107,6 +3771,10 @@ export async function registerRoutes(
     if (!esId) return res.status(401).json({ message: "Not authenticated" });
     const es = await storage.getExamStudent(esId);
     if (!es) return res.status(404).json({ message: "Not found" });
+    const authenticatedStudentId = (req.session as any)?.studentId;
+    if (authenticatedStudentId && Number(authenticatedStudentId) !== es.studentId) {
+      return res.status(403).json({ message: "This exam session belongs to another student" });
+    }
     const exam = await storage.getExam(es.examId);
     if (!exam) return res.status(404).json({ message: "Exam not found" });
 
@@ -3125,6 +3793,10 @@ export async function registerRoutes(
     const unmarkedSAQ = saqResponses.filter(r => r.isCorrect === null);
     const markingInProgress = hasSAQ && unmarkedSAQ.length > 0;
 
+    if (!exam.resultsReleased) {
+      return res.json({ released: false, markingInProgress: false, message: "Results have not been released yet." });
+    }
+
     if (markingInProgress && attempt.status === "submitted") {
       return res.json({
         released: false,
@@ -3133,10 +3805,6 @@ export async function registerRoutes(
         markedSAQ: saqResponses.length - unmarkedSAQ.length,
         message: "AI is marking your answers. Please wait..."
       });
-    }
-
-    if (!exam.resultsReleased) {
-      return res.json({ released: false, markingInProgress: false, message: "Results have not been released yet." });
     }
 
     const totalScore = resps.reduce((sum, r) => sum + (r.marksAwarded || 0), 0);
@@ -3265,19 +3933,6 @@ export async function registerRoutes(
     return { allowed: true, remaining: CODE_SEND_LIMIT - entry.count, resetInMins: 30 };
   }
 
-  function createSmtpTransporter() {
-    return nodemailer.createTransport({
-      host: process.env.SMTP_HOST || "smtp.gmail.com",
-      port: parseInt(process.env.SMTP_PORT || "587"),
-      secure: false,
-      family: 4,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      connectionTimeout: 15000,
-      greetingTimeout: 10000,
-      socketTimeout: 20000,
-    } as any);
-  }
-
   app.post("/api/student/signup", async (req, res) => {
     try {
       const { name, email, university, password } = req.body;
@@ -3323,43 +3978,24 @@ export async function registerRoutes(
         name: name.trim(),
         email: normalizedEmail,
         university: university.trim(),
-        password: password,
+        password: await bcrypt.hash(password, 10),
         verificationCode: code,
         verificationExpiresAt: expiresAt,
         token,
       });
 
-      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-        try {
-          const transporter = createSmtpTransporter();
-          await transporter.sendMail({
-            from: `"MedQrown MedEazy" <${process.env.SMTP_USER}>`,
-            to: normalizedEmail,
-            subject: "Verify your MedQrown MedEazy account",
-            html: `
-              <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;background:#fff;">
-                <img src="https://i.imgur.com/placeholder.png" alt="" style="display:none"/>
-                <h2 style="color:#1a1a2e;margin-bottom:4px;">MedQrown MedEazy</h2>
-                <p style="color:#6b7280;margin-top:0;margin-bottom:32px;font-size:14px;">Student Portal Verification</p>
-                <p style="color:#374151;">Hello <strong>${name.trim()}</strong>,</p>
-                <p style="color:#374151;">We received a request to verify your account.</p>
-                <p style="color:#374151;">Your verification code is:</p>
-                <div style="background:#f3f4f6;border-radius:12px;padding:24px;text-align:center;margin:24px 0;">
-                  <span style="font-size:36px;font-weight:700;letter-spacing:8px;color:#1a1a2e;">${code}</span>
-                </div>
-                <p style="color:#374151;">This code will expire in <strong>15 minutes</strong>.</p>
-                <p style="color:#6b7280;font-size:13px;">If you did not request this code, please ignore this email or contact our support team immediately.</p>
-                <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;"/>
-                <p style="color:#9ca3af;font-size:12px;margin:0;">Thank you,<br/><strong>MedQrown MedEazy</strong></p>
-              </div>`,
-            text: `Hello ${name.trim()},\n\nWe received a request to verify your account.\n\nYour verification code is: ${code}\n\nThis code will expire in 15 minutes.\n\nIf you did not request this code, please ignore this email.\n\nThank you,\nMedQrown MedEazy`,
-          });
-        } catch (mailErr: any) {
-          console.error("Verification email failed:", mailErr.message);
-        }
-      }
-
-      res.json({ token: signup.token, message: "Verification code sent to your email" });
+      const mailResult = await sendLoggedEmail({
+        to: normalizedEmail,
+        templateKey: "custom:student_signup_verification",
+        subject: "Verify your MedQrown MedEazy account",
+        body: `Hello ${name.trim()},\n\nWe received a request to verify your account.\n\nYour verification code is: ${code}\n\nThis code will expire in 15 minutes. If you did not request this code, please ignore this email.\n\nThank you,\nMedQrown MedEazy`,
+      });
+      res.json({
+        token: signup.token,
+        message: mailResult.status === "sent" ? "Verification code sent to your email" : "Signup saved, but the verification email could not be sent.",
+        emailStatus: mailResult.status,
+        ...(mailResult.error ? { emailError: mailResult.error } : {}),
+      });
     } catch (error: any) {
       console.error("Signup error:", error);
       res.status(500).json({ message: "Signup failed. Please try again." });
@@ -3388,14 +4024,21 @@ export async function registerRoutes(
         });
       }
       const { rows: accounts } = await pool.query("SELECT id FROM student_accounts WHERE student_id = $1", [student.id]);
+      const signupPasswordHash = signup.password
+        ? (/^\$2[aby]\$/.test(signup.password) ? signup.password : await bcrypt.hash(signup.password, 10))
+        : null;
       if (!accounts[0]) {
-        if (!signup.password) return res.status(400).json({ message: "A password is required to activate this account. Please sign up again." });
+        if (!signupPasswordHash) return res.status(400).json({ message: "A password is required to activate this account. Please sign up again." });
         await pool.query(
           "INSERT INTO student_accounts (student_id, password_hash) VALUES ($1, $2)",
-          [student.id, await bcrypt.hash(signup.password, 10)],
+          [student.id, signupPasswordHash],
         );
       }
-      await storage.updateStudentSignup(signup.id, { emailVerified: true, status: "active" });
+      await storage.updateStudentSignup(signup.id, {
+        ...(signupPasswordHash ? { password: signupPasswordHash } : {}),
+        emailVerified: true,
+        status: "active",
+      });
       (req.session as any).studentId = student.id;
       delete (req.session as any).examStudentId;
       delete (req.session as any).studentExamId;
@@ -3423,17 +4066,17 @@ export async function registerRoutes(
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       await storage.updateStudentSignup(signup.id, { verificationCode: code, verificationExpiresAt: expiresAt });
 
-      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-        const transporter = createSmtpTransporter();
-        await transporter.sendMail({
-          from: `"MedQrown MedEazy" <${process.env.SMTP_USER}>`,
-          to: signup.email,
-          subject: "Your new verification code – MedQrown MedEazy",
-          html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;"><h2 style="color:#1a1a2e;">MedQrown MedEazy</h2><p>Hello <strong>${signup.name}</strong>,</p><p>Your new verification code is:</p><div style="background:#f3f4f6;border-radius:12px;padding:24px;text-align:center;margin:24px 0;"><span style="font-size:36px;font-weight:700;letter-spacing:8px;color:#1a1a2e;">${code}</span></div><p>This code will expire in <strong>15 minutes</strong>.</p><p style="color:#9ca3af;font-size:12px;">Thank you,<br/><strong>MedQrown MedEazy</strong></p></div>`,
-          text: `Hello ${signup.name},\n\nYour new verification code is: ${code}\n\nExpires in 15 minutes.\n\nMedQrown MedEazy`,
-        });
-      }
-      res.json({ message: "New code sent to your email" });
+      const delivery = await sendLoggedEmail({
+        to: signup.email,
+        templateKey: "custom:student_signup_verification",
+        subject: "Your new verification code – MedQrown MedEazy",
+        body: `Hello ${signup.name},\n\nYour new verification code is: ${code}\n\nExpires in 15 minutes.\n\nMedQrown MedEazy`,
+      });
+      res.json({
+        message: delivery.status === "sent" ? "New code sent to your email" : "The new verification code could not be sent.",
+        emailStatus: delivery.status,
+        ...(delivery.error ? { emailError: delivery.error } : {}),
+      });
     } catch (error: any) {
       res.status(500).json({ message: "Failed to resend code" });
     }
@@ -3474,35 +4117,16 @@ export async function registerRoutes(
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       await storage.updateStudent(student.id, { resetCode: code, resetExpiresAt: expiresAt });
 
-      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-        try {
-          const transporter = createSmtpTransporter();
-          await transporter.sendMail({
-            from: `"MedQrown MedEazy" <${process.env.SMTP_USER}>`,
-            to: normalizedEmail,
-            subject: "Reset your MedQrown MedEazy password",
-            html: `
-              <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;background:#fff;">
-                <h2 style="color:#1a1a2e;margin-bottom:4px;">MedQrown MedEazy</h2>
-                <p style="color:#6b7280;margin-top:0;margin-bottom:32px;font-size:14px;">Student Portal — Password Reset</p>
-                <p style="color:#374151;">Hello <strong>${student.name}</strong>,</p>
-                <p style="color:#374151;">We received a request to reset your password. Use the code below:</p>
-                <div style="background:#f3f4f6;border-radius:12px;padding:24px;text-align:center;margin:24px 0;">
-                  <span style="font-size:36px;font-weight:700;letter-spacing:8px;color:#1a1a2e;">${code}</span>
-                </div>
-                <p style="color:#374151;">This code expires in <strong>15 minutes</strong>.</p>
-                <p style="color:#6b7280;font-size:13px;">If you didn't request a password reset, you can safely ignore this email.</p>
-                <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;"/>
-                <p style="color:#9ca3af;font-size:12px;margin:0;">MedQrown MedEazy</p>
-              </div>`,
-            text: `Hello ${student.name},\n\nYour password reset code is: ${code}\n\nThis code expires in 15 minutes.\n\nIf you didn't request this, ignore this email.\n\nMedQrown MedEazy`,
-          });
-        } catch (mailErr: any) {
-          console.error("Reset email failed:", mailErr.message);
-        }
-      }
-
-      res.json({ message: "Reset code sent to your email" });
+      const mailResult = await sendLoggedEmail({
+        to: normalizedEmail,
+        templateKey: "password_reset",
+        variables: { student_name: student.name, reset_code: code },
+      });
+      res.json({
+        message: mailResult.status === "sent" ? "Reset code sent to your email" : "Reset code created, but the email could not be sent.",
+        emailStatus: mailResult.status,
+        ...(mailResult.error ? { emailError: mailResult.error } : {}),
+      });
     } catch (error: any) {
       console.error("Forgot password error:", error);
       res.status(500).json({ message: "Something went wrong. Please try again." });
@@ -3537,12 +4161,13 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Code has expired. Please request a new one." });
       }
 
-      // Update password on all exam_students records for this student
-      await storage.updateAllExamStudentPasswords(student.id, newPassword);
-      // Keep verified-account login in sync when this student has a dashboard account.
+      // Keep bcrypt-backed account login authoritative; never copy the reset
+      // password into the legacy plaintext exam_students credential column.
       await pool.query(
-        "UPDATE student_accounts SET password_hash = $1 WHERE student_id = $2",
-        [await bcrypt.hash(newPassword, 10), student.id],
+        `INSERT INTO student_accounts (student_id, password_hash)
+         VALUES ($1, $2)
+         ON CONFLICT (student_id) DO UPDATE SET password_hash = EXCLUDED.password_hash`,
+        [student.id, await bcrypt.hash(newPassword, 10)],
       );
       // Clear the reset code
       await storage.updateStudent(student.id, { resetCode: null, resetExpiresAt: null });
@@ -3682,7 +4307,7 @@ export async function registerRoutes(
       await storage.createExamStudent({
         examId: request.exam_id,
         studentId: request.student_id,
-        password: crypto.randomBytes(20).toString("hex"),
+        password: await generateUnavailableExamCredentialHash(),
         attemptStatus: "not_started",
         resetCount: 0,
         emailSent: false,
@@ -3779,7 +4404,7 @@ export async function registerRoutes(
 
   app.get("/api/admin/signups", requireAdmin, async (_req, res) => {
     const signups = await storage.getAllStudentSignups();
-    res.json(signups);
+    res.json(signups.map(({ password: _password, verificationCode: _verificationCode, ...signup }) => signup));
   });
 
   app.post("/api/admin/signups/:id/approve", requireAdmin, async (req, res) => {
@@ -3815,9 +4440,10 @@ export async function registerRoutes(
 
       const existing = await storage.getExamStudentByExamAndStudent(examId, student.id);
       if (!existing) {
-        const existingEnrolment = await storage.getAnyExamStudentByStudent(student.id);
-        const examPassword = existingEnrolment?.password || signup.password || generatePassword(normalizedEmail);
-        await storage.createExamStudent({ examId, studentId: student.id, password: examPassword, attemptStatus: "not_started", resetCount: 0, emailSent: false });
+        await storage.createExamStudent({
+          examId, studentId: student.id, password: await generateUnavailableExamCredentialHash(),
+          attemptStatus: "not_started", resetCount: 0, emailSent: false,
+        });
       }
 
       await storage.updateStudentSignup(id, { status: "approved", approvedExamId: examId });
@@ -3889,7 +4515,11 @@ export async function registerRoutes(
       const saqs = all.filter((q) => q.type === "saq");
       const picked = [];
       if (mcqs.length) picked.push(pickRandom(mcqs));
-      if (saqs.length) picked.push(pickRandom(saqs));
+      if (saqs.length) {
+        const saq = pickRandom(saqs);
+        const { modelAnswer: _modelAnswer, markingPoints: _markingPoints, ...publicSaq } = saq;
+        picked.push(publicSaq);
+      }
       res.json(picked);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -3949,11 +4579,22 @@ export async function registerRoutes(
   // ── Site content: public routes ───────────────────────────────────────────
   app.get("/api/site-content", async (_req, res) => {
     try {
-      const [settings, faq] = await Promise.all([
+      const [storedSettings, faq] = await Promise.all([
         storage.getSiteSettings(),
         storage.getFaqItems(true),
       ]);
-      res.json({ settings, faq });
+      const settings = { ...storedSettings };
+      if (!isFeatureEnabled("demoVideoMedia")) delete settings.demoVideoUrl;
+      res.json({
+        settings: {
+          ...settings,
+          registrationOpen: settings.registrationOpen === true,
+          ...(settings.registrationOpen === true && typeof settings.googleFormUrl === "string"
+            ? { googleFormUrl: settings.googleFormUrl }
+            : { googleFormUrl: undefined }),
+        },
+        faq,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -4008,23 +4649,14 @@ export async function registerRoutes(
       });
       // Email a copy to the site owner (non-blocking; inquiry is stored regardless)
       const contactTo = process.env.CONTACT_EMAIL || process.env.SMTP_USER;
-      if (contactTo && process.env.SMTP_USER && process.env.SMTP_PASS) {
-        const transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST || "smtp.gmail.com",
-          port: parseInt(process.env.SMTP_PORT || "587"),
-          secure: false,
-          family: 4,
-          auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-        } as any);
-        transporter
-          .sendMail({
-            from: `"${process.env.SMTP_FROM_NAME || "MedQrown MedEazy"}" <${process.env.SMTP_USER}>`,
-            to: contactTo,
-            replyTo: row.email,
-            subject: `New institution inquiry — ${row.institution}`,
-            text: `Name: ${row.name}\nEmail: ${row.email}\nInstitution: ${row.institution}\n\n${row.message || "(no message)"}\n\nView all inquiries in your admin dashboard → Site Content → Inquiries.`,
-          })
-          .catch((e) => console.error("Inquiry email failed:", e.message));
+      if (contactTo) {
+        await sendLoggedEmail({
+          to: contactTo,
+          templateKey: "custom:institution_inquiry",
+          subject: `New institution inquiry — ${row.institution}`,
+          body: `Name: ${row.name}\nEmail: ${row.email}\nInstitution: ${row.institution}\n\n${row.message || "(no message)"}\n\nView all inquiries in your admin dashboard → Site Content → Inquiries.`,
+          replyTo: row.email,
+        });
       }
       res.json({ ok: true });
     } catch (err: any) {
@@ -4035,7 +4667,9 @@ export async function registerRoutes(
   // ── Site content: admin routes ────────────────────────────────────────────
   app.get("/api/admin/site-settings", requireAdmin, async (_req, res) => {
     try {
-      res.json(await storage.getSiteSettings());
+      const settings = await storage.getSiteSettings();
+      if (!isFeatureEnabled("demoVideoMedia")) delete settings.demoVideoUrl;
+      res.json(settings);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -4043,13 +4677,14 @@ export async function registerRoutes(
 
   app.put("/api/admin/site-settings", requireAdmin, async (req, res) => {
     try {
-      const entries = Object.entries(req.body || {});
-      for (const [key, value] of entries) {
-        await storage.setSiteSetting(key, value);
-      }
-      res.json(await storage.getSiteSettings());
+      const entries = Object.entries(req.body || {}).filter(([key]) =>
+        key !== "demoVideoUrl" || isFeatureEnabled("demoVideoMedia"));
+      const changes = Object.fromEntries(entries);
+      const settings = await updateStage9SiteSettings(changes);
+      if (!isFeatureEnabled("demoVideoMedia")) delete settings.demoVideoUrl;
+      res.json(settings);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      res.status(err.status || 500).json({ message: err.message });
     }
   });
 
@@ -4211,9 +4846,14 @@ export async function registerRoutes(
   app.post("/api/admin/demo-exams/:id/questions", requireAdmin, async (req, res) => {
     try {
       const demoExamId = parseInt(req.params.id);
-      const { type, content, imageUrl, options, explanation, orderIndex } = req.body;
+      const { type, content, imageUrl, options, explanation, modelAnswer, markingPoints, orderIndex } = req.body;
       if (!type || !content) return res.status(400).json({ message: "type and content required" });
-      const q = await storage.createDemoQuestion({ demoExamId, type, content, imageUrl: imageUrl || null, options: options || null, explanation: explanation || null, orderIndex: orderIndex ?? 0 });
+      if (!["mcq", "saq"].includes(type)) return res.status(400).json({ message: "type must be mcq or saq" });
+      const q = await storage.createDemoQuestion({
+        demoExamId, type, content, imageUrl: imageUrl || null, options: options || null,
+        explanation: explanation || null, modelAnswer: modelAnswer || null,
+        markingPoints: markingPoints || null, orderIndex: orderIndex ?? 0,
+      });
       res.json(q);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -4255,11 +4895,12 @@ export async function registerRoutes(
       const existing = await storage.getExamStudentByExamAndStudent(examId, student.id);
       if (existing) return res.status(400).json({ message: "Student is already enrolled in this exam" });
 
-      const existingEnrolment = await storage.getAnyExamStudentByStudent(student.id);
-      const password = existingEnrolment ? existingEnrolment.password : generatePassword(normalizedEmail);
-      await storage.createExamStudent({ examId, studentId: student.id, password, attemptStatus: "not_started", resetCount: 0, emailSent: false });
+      await storage.createExamStudent({
+        examId, studentId: student.id, password: await generateUnavailableExamCredentialHash(),
+        attemptStatus: "not_started", resetCount: 0, emailSent: false,
+      });
       await storage.createAuditLog({ adminId: (req as any).admin.id, action: "manual_enrol", details: `${student.name} (${normalizedEmail}) → exam ${examId}` });
-      res.json({ ok: true, student, password });
+      res.json({ ok: true, student });
     } catch (error: any) {
       res.status(500).json({ message: "Enrolment failed: " + error.message });
     }
@@ -4280,7 +4921,7 @@ export async function registerRoutes(
           }
         } else if (a.timerMode === "per_question" && a.perQuestionSeconds && a.questionStartedAt) {
           const elapsed = (now - new Date(a.questionStartedAt).getTime()) / 1000;
-          if (elapsed >= a.perQuestionSeconds) {
+          if (elapsed >= a.perQuestionSeconds + 5) {
             const qs = await storage.getQuestionsByExam(a.examId);
             if (a.currentQuestionIndex >= qs.length - 1) {
               await storage.updateAttempt(a.attemptId, { status: "submitted", submittedAt: new Date() });
@@ -4298,34 +4939,25 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("Auto-submit check error:", err.message);
     }
-  }, 30000);
+  }, 10000);
   httpServer.on("close", () => clearInterval(autoSubmitCheck));
 
   return httpServer;
 }
 
 function getDefaultEmailBody(): string {
-  return `MedQrown MedEazy {exam_name} - Your Access Credentials and Instructions
+  return `MedQrown MedEazy {exam_name} - Exam Access Instructions
 
 Dear {student_name},
 
-This is a reminder for your MedQrown MedEazy {exam_name} examination access.
-
-Your Login Credentials:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Email: {email}
-Password: {password}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Portal Access Link:
+You have been enrolled in the {exam_name} examination. Sign in to your student portal
+using your verified student account to access your exam:
 {portal_link}
 
 Important Instructions:
-- Click the link above to access the portal
-- Log in with your credentials
+- Sign in using your student portal account
 - Your answers are auto-saved
 - You can only submit once
-- Keep your credentials secure and private
 
 If you have any questions, please contact your exam administrator.
 

@@ -1,9 +1,23 @@
+import "./tz";
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { attachLiveQuizWebSocket } from "./live-quiz";
+import { migrateStage3 } from "./stage3-migration";
+import { migrateStage4 } from "./stage4-migration";
+import { migrateStage5 } from "./stage5-migration";
+import { migrateStage6 } from "./stage6-migration";
+import { migrateStage7 } from "./stage7-migration";
+import { migrateStage9 } from "./stage9-migration";
+import { migrateStage10 } from "./stage10-migration";
+import { migrateStage11 } from "./stage11-migration";
+import { migrateTimetable } from "./timetable";
+import { submitDueStage6Attempts } from "./stage6";
+import { sendDueRenewalReminders } from "./stage5";
+import { applyRegistrationSchedule } from "./stage9";
+import { ensureCurrentAndNextCohorts } from "./stage3-storage";
 
 const app = express();
 const httpServer = createServer(app);
@@ -62,9 +76,29 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  await migrateStage3();
+  await migrateStage4();
+  await migrateStage5();
+  await migrateStage6();
+  await migrateStage7();
+  await migrateStage9();
+  await migrateStage10();
+  await migrateStage11();
+  await migrateTimetable();
+  await ensureCurrentAndNextCohorts();
   const { seed } = await import("./seed");
   await seed().catch(console.error);
   await registerRoutes(httpServer, app);
+  void submitDueStage6Attempts().catch((error) => console.error("Stage 6 deadline sweep failed", error));
+  setInterval(() => {
+    void sendDueRenewalReminders().catch((error) => console.error("Stage 5 reminder job failed", error));
+  }, 15 * 60 * 1000).unref();
+  setInterval(() => {
+    void applyRegistrationSchedule().catch((error) => console.error("Registration schedule failed", error));
+  }, 60 * 1000).unref();
+  setInterval(() => {
+    void submitDueStage6Attempts().catch((error) => console.error("Stage 6 deadline sweep failed", error));
+  }, 15 * 1000).unref();
   attachLiveQuizWebSocket(httpServer);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
@@ -99,7 +133,8 @@ app.use((req, res, next) => {
     {
       port,
       host: "0.0.0.0",
-      reusePort: true,
+      // Not supported on Windows (local development); Render runs Linux.
+      reusePort: process.platform === "linux",
     },
     () => {
       log(`serving on port ${port}`);

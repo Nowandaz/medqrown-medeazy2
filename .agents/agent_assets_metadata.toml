@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "C0LR-gWeQET4Nu4EWrkS8"
+uri = "file://artifacts/medqrown/review/demo-saq-drafts.html"
+type = "html"
+title = "Six demo SAQ answers for review"
+description = "Draft model answers and four- or five-mark schemes; not published in the live demo. Notes that Biochemistry questions 12 and 13 are duplicates."
+logical_id = "bd610ed1-f2f7-4a76-9eff-c5b9b82e6722"
+content_hash = "sha256:e587c1b5ab2b19d233654e08c4308279a1e1fdb1d20fa5714d8a6825c2afefcc"
+size = 9593
+mtime_ms = 1790265547544
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:06978564-b2b0-431c-b91a-1e87f7d35eb8/bd610ed1-f2f7-4a76-9eff-c5b9b82e6722/529693ae-ad91-49b5-a6eb-774021703596"
+storage_version_token = "1790265553346843"
+content_type = "text/html"

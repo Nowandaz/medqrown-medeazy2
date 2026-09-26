@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, Check, ClipboardCheck, Globe2, Plus, ShieldCheck, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { FEATURES } from "@/lib/feature-flags";
+import { apiErrorMessage } from "@/lib/api-error";
 
 type Domain = { id: number; domain: string; label?: string; isActive: boolean };
 type Unit = { id: number; code: string; name: string; description?: string; isActive: boolean; enrolmentCount: number; examCount: number };
@@ -30,22 +32,23 @@ export default function AdminStudentAccess() {
   const [unitName, setUnitName] = useState("");
   const [unitDescription, setUnitDescription] = useState("");
 
-  const { data: domains = [] } = useQuery<Domain[]>({ queryKey: ["/api/admin/allowed-domains"] });
-  const { data: units = [] } = useQuery<Unit[]>({ queryKey: ["/api/admin/units"] });
-  const { data: exams = [] } = useQuery<Exam[]>({ queryKey: ["/api/exams"] });
-  const { data: examRequests = [] } = useQuery<ExamRequest[]>({ queryKey: ["/api/admin/exam-access-requests"] });
-  const { data: profileRequests = [] } = useQuery<ProfileRequest[]>({ queryKey: ["/api/admin/profile-change-requests"] });
+  const { data: domains = [] } = useQuery<Domain[]>({ queryKey: ["/api/admin/allowed-domains"], enabled: FEATURES.schoolDomains });
+  const { data: units = [] } = useQuery<Unit[]>({ queryKey: ["/api/admin/units"], enabled: FEATURES.studentUnits });
+  const { data: exams = [] } = useQuery<Exam[]>({ queryKey: ["/api/exams"], enabled: FEATURES.studentUnits });
+  const { data: examRequests = [] } = useQuery<ExamRequest[]>({ queryKey: ["/api/admin/exam-access-requests"], enabled: FEATURES.studentAccessRequests });
+  const { data: profileRequests = [] } = useQuery<ProfileRequest[]>({ queryKey: ["/api/admin/profile-change-requests"], enabled: FEATURES.studentAccessRequests });
   const refresh = () => queryClient.invalidateQueries();
+  const visibleTabCount = [FEATURES.schoolDomains, FEATURES.studentUnits, FEATURES.studentAccessRequests].filter(Boolean).length;
 
   const addDomain = useMutation({
     mutationFn: () => request("POST", "/api/admin/allowed-domains", { domain, label }),
     onSuccess: () => { setDomain(""); setLabel(""); refresh(); toast({ title: "School email domain saved" }); },
-    onError: (error: Error) => toast({ title: "Could not save domain", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Could not save domain", description: apiErrorMessage(error), variant: "destructive" }),
   });
   const addUnit = useMutation({
     mutationFn: () => request("POST", "/api/admin/units", { code: unitCode, name: unitName, description: unitDescription }),
     onSuccess: () => { setUnitCode(""); setUnitName(""); setUnitDescription(""); refresh(); toast({ title: "Unit created" }); },
-    onError: (error: Error) => toast({ title: "Could not create unit", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Could not create unit", description: apiErrorMessage(error), variant: "destructive" }),
   });
   const changeExamUnit = useMutation({
     mutationFn: ({ examId, unitId }: { examId: number; unitId?: number }) => request("PATCH", `/api/admin/exams/${examId}/unit`, { unitId }),
@@ -72,14 +75,14 @@ export default function AdminStudentAccess() {
         </div>
       </header>
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-        <Tabs defaultValue="domains">
-          <TabsList className="mb-6 grid w-full max-w-2xl grid-cols-3">
-            <TabsTrigger value="domains">Eligibility</TabsTrigger>
-            <TabsTrigger value="units">Units & exams</TabsTrigger>
-            <TabsTrigger value="requests">Requests</TabsTrigger>
+        <Tabs defaultValue={FEATURES.schoolDomains ? "domains" : FEATURES.studentUnits ? "units" : "requests"}>
+          <TabsList className="mb-6 grid w-full max-w-2xl" style={{ gridTemplateColumns: `repeat(${visibleTabCount}, minmax(0, 1fr))` }}>
+            {FEATURES.schoolDomains && <TabsTrigger value="domains">Eligibility</TabsTrigger>}
+            {FEATURES.studentUnits && <TabsTrigger value="units">Units & exams</TabsTrigger>}
+            {FEATURES.studentAccessRequests && <TabsTrigger value="requests">Requests</TabsTrigger>}
           </TabsList>
 
-          <TabsContent value="domains" className="space-y-6">
+          {FEATURES.schoolDomains && <TabsContent value="domains" className="space-y-6">
             <Card>
               <CardHeader><CardTitle className="flex items-center gap-2"><Globe2 className="h-5 w-5 text-primary" />Approved school domains</CardTitle><CardDescription>Only verified emails from active domains can create student accounts.</CardDescription></CardHeader>
               <CardContent>
@@ -103,9 +106,9 @@ export default function AdminStudentAccess() {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
+          </TabsContent>}
 
-          <TabsContent value="units" className="space-y-6">
+          {FEATURES.studentUnits && <TabsContent value="units" className="space-y-6">
             <Card>
               <CardHeader><CardTitle>Publish a unit</CardTitle><CardDescription>Students can freely enrol in active units; individual official exams still require approval.</CardDescription></CardHeader>
               <CardContent>
@@ -127,9 +130,9 @@ export default function AdminStudentAccess() {
                 {exams.map((exam) => <div key={exam.id} className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"><span className="text-sm font-medium">{exam.title}</span><Select value={exam.unitId ? String(exam.unitId) : "none"} onValueChange={(value) => changeExamUnit.mutate({ examId: exam.id, unitId: value === "none" ? undefined : Number(value) })}><SelectTrigger className="w-full sm:w-48"><SelectValue placeholder="No unit" /></SelectTrigger><SelectContent><SelectItem value="none">No unit</SelectItem>{units.map((unit) => <SelectItem value={String(unit.id)} key={unit.id}>{unit.code}</SelectItem>)}</SelectContent></Select></div>)}
               </CardContent></Card>
             </div>
-          </TabsContent>
+          </TabsContent>}
 
-          <TabsContent value="requests" className="space-y-6">
+          {FEATURES.studentAccessRequests && <TabsContent value="requests" className="space-y-6">
             <Card><CardHeader><CardTitle className="flex items-center gap-2"><ClipboardCheck className="h-5 w-5 text-primary" />Exam access requests</CardTitle><CardDescription>Approve access to create the student’s individual official-exam enrolment.</CardDescription></CardHeader><CardContent className="space-y-3">
               {!examRequests.length && <p className="text-sm text-muted-foreground">No exam-access requests yet.</p>}
               {examRequests.map((item) => <div key={item.id} className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">{item.studentName} <span className="font-normal text-muted-foreground">· {item.studentEmail}</span></p><p className="text-sm text-muted-foreground">{item.unitCode ? `${item.unitCode} · ` : ""}{item.examTitle}</p></div><div className="flex items-center gap-2"><Badge variant={item.status === "approved" ? "default" : item.status === "rejected" ? "destructive" : "secondary"}>{item.status}</Badge>{item.status === "pending" && <><Button size="sm" onClick={() => handleExamRequest.mutate({ id: item.id, decision: "approve" })}><Check className="mr-1 h-4 w-4" />Approve</Button><Button size="sm" variant="outline" onClick={() => handleExamRequest.mutate({ id: item.id, decision: "reject" })}>Decline</Button></>}</div></div>)}
@@ -138,7 +141,7 @@ export default function AdminStudentAccess() {
               {!profileRequests.length && <p className="text-sm text-muted-foreground">No profile-change requests yet.</p>}
               {profileRequests.map((item) => <div key={item.id} className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">{item.studentName} <span className="font-normal text-muted-foreground">· {item.studentEmail}</span></p><p className="text-sm text-muted-foreground">Change {item.fieldName} to <span className="font-medium text-foreground">{item.requestedValue}</span></p>{item.reason && <p className="mt-1 text-xs text-muted-foreground">{item.reason}</p>}</div><div className="flex items-center gap-2"><Badge variant={item.status === "approved" ? "default" : item.status === "rejected" ? "destructive" : "secondary"}>{item.status}</Badge>{item.status === "pending" && <><Button size="sm" onClick={() => handleProfileRequest.mutate({ id: item.id, decision: "approve" })}><Check className="mr-1 h-4 w-4" />Approve</Button><Button size="sm" variant="outline" onClick={() => handleProfileRequest.mutate({ id: item.id, decision: "reject" })}>Decline</Button></>}</div></div>)}
             </CardContent></Card>
-          </TabsContent>
+          </TabsContent>}
         </Tabs>
       </main>
     </div>

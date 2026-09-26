@@ -1,6 +1,7 @@
 import type { Server } from "http";
 import { WebSocketServer, type WebSocket } from "ws";
 import crypto from "crypto";
+import { isFeatureEnabled } from "./feature-flags";
 
 type Ticket = { studentId: number; roomId: number; expiresAt: number };
 const tickets = new Map<string, Ticket>();
@@ -26,6 +27,10 @@ export function attachLiveQuizWebSocket(server: Server) {
   server.on("upgrade", (request, socket, head) => {
     const url = new URL(request.url || "/", "http://localhost");
     if (url.pathname !== "/ws/live-quiz") return;
+    if (!isFeatureEnabled("liveRooms")) {
+      socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+      return;
+    }
     const token = url.searchParams.get("ticket") || "";
     const ticket = tickets.get(token);
     if (!ticket || ticket.expiresAt < Date.now()) {

@@ -2,6 +2,7 @@ import { useStudentPastExams } from "@/hooks/use-student";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FEATURES } from "@/lib/feature-flags";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { History, ChevronRight, Target, Calendar } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
@@ -39,11 +40,11 @@ export default function StudentPastExams() {
           <History className="h-10 w-10 text-muted-foreground/30 mb-4" />
           <h3 className="text-lg font-semibold">No past exams</h3>
           <p className="text-sm text-muted-foreground max-w-sm mt-1">
-            You haven't completed any exams yet. Enrol in a unit and take an exam to see your history here.
+            You haven't completed any exams yet. Your exam history will appear here after you finish an exam.
           </p>
-          <Link href="/student/units" className="mt-6">
+          {FEATURES.studentUnits && <Link href="/student/units" className="mt-6">
             <Button>Browse Units</Button>
-          </Link>
+          </Link>}
         </div>
       ) : (
         <div className="grid gap-4">
@@ -54,11 +55,11 @@ export default function StudentPastExams() {
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                     
                     <div className="flex-1 space-y-1">
-                      <div className="flex items-center gap-2 mb-2">
+                      {FEATURES.studentUnits && <div className="flex items-center gap-2 mb-2">
                         <span className="text-xs font-semibold uppercase tracking-wider text-primary bg-primary/10 px-2 py-0.5 rounded">
                           {exam.unitName}
                         </span>
-                      </div>
+                      </div>}
                       <h3 className="text-lg font-semibold group-hover:text-primary transition-colors line-clamp-1">
                         {exam.title}
                       </h3>

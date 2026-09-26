@@ -1,0 +1,22 @@
+{
+  "name": "MedQrown MedEazy",
+  "short_name": "MedEazy",
+  "description": "Medical examination portal and learning platform.",
+  "start_url": "/student/dashboard",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

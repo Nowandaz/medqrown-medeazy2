@@ -3,9 +3,11 @@ import { Link, useLocation } from "wouter";
 import { useStudentMe, useLogout } from "@/hooks/use-student";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
 import { getStudentAvatarUrl } from "@/lib/avatar";
+import { StudentNotifications } from "@/components/student/student-notifications";
+import { PushSubscriptionPrompt } from "@/components/student/push-subscription-prompt";
 import { 
   LayoutDashboard, 
-  BookOpen, 
+  BookOpen,
   BrainCircuit,
   Swords,
   History, 
@@ -21,14 +23,13 @@ import {
   SheetContent, 
   SheetTrigger 
 } from "@/components/ui/sheet";
+import { FEATURES } from "@/lib/feature-flags";
+import { WelcomeTour } from "@/components/student/welcome-tour";
 
 const NAV_ITEMS = [
   { href: "/student/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/student/units", label: "My Units", icon: BookOpen },
-  { href: "/student/self-tests", label: "Self-tests", icon: BrainCircuit },
-  { href: "/student/live-rooms", label: "Live rooms", icon: Swords },
-  { href: "/student/past-exams", label: "Past Exams", icon: History },
-  { href: "/student/stats", label: "Stats", icon: BarChart3 },
+  { href: "/student/my-class", label: "My Class", icon: BookOpen },
+  { href: "/student/results", label: "Results", icon: History },
   { href: "/student/profile", label: "Profile", icon: User },
 ];
 
@@ -70,6 +71,7 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
             key={item.href} 
             href={item.href}
             onClick={onClick}
+            data-tour={`nav-${item.href.split("/").pop()}`}
             className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
               isActive 
                 ? "bg-primary/10 text-primary" 
@@ -91,13 +93,15 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
         <Link href="/student/dashboard">
           <MedQrownBrand size="sm" />
         </Link>
-        <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-          <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" className="md:hidden">
-              <Menu className="h-5 w-5" />
-              <span className="sr-only">Toggle menu</span>
-            </Button>
-          </SheetTrigger>
+        <div className="flex items-center gap-1">
+          <span data-tour="bell"><StudentNotifications /></span>
+          <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="md:hidden" data-tour="menu">
+                <Menu className="h-5 w-5" />
+                <span className="sr-only">Toggle menu</span>
+              </Button>
+            </SheetTrigger>
           <SheetContent side="left" className="w-[280px] p-0 flex flex-col">
             <div className="p-4 border-b">
               <MedQrownBrand size="md" />
@@ -110,7 +114,7 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
                 </div>
                 <div className="flex flex-col">
                   <span className="text-sm font-medium">{user.name}</span>
-                  <span className="text-xs text-muted-foreground">{user.university}</span>
+                   {FEATURES.universityManagement && <span className="text-xs text-muted-foreground">{user.university}</span>}
                 </div>
               </div>
               <Button 
@@ -124,14 +128,16 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
             </div>
           </SheetContent>
         </Sheet>
+        </div>
       </header>
 
       {/* Desktop Sidebar */}
       <aside className="hidden w-[280px] flex-col border-r bg-card/50 md:flex">
-        <div className="flex h-16 items-center border-b px-6">
+        <div className="flex h-16 items-center justify-between border-b px-6">
           <Link href="/student/dashboard">
             <MedQrownBrand size="md" />
           </Link>
+          <span data-tour="bell"><StudentNotifications /></span>
         </div>
         <NavLinks />
         <div className="border-t p-4">
@@ -141,7 +147,7 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex flex-col overflow-hidden">
               <span className="truncate text-sm font-medium">{user.name}</span>
-              <span className="truncate text-xs text-muted-foreground">{user.university}</span>
+               {FEATURES.universityManagement && <span className="truncate text-xs text-muted-foreground">{user.university}</span>}
             </div>
           </div>
           <Button 
@@ -158,7 +164,9 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-5xl p-4 md:p-8">
+          <PushSubscriptionPrompt />
           {children}
+          <WelcomeTour user={user} />
         </div>
       </main>
     </div>

@@ -7,6 +7,7 @@ export interface StudentProfile {
   email: string;
   university: string;
   avatarKey: string;
+  onboardedAt?: string | null;
 }
 
 export interface Unit {
@@ -444,9 +445,10 @@ export function useStudentPastExam(examStudentId: string) {
   });
 }
 
-export function useProfileRequests() {
+export function useProfileRequests(enabled = true) {
   return useQuery<ProfileChangeRequest[]>({
     queryKey: ["/api/student/profile/requests"],
+    enabled,
   });
 }
 
@@ -467,10 +469,49 @@ export function useUpdateAvatar() {
     mutationFn: (data: { avatarKey: string }) => 
       apiRequest("POST", "/api/student/profile/avatar", data),
     onSuccess: (_, variables) => {
-      queryClient.setQueryData<StudentProfile | undefined>(["/api/student/me"], (old) => {
-        if (!old) return old;
-        return { ...old, avatarKey: variables.avatarKey };
-      });
+      // The sidebar (/me) and the profile page (/profile) cache the student separately: update both.
+      for (const key of ["/api/student/me", "/api/student/profile"]) {
+        queryClient.setQueryData<any>([key], (old: any) => (old ? { ...old, avatarKey: variables.avatarKey } : old));
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
     },
+  });
+}
+
+export function useRenewalStatus() {
+  return useQuery<{ available: boolean; message?: string; membership: any }>({
+    queryKey: ["/api/student/renewal"],
+  });
+}
+
+export function usePaymentDetails() {
+  return useQuery<{
+    paybill: string;
+    accountNumber: string;
+    bankName: string;
+    individualPrice: number;
+    groupPrice: number;
+    graceDays: number;
+    accountNote: string;
+    groupInstructions: string;
+  }>({
+    queryKey: ["/api/student/renewal/payment-details"],
+  });
+}
+
+export function useSubmitRenewal() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { code: string; plan: string }) =>
+      apiRequest("POST", "/api/student/renewal", data).then(res => res.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/student/renewal"] });
+    },
+  });
+}
+
+export function useStudentNotifications() {
+  return useQuery<any[]>({
+    queryKey: ["/api/student/notifications"],
   });
 }

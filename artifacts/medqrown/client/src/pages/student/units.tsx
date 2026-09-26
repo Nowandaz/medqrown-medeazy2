@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { useState, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { FEATURES } from "@/lib/feature-flags";
 
 export default function StudentUnits() {
   const { data: units, isLoading } = useStudentUnits();
@@ -127,7 +128,7 @@ export default function StudentUnits() {
                   </div>
                 )}
               </CardContent>
-              <CardFooter className="pt-4 border-t bg-muted/20">
+              {(unit.enrolled || FEATURES.studentUnitEnrolment) && <CardFooter className="pt-4 border-t bg-muted/20">
                 {unit.enrolled ? (
                   <Link href={`/student/units/${unit.id}`} className="w-full">
                     <Button variant="secondary" className="w-full group">
@@ -144,7 +145,7 @@ export default function StudentUnits() {
                     {enrolMutation.isPending ? "Enrolling..." : "Enrol Now"}
                   </Button>
                 )}
-              </CardFooter>
+              </CardFooter>}
             </Card>
           ))}
         </div>

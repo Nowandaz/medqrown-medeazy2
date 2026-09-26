@@ -6,6 +6,7 @@ import { ChevronDown, ArrowLeft, Building2, CheckCircle2, Mail, Home } from "luc
 import { Button } from "@/components/ui/button";
 import { apiRequest } from "@/lib/queryClient";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
+import { FEATURES } from "@/lib/feature-flags";
 
 // ─── Shared shell ─────────────────────────────────────────────────────────────
 
@@ -55,7 +56,7 @@ function SitePageShell({ children, title, subtitle }: { children: React.ReactNod
             <Link href="/terms" className="hover:text-primary transition-colors">Terms</Link>
             <Link href="/privacy" className="hover:text-primary transition-colors">Privacy</Link>
             <Link href="/faq" className="hover:text-primary transition-colors">FAQ</Link>
-            <Link href="/institutions" className="hover:text-primary transition-colors">Institutions</Link>
+            {FEATURES.institutions && <Link href="/institutions" className="hover:text-primary transition-colors">Institutions</Link>}
           </div>
         </div>
       </footer>
@@ -216,7 +217,7 @@ const DEFAULT_FAQ: FaqItemData[] = [
   { id: -1, question: "What is MedQrown MedEazy?", answer: "A competitive study platform for medical students — practice with AI-generated exams, get instant feedback, and see how your clinical reasoning ranks against your classmates." },
   { id: -2, question: "Is it free to start?", answer: "Yes. You can create an account and start practicing right away. Premium features are being rolled out for power users." },
   { id: -3, question: "How does the AI marking work?", answer: "For short-answer questions, our AI compares your answer to model answers and marking criteria, then gives you a score with a written explanation of what you got right and what you missed." },
-  { id: -4, question: "Which universities are supported?", answer: "Any medical student can join. If your institution wants to run official exams on MedQrown, ask them to reach out via our Institutions page." },
+  { id: -4, question: "Which universities are supported?", answer: "University-specific access options will be announced when they are available." },
   { id: -5, question: "How do I report a problem with a question?", answer: "Use the feedback option after any exam, or contact us via the homepage contact section — we review every report." },
 ];
 
@@ -286,14 +287,14 @@ export function FaqPage() {
         })}
       </div>
 
-      <div className="mt-10 text-center rounded-2xl border border-primary/15 bg-primary/[0.04] p-8">
+      {FEATURES.inquiries && <div className="mt-10 text-center rounded-2xl border border-primary/15 bg-primary/[0.04] p-8">
         <Mail className="w-6 h-6 text-primary mx-auto mb-2" />
         <p className="font-bold text-foreground text-sm mb-1">Still have a question?</p>
         <p className="text-muted-foreground text-xs mb-4">We're happy to help — reach out any time.</p>
         <Link href="/#contact">
           <Button size="sm" variant="outline" className="rounded-lg text-xs">Contact Us</Button>
         </Link>
-      </div>
+      </div>}
     </SitePageShell>
   );
 }
@@ -331,10 +332,6 @@ export function InstitutionsPage() {
               <p className="text-muted-foreground text-xs leading-relaxed">{f.desc}</p>
             </div>
           ))}
-          <p className="text-muted-foreground text-xs px-1">
-            Already have admin access?{" "}
-            <Link href="/admin" className="text-primary hover:underline">Log in here</Link>.
-          </p>
         </div>
 
         <div className="md:col-span-3">

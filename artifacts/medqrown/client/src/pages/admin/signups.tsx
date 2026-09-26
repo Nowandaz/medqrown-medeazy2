@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { CheckCircle, XCircle, Clock, GraduationCap, Mail, Building2, ShieldCheck, ShieldX, Trash2, UserPlus, PlusCircle, Search } from "lucide-react";
 import type { Exam } from "@shared/schema";
+import { apiErrorMessage } from "@/lib/api-error";
 
 interface Signup {
   id: number;
@@ -71,7 +72,7 @@ export default function AdminSignups() {
       setApproveTarget(null); setSelectedExam("");
       toast({ title: "Student approved", description: "They have been added to the selected exam." });
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   const rejectMutation = useMutation({
@@ -84,7 +85,7 @@ export default function AdminSignups() {
       setRejectTarget(null); setRejectReason("");
       toast({ title: "Application rejected" });
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
@@ -97,7 +98,7 @@ export default function AdminSignups() {
       setDeleteTarget(null);
       toast({ title: "Record deleted" });
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   const clearAllMutation = useMutation({
@@ -111,7 +112,7 @@ export default function AdminSignups() {
       setConfirmClearAll(false);
       toast({ title: "Cleared", description: `${data.count} processed request${data.count !== 1 ? "s" : ""} deleted.` });
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   const addToExamMutation = useMutation({
@@ -126,7 +127,7 @@ export default function AdminSignups() {
       setAddExamTarget(null); setAddExamSelected("");
       toast({ title: "Student added to exam", description: "They can now access the additional exam." });
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   const enrolMutation = useMutation({
@@ -136,12 +137,12 @@ export default function AdminSignups() {
       if (!res.ok) throw new Error(d.message);
       return d;
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/exams"] });
       setEnrolName(""); setEnrolEmail(""); setEnrolExam("");
-      toast({ title: "Student enrolled", description: `Password: ${data.password}` });
+      toast({ title: "Student enrolled" });
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   const baseFiltered = filter === "all" ? signups : signups.filter(s => s.status === filter);

@@ -9,6 +9,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Eye, EyeOff, LogIn } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
+import { apiErrorMessage } from "@/lib/api-error";
 
 export default function AdminLogin() {
   const [email, setEmail] = useState("");
@@ -18,18 +19,24 @@ export default function AdminLogin() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
+  const [loginError, setLoginError] = useState("");
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setLoginError("");
     try {
-      await apiRequest("POST", "/api/admin/login", { email, password });
+      await apiRequest("POST", "/api/admin/login", { email: email.trim(), password });
       setLocation("/admin/dashboard");
     } catch (error: any) {
-      toast({ title: "Login Failed", description: "Invalid email or password", variant: "destructive" });
+      const message = apiErrorMessage(error, "We couldn't sign you in. Please try again.");
+      setLoginError(message);
+      toast({ title: "Couldn't sign in", description: message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
   };
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex flex-col">
@@ -84,6 +91,9 @@ export default function AdminLogin() {
                     </button>
                   </div>
                 </div>
+                {loginError && (
+                  <p role="alert" className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2">{loginError}</p>
+                )}
                 <Button type="submit" className="w-full h-11 text-sm font-medium" disabled={loading} data-testid="button-login">
                   <LogIn className="w-4 h-4 mr-2" />
                   {loading ? "Signing in..." : "Sign In"}

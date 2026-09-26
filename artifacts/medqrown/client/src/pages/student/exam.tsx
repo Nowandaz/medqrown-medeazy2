@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -14,27 +15,41 @@ import {
 } from "lucide-react";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
 import { TEXT_LIMITS } from "@/lib/text-limits";
+import { apiErrorBody, apiErrorMessage } from "@/lib/api-error";
 
 export default function StudentExam() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [examInfo, setExamInfo] = useState<any>(null);
+  // Full-screen "Time's up — submitting" state for automatic submission.
+  const [autoSubmitting, setAutoSubmitting] = useState(false);
+  const examIdRef = useRef<number | null>(null);
+  /** After submitting, show this exam's own page ("Submitted — results pending", or the results once released). */
+  const goToSubmitted = useCallback(() => {
+    setLocation(examIdRef.current ? `/student/exam-review?examId=${examIdRef.current}` : "/student/results");
+  }, [setLocation]);
   const [attemptData, setAttemptData] = useState<any>(null);
   const [answer, setAnswer] = useState("");
   const [subAnswers, setSubAnswers] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [advancing, setAdvancing] = useState(false);
+  // Next stays disabled for 2 s after each question appears, so a double tap can't skip one.
+  const [nextLocked, setNextLocked] = useState(true);
   const [remainingTime, setRemainingTime] = useState<number | null>(null);
   const [questionStartedAt, setQuestionStartedAt] = useState<string | null>(null);
   const [attemptStartedAt, setAttemptStartedAt] = useState<string | null>(null);
   const [upcomingImageUrl, setUpcomingImageUrl] = useState<string | null>(null);
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const [pendingSubmitValue, setPendingSubmitValue] = useState<string | undefined>(undefined);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const attemptDataRef = useRef<any>(null);
   const answerRef = useRef("");
   const subAnswersRef = useRef<Record<number, string>>({});
   const isAutoSubmittingRef = useRef(false);
+  // Server clock minus device clock, so a wrong phone clock cannot end (or extend) the exam.
+  const clockOffsetRef = useRef(0);
   // Hard guard against double-clicks on Next/Submit while the previous request is still in flight
   const advancingRef = useRef(false);
 
@@ -82,15 +97,40 @@ export default function StudentExam() {
   const submitExamImmediate = useCallback(async () => {
     const data = attemptDataRef.current;
     if (!data) return;
-    try {
-      await saveCurrentAnswerImmediate();
-      await apiRequest("POST", "/api/student/submit-exam", {
-        attemptId: data.attemptId,
-      });
-      toast({ title: "Exam submitted successfully!" });
-      setLocation("/student/results");
-    } catch {}
+    setAutoSubmitting(true);
+    await saveCurrentAnswerImmediate();
+    // Retry briefly on a bad connection; the server also submits expired attempts on its own.
+    for (let tryNo = 0; tryNo < 3; tryNo++) {
+      try {
+        await apiRequest("POST", "/api/student/submit-exam", { attemptId: data.attemptId });
+        break;
+      } catch (e) {
+        if (apiErrorBody(e)?.message && /already|not found/i.test(apiErrorBody(e).message)) break;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+    toast({ title: "Time's up — your exam has been submitted" });
+    goToSubmitted();
   }, [saveCurrentAnswerImmediate, setLocation, toast]);
+
+  /** Reload the attempt's current question from the server (e.g. after the server moved on). */
+  const resyncAttempt = useCallback(async () => {
+    try {
+      const sessionRes = await fetch("/api/student/session", { credentials: "include" });
+      const session = sessionRes.ok ? await sessionRes.json() : null;
+      if (!session || session.attemptStatus === "submitted") { goToSubmitted(); return; }
+      const res = await apiRequest("POST", "/api/student/start-exam");
+      const data = await res.json();
+      if (data.serverNow) clockOffsetRef.current = Date.parse(data.serverNow) - Date.now();
+      setAttemptData(data);
+      setAnswer(data.question?.savedAnswer || "");
+      setSubAnswers(data.question?.savedSubAnswers || {});
+      if (data.questionStartedAt) setQuestionStartedAt(data.questionStartedAt);
+      setUpcomingImageUrl(data.upcomingImageUrl || null);
+    } catch {
+      goToSubmitted();
+    }
+  }, [setLocation]);
 
   const moveNextImmediate = useCallback(async (): Promise<boolean> => {
     const data = attemptDataRef.current;
@@ -113,11 +153,13 @@ export default function StudentExam() {
       setUpcomingImageUrl(nextData.upcomingImageUrl || null);
       return false;
     } catch (e: any) {
-      const errorData = await e.json?.().catch(() => ({}));
+      const errorData = apiErrorBody(e);
       if (errorData?.isLastQuestion) return true;
+      // The server already moved this attempt on (or ended it): show where it really is.
+      await resyncAttempt();
       return false;
     }
-  }, []);
+  }, [resyncAttempt]);
 
   const handleTimerExpiry = useCallback(async () => {
     if (isAutoSubmittingRef.current) return;
@@ -139,7 +181,10 @@ export default function StudentExam() {
         if (isLast) {
           await submitExamImmediate();
         } else {
+          // Next question is showing: release the locks so its own timer and buttons work.
           isAutoSubmittingRef.current = false;
+          advancingRef.current = false;
+          setAdvancing(false);
         }
       }
     } else if (data.timerMode === "full_exam") {
@@ -152,14 +197,17 @@ export default function StudentExam() {
       const sessionRes = await fetch("/api/student/session", { credentials: "include" });
       if (!sessionRes.ok) { setLocation("/portal"); return; }
       const session = await sessionRes.json();
-      if (session.attemptStatus === "submitted") { setLocation("/student/results"); return; }
+      if (session.attemptStatus === "submitted") { goToSubmitted(); return; }
 
+      if (session.examId) examIdRef.current = Number(session.examId);
       const infoRes = await fetch("/api/student/exam-info", { credentials: "include" });
       const info = await infoRes.json();
       setExamInfo(info);
+      if (info?.examId) examIdRef.current = Number(info.examId);
 
       const startRes = await apiRequest("POST", "/api/student/start-exam");
       const data = await startRes.json();
+      if (data.serverNow) clockOffsetRef.current = Date.parse(data.serverNow) - Date.now();
       setAttemptData(data);
       setAnswer(data.question?.savedAnswer || "");
       setSubAnswers(data.question?.savedSubAnswers || {});
@@ -173,6 +221,14 @@ export default function StudentExam() {
     }
   }, [setLocation, toast]);
 
+  const currentQuestionId = attemptData?.question?.id;
+  useEffect(() => {
+    if (!currentQuestionId) return;
+    setNextLocked(true);
+    const timer = setTimeout(() => setNextLocked(false), 2000);
+    return () => clearTimeout(timer);
+  }, [currentQuestionId]);
+
   useEffect(() => {
     loadExam();
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
@@ -182,12 +238,17 @@ export default function StudentExam() {
     if (!attemptData?.timerMode || attemptData.timerMode === "none") return;
 
     const computeRemaining = (): number | null => {
+      const serverNow = Date.now() + clockOffsetRef.current;
       if (attemptData.timerMode === "per_question" && questionStartedAt) {
-        const elapsed = Math.floor((Date.now() - new Date(questionStartedAt).getTime()) / 1000);
+        const elapsed = Math.floor((serverNow - new Date(questionStartedAt).getTime()) / 1000);
         return Math.max(0, (attemptData.perQuestionSeconds ?? 0) - elapsed);
       }
+      if (attemptData.timerMode === "full_exam" && attemptData.deadlineAt) {
+        // The server's deadline is the earlier of the duration running out and the exam closing.
+        return Math.max(0, Math.floor((Date.parse(attemptData.deadlineAt) - serverNow) / 1000));
+      }
       if (attemptData.timerMode === "full_exam" && attemptStartedAt) {
-        const elapsed = Math.floor((Date.now() - new Date(attemptStartedAt).getTime()) / 1000);
+        const elapsed = Math.floor((serverNow - new Date(attemptStartedAt).getTime()) / 1000);
         return Math.max(0, (attemptData.fullExamSeconds ?? 0) - elapsed);
       }
       return null;
@@ -214,7 +275,7 @@ export default function StudentExam() {
     }, 1000);
 
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [attemptData?.timerMode, attemptData?.perQuestionSeconds, attemptData?.fullExamSeconds, questionStartedAt, attemptStartedAt, handleTimerExpiry]);
+  }, [attemptData?.timerMode, attemptData?.perQuestionSeconds, attemptData?.fullExamSeconds, attemptData?.deadlineAt, questionStartedAt, attemptStartedAt, handleTimerExpiry]);
 
   const saveCurrentAnswer = async (answerOverride?: string) => {
     if (!attemptData?.question) return;
@@ -275,15 +336,16 @@ export default function StudentExam() {
       if (data.questionStartedAt) setQuestionStartedAt(data.questionStartedAt);
       setUpcomingImageUrl(data.upcomingImageUrl || null);
     } catch (e: any) {
-      const errorData = await e.json?.().catch(() => ({}));
+      const errorData = apiErrorBody(e);
       if (errorData?.isLastQuestion) {
         // Defer the submit until after we release the in-flight lock below,
         // otherwise submitExam's own guard will see advancingRef and bail.
         shouldSubmitAfter = true;
       } else if (errorData?.staleRequest) {
-        // Duplicate/stale Next request — silently ignore (the server has already advanced).
+        // The server already advanced (e.g. the question's time ran out): catch up.
+        await resyncAttempt();
       } else {
-        toast({ title: "Error", description: "Failed to load next question", variant: "destructive" });
+        toast({ title: "Couldn't load the next question", description: apiErrorMessage(e, "Check your connection and tap Next again. Your answer is saved."), variant: "destructive" });
       }
     } finally {
       advancingRef.current = false;
@@ -304,10 +366,10 @@ export default function StudentExam() {
       await apiRequest("POST", "/api/student/submit-exam", {
         attemptId: attemptData.attemptId,
       });
-      toast({ title: "Exam submitted successfully!" });
-      setLocation("/student/results");
-    } catch {
-      toast({ title: "Submit failed", variant: "destructive" });
+      toast({ title: "Exam submitted", description: "Well done! Your results will appear once they're released." });
+      goToSubmitted();
+    } catch (e) {
+      toast({ title: "Couldn't submit yet", description: apiErrorMessage(e, "Check your connection and tap Submit again. Your answers are saved."), variant: "destructive" });
     } finally {
       advancingRef.current = false;
       setSubmitting(false);
@@ -319,6 +381,18 @@ export default function StudentExam() {
     const s = seconds % 60;
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
+
+  if (autoSubmitting) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-6" role="status" aria-live="assertive">
+        <div className="text-center space-y-3 max-w-sm">
+          <Loader2 className="w-10 h-10 animate-spin mx-auto text-primary" />
+          <h2 className="text-xl font-bold">Time's up!</h2>
+          <p className="text-sm text-muted-foreground">Saving your answers and submitting your exam. Please don't close this page.</p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -438,13 +512,10 @@ export default function StudentExam() {
                     </div>
                   ) : q.type === "mcq" ? (
                     <RadioGroup value={answer} onValueChange={(value) => {
-                      // MCQs lock on the first selection and auto-progress by product requirement;
-                      // SAQs keep the explicit navigation control below.
+                      // No auto-advance: selecting only records (and autosaves) the choice.
+                      // The student moves on with the Next / Submit button.
                       setAnswer(value);
-                      if (!advancingRef.current && !submitting) {
-                        if (isLastQuestion) submitExam(value);
-                        else handleNext(value);
-                      }
+                      if (!advancingRef.current && !submitting) void saveCurrentAnswer(value);
                     }}>
                       <div className="space-y-2">
                         {q.options?.map((opt: any, i: number) => (
@@ -489,10 +560,10 @@ export default function StudentExam() {
                 {saving && "Saving..."}
               </p>
               <div className="flex items-center gap-2">
-                {isLastQuestion && q.type !== "mcq" ? (
+                {isLastQuestion ? (
                   <Button
-                    onClick={() => submitExam()}
-                    disabled={submitting || advancing}
+                    onClick={() => setShowSubmitConfirm(true)}
+                    disabled={submitting || advancing || nextLocked}
                     size="lg"
                     className="shadow-sm"
                     data-testid="button-submit"
@@ -504,10 +575,10 @@ export default function StudentExam() {
                     )}
                     {submitting ? "Submitting..." : "Submit Exam"}
                   </Button>
-                ) : !isLastQuestion && q.type !== "mcq" ? (
+                ) : (
                   <Button
                     onClick={() => handleNext()}
-                    disabled={advancing || submitting}
+                    disabled={advancing || submitting || nextLocked}
                     size="lg"
                     className="shadow-sm"
                     data-testid="button-next"
@@ -524,7 +595,7 @@ export default function StudentExam() {
                       </>
                     )}
                   </Button>
-                ) : null}
+                )}
               </div>
             </div>
 
@@ -547,6 +618,34 @@ export default function StudentExam() {
             </CardContent>
           </Card>
         )}
+
+        <AlertDialog open={showSubmitConfirm} onOpenChange={setShowSubmitConfirm}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Submit Exam?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to submit? You will not be able to change your answers after submission.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => {
+                setShowSubmitConfirm(false);
+                setPendingSubmitValue(undefined);
+              }}>
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setShowSubmitConfirm(false);
+                  submitExam(pendingSubmitValue);
+                }}
+                disabled={submitting}
+              >
+                Submit Exam
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </main>
     </div>
   );

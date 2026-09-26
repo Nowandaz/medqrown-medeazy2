@@ -42,27 +42,20 @@ export async function seed() {
   });
 
   await storage.createEmailTemplate({
-    name: "Default Credentials Email",
-    subject: "MedQrown MedEazy {exam_name} - Your Access Credentials and Instructions",
+    name: "Default Exam Access Email",
+    subject: "MedQrown MedEazy {exam_name} - Exam Access Instructions",
     body: `Dear {student_name},
 
 This is a reminder for your MedQrown MedEazy {exam_name} examination access.
 
-Your Login Credentials:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Email: {email}
-Password: {password}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Portal Access Link:
+Sign in to your student portal account to access your examination:
 {portal_link}
 
 Important Instructions:
 - Click the link above to access the portal
-- Log in with your credentials
+- Sign in using your student portal account
 - Your answers are auto-saved
 - You can only submit once
-- Keep your credentials secure and private
 
 If you have any questions, please contact your exam administrator.
 

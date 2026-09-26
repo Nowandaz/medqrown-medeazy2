@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { BrainCircuit, Clock3, Loader2, Plus, Swords, Trophy, Users } from "lucide-react";
 import { TEXT_LIMITS } from "@/lib/text-limits";
+import { apiErrorMessage } from "@/lib/api-error";
 
 function CreateLiveRoom() {
   const [, setLocation] = useLocation();
@@ -32,7 +33,7 @@ function CreateLiveRoom() {
         setOpen(false);
         setLocation(`/student/live-rooms/${room.roomId}?code=${room.roomCode}`);
       },
-      onError: (error: any) => toast({ title: "Could not create room", description: error.message, variant: "destructive" }),
+      onError: (error: any) => toast({ title: "Could not create room", description: apiErrorMessage(error), variant: "destructive" }),
     });
   };
 
@@ -65,7 +66,7 @@ function JoinWithCode() {
   const { toast } = useToast();
   const lookup = useLookupLiveRoomCode();
   const [code, setCode] = useState("");
-  const join = () => lookup.mutate(code, { onSuccess: ({ roomId, roomCode }) => setLocation(`/student/live-rooms/${roomId}?code=${roomCode}`), onError: (error: any) => toast({ title: "Room not found", description: error.message, variant: "destructive" }) });
+  const join = () => lookup.mutate(code, { onSuccess: ({ roomId, roomCode }) => setLocation(`/student/live-rooms/${roomId}?code=${roomCode}`), onError: (error: any) => toast({ title: "Room not found", description: apiErrorMessage(error), variant: "destructive" }) });
   return <Card><CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-end"><div className="flex-1 space-y-2"><Label htmlFor="room-code">Got a room code?</Label><Input id="room-code" value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z2-9]/g, "").slice(0, 12))} placeholder="ABCD2345EFGH" className="font-mono tracking-[0.14em]" /></div><Button variant="outline" onClick={join} disabled={lookup.isPending || code.length < 12}>{lookup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Join friends</Button></CardContent></Card>;
 }
 

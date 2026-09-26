@@ -40,12 +40,10 @@ export interface IStorage {
   getStudentsByExam(examId: number): Promise<(ExamStudent & { student: Student })[]>;
 
   getExamStudent(id: number): Promise<ExamStudent | undefined>;
-  getExamStudentByCredentials(examId: number, email: string, password: string): Promise<(ExamStudent & { student: Student }) | undefined>;
   createExamStudent(es: InsertExamStudent): Promise<ExamStudent>;
   updateExamStudent(id: number, data: Partial<ExamStudent>): Promise<void>;
   deleteExamStudent(id: number): Promise<void>;
   getExamStudentByExamAndStudent(examId: number, studentId: number): Promise<ExamStudent | undefined>;
-  getAnyExamStudentByStudent(studentId: number): Promise<ExamStudent | undefined>;
 
   getQuestion(id: number): Promise<Question | undefined>;
   getQuestionsByExam(examId: number): Promise<Question[]>;
@@ -264,23 +262,6 @@ export class DatabaseStorage implements IStorage {
     return es;
   }
 
-  async getExamStudentByCredentials(examId: number, email: string, password: string) {
-    const normalizedEmail = (email || "").trim().toLowerCase();
-    const result = await db
-      .select()
-      .from(examStudents)
-      .innerJoin(students, eq(examStudents.studentId, students.id))
-      .where(
-        and(
-          eq(examStudents.examId, examId),
-          sql`LOWER(${students.email}) = ${normalizedEmail}`,
-          eq(examStudents.password, password),
-        ),
-      );
-    if (result.length === 0) return undefined;
-    return { ...result[0].exam_students, student: result[0].students };
-  }
-
   async createExamStudent(es: InsertExamStudent) {
     const [created] = await db.insert(examStudents).values(es).returning();
     return created;
@@ -290,21 +271,12 @@ export class DatabaseStorage implements IStorage {
     await db.update(examStudents).set(data).where(eq(examStudents.id, id));
   }
 
-  async updateAllExamStudentPasswords(studentId: number, password: string) {
-    await db.update(examStudents).set({ password }).where(eq(examStudents.studentId, studentId));
-  }
-
   async deleteExamStudent(id: number) {
     await db.delete(examStudents).where(eq(examStudents.id, id));
   }
 
   async getExamStudentByExamAndStudent(examId: number, studentId: number) {
     const [es] = await db.select().from(examStudents).where(and(eq(examStudents.examId, examId), eq(examStudents.studentId, studentId)));
-    return es;
-  }
-
-  async getAnyExamStudentByStudent(studentId: number) {
-    const [es] = await db.select().from(examStudents).where(eq(examStudents.studentId, studentId)).limit(1);
     return es;
   }
 
@@ -528,7 +500,6 @@ export class DatabaseStorage implements IStorage {
         yearOfStudy: students.yearOfStudy,
         examId: examStudents.examId,
         examTitle: exams.title,
-        examPassword: examStudents.password,
         attemptStatus: examStudents.attemptStatus,
         enrolledAt: examStudents.createdAt,
       })
@@ -537,10 +508,10 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(exams, eq(examStudents.examId, exams.id))
       .orderBy(asc(students.name));
 
-    const map = new Map<number, { id: number; name: string; email: string; university: string | null; yearOfStudy: string | null; existingPassword: string | null; exams: any[] }>();
+    const map = new Map<number, { id: number; name: string; email: string; university: string | null; yearOfStudy: string | null; exams: any[] }>();
     for (const row of result) {
       if (!map.has(row.studentId)) {
-        map.set(row.studentId, { id: row.studentId, name: row.name, email: row.email, university: row.university, yearOfStudy: row.yearOfStudy, existingPassword: row.examPassword ?? null, exams: [] });
+        map.set(row.studentId, { id: row.studentId, name: row.name, email: row.email, university: row.university, yearOfStudy: row.yearOfStudy, exams: [] });
       }
       if (row.examId) {
         map.get(row.studentId)!.exams.push({

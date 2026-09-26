@@ -318,3 +318,19 @@
 #demo-section .snap-x::-webkit-scrollbar {
   display: none;
 }
+
+/* Horizontal scrollers (admin menu, tab rows) scroll by swipe without a visible bar. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Phones: leave room under page content for the floating light/dark button (bottom right). */
+@media (max-width: 639px) {
+  body {
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+  }
+}

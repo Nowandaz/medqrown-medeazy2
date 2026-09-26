@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Plus, Play, Brain, RefreshCw, AlertTriangle, Clock, BrainCircuit, CheckCircle, Trash2 } from "lucide-react";
 import { TEXT_LIMITS } from "@/lib/text-limits";
+import { apiErrorMessage } from "@/lib/api-error";
 
 function CreateSelfTestDialog() {
   const [open, setOpen] = useState(false);
@@ -55,7 +56,7 @@ function CreateSelfTestDialog() {
         setSetup({ ...setup, title: "", focus: "" });
       },
       onError: (e: any) => {
-        toast({ title: "Failed to create test", description: e.message, variant: "destructive" });
+        toast({ title: "Failed to create test", description: apiErrorMessage(e), variant: "destructive" });
       }
     });
   };
@@ -180,13 +181,13 @@ function SelfTestCard({ test }: { test: SelfTestSummary }) {
   const handleStart = () => {
     startMutation.mutate(test.id, {
       onSuccess: (data) => setLocation(`/student/self-tests/${data.attemptId}/run`),
-      onError: (e: any) => toast({ title: "Failed to start", description: e.message, variant: "destructive" })
+      onError: (e: any) => toast({ title: "Failed to start", description: apiErrorMessage(e), variant: "destructive" })
     });
   };
 
   const handleGenerate = () => {
     generateMutation.mutate(test.id, {
-      onError: (e: any) => toast({ title: "Generation failed", description: e.message, variant: "destructive" })
+      onError: (e: any) => toast({ title: "Generation failed", description: apiErrorMessage(e), variant: "destructive" })
     });
   };
 
@@ -194,7 +195,7 @@ function SelfTestCard({ test }: { test: SelfTestSummary }) {
     if (!window.confirm(`Delete “${test.title}”? This removes its saved questions and attempt history.`)) return;
     deleteMutation.mutate(test.id, {
       onSuccess: () => toast({ title: "Self-test deleted" }),
-      onError: (e: any) => toast({ title: "Could not delete self-test", description: e.message, variant: "destructive" }),
+      onError: (e: any) => toast({ title: "Could not delete self-test", description: apiErrorMessage(e), variant: "destructive" }),
     });
   };
 

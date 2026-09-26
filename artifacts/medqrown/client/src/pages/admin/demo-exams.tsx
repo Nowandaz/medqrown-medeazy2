@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppHeader } from "@/components/AppHeader";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   Plus, Trash2, Edit, ChevronDown, ChevronUp, FlaskConical,
   CheckCircle, Circle, Clock, Image as ImageIcon, ArrowLeft, Eye, EyeOff
@@ -24,6 +25,7 @@ type DemoQuestion = {
   id: number; demoExamId: number; type: string; content: string;
   imageUrl?: string | null; options?: { content: string; isCorrect: boolean }[] | null;
   explanation?: string | null; orderIndex: number;
+  modelAnswer?: string | null; markingPoints?: string | null;
 };
 
 // ── Option editor for MCQ ──────────────────────────────────────────────────
@@ -78,6 +80,8 @@ function QuestionForm({
   const [content, setContent] = useState(question?.content || "");
   const [imageUrl, setImageUrl] = useState(question?.imageUrl || "");
   const [explanation, setExplanation] = useState(question?.explanation || "");
+  const [modelAnswer, setModelAnswer] = useState(question?.modelAnswer || "");
+  const [markingPoints, setMarkingPoints] = useState(question?.markingPoints || "");
   const [orderIndex, setOrderIndex] = useState(question?.orderIndex ?? 0);
   const [options, setOptions] = useState<{ content: string; isCorrect: boolean }[]>(
     question?.options || [
@@ -94,6 +98,8 @@ function QuestionForm({
         type, content, imageUrl: imageUrl || null, orderIndex,
         options: type === "mcq" ? options : null,
         explanation: explanation || null,
+        modelAnswer: type === "saq" ? (modelAnswer || null) : null,
+        markingPoints: type === "saq" ? (markingPoints || null) : null,
       };
       if (question) {
         await apiRequest("PATCH", `/api/admin/demo-questions/${question.id}`, payload);
@@ -106,7 +112,7 @@ function QuestionForm({
       toast({ title: question ? "Question updated" : "Question added" });
       onClose();
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   return (
@@ -147,6 +153,19 @@ function QuestionForm({
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Explanation (shown after answering)</Label>
             <Textarea value={explanation} onChange={(e) => setExplanation(e.target.value)} placeholder="Explain why the correct answer is right..." rows={2} />
+          </div>
+        </>
+      )}
+
+      {type === "saq" && (
+        <>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Model Answer (shown after answering)</Label>
+            <Textarea value={modelAnswer} onChange={(e) => setModelAnswer(e.target.value)} placeholder="The perfect answer to compare against..." rows={3} />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Marking Points</Label>
+            <Textarea value={markingPoints} onChange={(e) => setMarkingPoints(e.target.value)} placeholder="Key points the student should hit..." rows={3} />
           </div>
         </>
       )}
@@ -258,7 +277,7 @@ function QuestionsPanel({ exam }: { exam: DemoExam }) {
 }
 
 // ── Main page ──────────────────────────────────────────────────────────────
-export default function AdminDemoExams() {
+export function DemoExamsTab() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [newTitle, setNewTitle] = useState("");
@@ -309,10 +328,10 @@ export default function AdminDemoExams() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex flex-col">
-      <AppHeader />
+    <div className="space-y-6">
+      
 
-      <div className="flex-1 max-w-3xl mx-auto w-full px-4 py-8">
+      <div className="">
         {/* Header */}
         <div className="flex items-center gap-3 mb-8">
           <Button variant="ghost" size="icon" onClick={() => setLocation("/admin/dashboard")}>

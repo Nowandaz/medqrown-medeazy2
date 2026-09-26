@@ -1,19 +1,22 @@
-import { useStudentUnit, useRequestExamAccess, useRequestReattempt, useEnterExam } from "@/hooks/use-student";
+import { useStudentUnit, useRequestExamAccess, useRequestReattempt, useEnterExam, useRenewalStatus } from "@/hooks/use-student";
 import { useParams, useLocation, Link } from "wouter";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronLeft, FileText, Lock, Unlock, Clock, RefreshCcw } from "lucide-react";
+import { ChevronLeft, FileText, Lock, Unlock, Clock, RefreshCcw, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { FEATURES } from "@/lib/feature-flags";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { RenewMembershipDialog } from "@/components/student/renew-membership-dialog";
 
 export default function StudentUnitDetail() {
   const { id } = useParams();
   const [, setLocation] = useLocation();
   const { data: unit, isLoading } = useStudentUnit(id || "");
+  const { data: renewalStatus } = useRenewalStatus();
   const requestAccess = useRequestExamAccess();
   const requestReattempt = useRequestReattempt();
   const enterExam = useEnterExam();
@@ -112,14 +115,21 @@ export default function StudentUnitDetail() {
             <ChevronLeft className="h-5 w-5" />
           </Button>
         </Link>
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight">{unit.name}</h1>
-            <Badge variant="secondary">{unit.code}</Badge>
+        <div className="flex-1 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-bold tracking-tight">{unit.name}</h1>
+              <Badge variant="secondary">{unit.code}</Badge>
+            </div>
+            <p className="text-muted-foreground mt-1">
+              {unit.activeExamCount} Available Exams • {unit.completedAttempts} Completed Attempts
+            </p>
           </div>
-          <p className="text-muted-foreground mt-1">
-            {unit.activeExamCount} Available Exams • {unit.completedAttempts} Completed Attempts
-          </p>
+          {renewalStatus?.available && (
+            <div className="shrink-0">
+              <RenewMembershipDialog />
+            </div>
+          )}
         </div>
       </div>
 
@@ -186,7 +196,7 @@ export default function StudentUnitDetail() {
                      <Button variant="secondary" className="w-full" disabled>
                        <Clock className="mr-2 h-4 w-4" />Reattempt Pending
                      </Button>
-                   ) : exam.accessStatus === "approved" ? (
+                    ) : exam.accessStatus === "approved" && FEATURES.studentAccessRequests ? (
                      <Button
                        variant="outline"
                        className="w-full"
@@ -200,7 +210,7 @@ export default function StudentUnitDetail() {
                       <Clock className="w-4 h-4 mr-2" />
                       Access Pending
                     </Button>
-                  ) : (
+                   ) : FEATURES.studentAccessRequests ? (
                     <Button 
                       variant="outline" 
                       className="w-full hover:bg-primary hover:text-primary-foreground transition-colors" 
@@ -209,6 +219,8 @@ export default function StudentUnitDetail() {
                     >
                       Request Access
                     </Button>
+                   ) : (
+                    <Button variant="secondary" className="w-full" disabled>Unavailable</Button>
                   )}
                 </CardFooter>
               </Card>
@@ -216,7 +228,7 @@ export default function StudentUnitDetail() {
           </div>
         )}
       </div>
-      <Dialog open={!!reattemptExam} onOpenChange={(open) => !open && setReattemptExam(null)}>
+      {FEATURES.studentAccessRequests && <Dialog open={!!reattemptExam} onOpenChange={(open) => !open && setReattemptExam(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Request another attempt</DialogTitle>
@@ -235,7 +247,7 @@ export default function StudentUnitDetail() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog>}
     </div>
   );
 }
