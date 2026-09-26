@@ -2,3 +2,6 @@
 - [Fixed overlays in blurred headers](fixed-overlays-in-blurred-headers.md) — backdrop-filter/transform ancestors break position:fixed overlays; render menus/modals outside the header.
 - [Production schema migrations](production-schema-migrations.md) — production startup must apply idempotent schema changes before serving new database-backed features.
 - [Live-room fairness](live-room-fairness.md) — Keep quiz timers server-calibrated and score concurrent answers in full-second bands, with ties sharing rank.
+- [Supabase connections on Replit](supabase-connections-on-replit.md) — Direct DB hosts may be IPv6-only; use the Session pooler and the project database password.
+- [Artifact workflow ownership](artifact-workflow-ownership.md) — Use the managed MedQrown workflow only; a removed legacy workflow may leave an orphan holding port 5000.
+- [Clinical demo answer review](clinical-demo-answer-review.md) — Draft medical model answers for academic review before publishing them to the public demo.

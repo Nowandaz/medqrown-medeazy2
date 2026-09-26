@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, CheckCircle2, Clock3, Copy, Crown, Loader2, PartyPopper, ShieldCheck, Trophy, Users, XCircle } from "lucide-react";
+import { apiErrorMessage } from "@/lib/api-error";
 
 const letters = ["A", "B", "C", "D", "E"];
 const apiBase = import.meta.env.BASE_URL === "/" ? "" : import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -99,7 +100,7 @@ export default function StudentLiveRoom() {
         setAnswerMoment({ correct: result.isCorrect, points: result.points, rank: result.rank });
         window.setTimeout(() => setAnswerMoment(null), 1500);
       },
-      onError: (error: any) => toast({ title: "Answer not saved", description: error.message, variant: "destructive" }),
+      onError: (error: any) => toast({ title: "Answer not saved", description: apiErrorMessage(error), variant: "destructive" }),
     });
   };
   const copyInvite = async () => {

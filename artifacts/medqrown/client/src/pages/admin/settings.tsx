@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -10,32 +10,39 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { MedQrownBrand } from "@/components/MedQrownBrand";
-import { ArrowLeft, Brain, Mail, Users, Shield, Plus, Trash2, Save, Pencil, FlaskConical, CheckCircle, XCircle, Loader2, Building2 } from "lucide-react";
+import { AdminNav } from "@/components/admin/admin-nav";
+import { ArrowLeft, Brain, Mail, Users, Shield, Plus, Trash2, Save, Pencil, FlaskConical, CheckCircle, XCircle, Loader2, Building2, Calendar, CreditCard, FileText, Search } from "lucide-react";
+import { FEATURES } from "@/lib/feature-flags";
+import { cohortName, formatNairobi } from "@/lib/datetime";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { apiErrorMessage } from "@/lib/api-error";
 
 export default function AdminSettings() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
-  const { data: admin } = useQuery<any>({ queryKey: ["/api/admin/me"] });
+  const { data: admin, isLoading: adminLoading } = useQuery<any>({ queryKey: ["/api/admin/me"] });
   const { data: providers } = useQuery<any[]>({ queryKey: ["/api/ai-providers"] });
-  const { data: templates } = useQuery<any[]>({ queryKey: ["/api/email-templates"] });
+  const { data: templates } = useQuery<any[]>({ queryKey: ["/api/admin/settings/email-templates"] });
   const { data: admins } = useQuery<any[]>({ queryKey: ["/api/admins"] });
-  const { data: universities } = useQuery<any[]>({ queryKey: ["/api/admin/universities"] });
+  const { data: universities } = useQuery<any[]>({ queryKey: ["/api/admin/universities"], enabled: FEATURES.universityManagement });
 
+  if (adminLoading) return null;
   if (!admin) {
-    setLocation("/admin");
+    setLocation("/");
     return null;
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-primary/3">
-      <header className="border-b bg-card/80 backdrop-blur-sm">
+      <AdminNav admin={admin} />
+      <header className="hidden">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
-          <MedQrownBrand size="sm" /><Link href="/admin/dashboard">
+          <Link href="/admin/dashboard">
             <Button variant="ghost" size="icon"><ArrowLeft className="w-4 h-4" /></Button>
           </Link>
           <h1 className="text-lg font-bold flex-1">Settings</h1>
@@ -44,18 +51,24 @@ export default function AdminSettings() {
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
         <Tabs defaultValue="ai">
-          <TabsList className="mb-6 h-auto gap-1 bg-muted/50 p-1">
+          <TabsList className="mb-6 h-auto gap-1 bg-muted/50 p-1 flex-wrap">
             <TabsTrigger value="ai" className="text-xs gap-1"><Brain className="w-3 h-3" />AI Providers</TabsTrigger>
-            <TabsTrigger value="email" className="text-xs gap-1"><Mail className="w-3 h-3" />Email Templates</TabsTrigger>
+            <TabsTrigger value="email-templates" className="text-xs gap-1"><Mail className="w-3 h-3" />Email Templates</TabsTrigger>
+            <TabsTrigger value="email-log" className="text-xs gap-1"><FileText className="w-3 h-3" />Email Log</TabsTrigger>
             <TabsTrigger value="admins" className="text-xs gap-1"><Users className="w-3 h-3" />Admin Roles</TabsTrigger>
-            <TabsTrigger value="universities" className="text-xs gap-1"><Building2 className="w-3 h-3" />Universities</TabsTrigger>
+            {FEATURES.universityManagement && <TabsTrigger value="universities" className="text-xs gap-1"><Building2 className="w-3 h-3" />Universities</TabsTrigger>}
+            <TabsTrigger value="cohorts" className="text-xs gap-1"><Calendar className="w-3 h-3" />Cohorts</TabsTrigger>
+            <TabsTrigger value="payments" className="text-xs gap-1"><CreditCard className="w-3 h-3" />Payments & Grace</TabsTrigger>
             <TabsTrigger value="password" className="text-xs gap-1"><Shield className="w-3 h-3" />Password</TabsTrigger>
           </TabsList>
 
           <TabsContent value="ai"><AiProvidersSection providers={providers || []} /></TabsContent>
-          <TabsContent value="email"><EmailTemplatesSection templates={templates || []} /></TabsContent>
+          <TabsContent value="email-templates"><EmailTemplatesSection templates={templates || []} /></TabsContent>
+          <TabsContent value="email-log"><EmailLogSection /></TabsContent>
           <TabsContent value="admins"><AdminsSection admins={admins || []} isSuperAdmin={admin.role === "super_admin"} /></TabsContent>
-          <TabsContent value="universities"><UniversitiesSection universities={universities || []} /></TabsContent>
+          {FEATURES.universityManagement && <TabsContent value="universities"><UniversitiesSection universities={universities || []} /></TabsContent>}
+          <TabsContent value="cohorts"><CohortsSection /></TabsContent>
+          <TabsContent value="payments"><PaymentsSection /></TabsContent>
           <TabsContent value="password"><ChangePasswordSection /></TabsContent>
         </Tabs>
       </main>
@@ -83,7 +96,7 @@ function AiProvidersSection({ providers }: { providers: any[] }) {
       setTestResults(data.results || []);
       setShowTestDialog(true);
     } catch (e: any) {
-      toast({ title: "Test failed", description: e.message, variant: "destructive" });
+      toast({ title: "Test failed", description: apiErrorMessage(e), variant: "destructive" });
     } finally {
       setTesting(false);
     }
@@ -281,162 +294,33 @@ function AiProvidersSection({ providers }: { providers: any[] }) {
   );
 }
 
-function PlaceholderEditor({ placeholders, onChange }: { placeholders: Record<string, string>; onChange: (p: Record<string, string>) => void }) {
-  const [newKey, setNewKey] = useState("");
-
-  const builtInKeys = ["student_name", "exam_name", "email", "password", "portal_link"];
-  const allKeys = [...builtInKeys, ...Object.keys(placeholders || {}).filter(k => !builtInKeys.includes(k))];
-  const current = placeholders || {};
-
-  const updateValue = (key: string, value: string) => {
-    const updated = { ...current };
-    if (value) {
-      updated[key] = value;
-    } else {
-      delete updated[key];
-    }
-    onChange(updated);
-  };
-
-  const addCustom = () => {
-    if (!newKey || allKeys.includes(newKey)) return;
-    const cleanKey = newKey.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase();
-    onChange({ ...current, [cleanKey]: "" });
-    setNewKey("");
-  };
-
-  const removeCustom = (key: string) => {
-    const updated = { ...current };
-    delete updated[key];
-    onChange(updated);
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <Label className="text-sm font-semibold">Placeholder Values</Label>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Override the default auto-filled values, or add your own custom placeholders. Leave empty to use the automatic value.
-      </p>
-
-      <div className="space-y-2">
-        {builtInKeys.map(key => (
-          <div key={key} className="flex items-center gap-2">
-            <div className="w-36 shrink-0">
-              <Badge variant="outline" className="text-xs font-mono">{`{${key}}`}</Badge>
-            </div>
-            <Input
-              value={current[key] || ""}
-              onChange={(e) => updateValue(key, e.target.value)}
-              placeholder={
-                key === "student_name" ? "Auto: student's name" :
-                key === "exam_name" ? "Auto: exam title" :
-                key === "email" ? "Auto: student's email" :
-                key === "password" ? "Auto: student's password" :
-                key === "portal_link" ? "Auto: site URL" : ""
-              }
-              className="text-sm h-9"
-              data-testid={`input-placeholder-${key}`}
-            />
-          </div>
-        ))}
-
-        {Object.keys(current).filter(k => !builtInKeys.includes(k)).map(key => (
-          <div key={key} className="flex items-center gap-2">
-            <div className="w-36 shrink-0">
-              <Badge variant="secondary" className="text-xs font-mono">{`{${key}}`}</Badge>
-            </div>
-            <Input
-              value={current[key] || ""}
-              onChange={(e) => updateValue(key, e.target.value)}
-              placeholder={`Value for {${key}}`}
-              className="text-sm h-9"
-              data-testid={`input-placeholder-${key}`}
-            />
-            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive hover:text-destructive" onClick={() => removeCustom(key)} data-testid={`button-remove-placeholder-${key}`}>
-              <Trash2 className="w-3 h-3" />
-            </Button>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex items-center gap-2">
-        <Input
-          value={newKey}
-          onChange={(e) => setNewKey(e.target.value)}
-          placeholder="new_placeholder_name"
-          className="text-sm h-9 font-mono"
-          data-testid="input-new-placeholder-key"
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustom(); } }}
-        />
-        <Button variant="outline" size="sm" className="shrink-0 text-xs h-9" onClick={addCustom} disabled={!newKey} data-testid="button-add-placeholder">
-          <Plus className="w-3 h-3 mr-1" />Add
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 function EmailTemplatesSection({ templates }: { templates: any[] }) {
   const { toast } = useToast();
   const [editing, setEditing] = useState<any>(null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState<{ name: string; subject: string; body: string; placeholders: Record<string, string> }>({ name: "", subject: "", body: "", placeholders: {} });
-
-  const createTemplate = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/email-templates", form);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/email-templates"] });
-      setShowCreate(false);
-      setForm({ name: "", subject: "", body: "", placeholders: {} });
-      toast({ title: "Template created" });
-    },
-  });
 
   const updateTemplate = useMutation({
     mutationFn: async () => {
-      await apiRequest("PATCH", `/api/email-templates/${editing.id}`, {
-        name: editing.name, subject: editing.subject, body: editing.body,
-        placeholders: editing.placeholders || {},
+      await apiRequest("PATCH", `/api/admin/settings/email-templates/${editing.templateKey}`, {
+        subject: editing.subject, body: editing.body
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/email-templates"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/settings/email-templates"] });
       setEditing(null);
       toast({ title: "Template updated" });
     },
+    onError: (e: any) => toast({ title: "Error", description: apiErrorMessage(e), variant: "destructive" })
   });
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="font-medium">Email Templates</h3>
+          <h3 className="font-medium">System Email Templates</h3>
           <p className="text-sm text-muted-foreground">
-            Use placeholders like {"{student_name}"}, {"{exam_name}"}, etc. in your templates.
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Emails sent via Gmail SMTP (medqrownmedicalsolutions24@gmail.com)
+            Manage the content of automated system emails.
           </p>
         </div>
-        <Dialog open={showCreate} onOpenChange={setShowCreate}>
-          <DialogTrigger asChild><Button size="sm" data-testid="button-new-template"><Plus className="w-3 h-3 mr-1" />New Template</Button></DialogTrigger>
-          <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>Create Email Template</DialogTitle></DialogHeader>
-            <div className="space-y-4 pt-2">
-              <div className="space-y-2"><Label>Template Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="input-template-name" /></div>
-              <div className="space-y-2"><Label>Subject</Label><Input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} data-testid="input-template-subject" /></div>
-              <div className="space-y-2"><Label>Body</Label><Textarea className="min-h-[150px]" value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} data-testid="textarea-template-body" /></div>
-              <PlaceholderEditor placeholders={form.placeholders} onChange={(p) => setForm({ ...form, placeholders: p })} />
-              <Button className="w-full h-11" onClick={() => createTemplate.mutate()} disabled={createTemplate.isPending} data-testid="button-create-template">
-                {createTemplate.isPending ? "Creating..." : "Create Template"}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
 
       {editing && (
@@ -445,41 +329,252 @@ function EmailTemplatesSection({ templates }: { templates: any[] }) {
             <h4 className="text-sm font-semibold">Editing: {editing.name}</h4>
           </div>
           <CardContent className="p-4 space-y-4">
-            <div className="space-y-2"><Label>Template Name</Label><Input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} /></div>
-            <div className="space-y-2"><Label>Subject</Label><Input value={editing.subject} onChange={(e) => setEditing({ ...editing, subject: e.target.value })} /></div>
-            <div className="space-y-2"><Label>Body</Label><Textarea className="min-h-[200px]" value={editing.body} onChange={(e) => setEditing({ ...editing, body: e.target.value })} /></div>
-            <PlaceholderEditor
-              placeholders={editing.placeholders || {}}
-              onChange={(p) => setEditing({ ...editing, placeholders: p })}
-            />
+            <div className="space-y-2"><Label>Template Key</Label><Input value={editing.templateKey} disabled /></div>
+            <div className="space-y-2">
+              <Label>Subject (max 500 chars)</Label>
+              <Input value={editing.subject} maxLength={500} onChange={(e) => setEditing({ ...editing, subject: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label>Body (max 20,000 chars)</Label>
+              <Textarea className="min-h-[200px]" maxLength={20000} value={editing.body} onChange={(e) => setEditing({ ...editing, body: e.target.value })} />
+            </div>
+            
+            <div className="p-3 bg-muted rounded-md">
+              <h5 className="text-xs font-semibold mb-2">Available Placeholders</h5>
+              <div className="flex flex-wrap gap-2 text-xs font-mono text-muted-foreground">
+                {"{student_name}"}, {"{cohort_end}"}, {"{renew_link}"}, {"{paybill}"}, {"{account_number}"}, {"{reason}"}, {"{reset_code}"}, {"{announcement_title}"}, {"{announcement_message}"}, {"{announcement_link}"}
+              </div>
+            </div>
+
             <div className="flex gap-2">
-              <Button onClick={() => updateTemplate.mutate()} disabled={updateTemplate.isPending} data-testid="button-save-template"><Save className="w-3 h-3 mr-1" />Save</Button>
+              <Button onClick={() => updateTemplate.mutate()} disabled={updateTemplate.isPending || !editing.subject || !editing.body}>
+                <Save className="w-3 h-3 mr-1" />Save Changes
+              </Button>
               <Button variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {templates.map((t: any) => {
-        const hasCustomPlaceholders = t.placeholders && Object.keys(t.placeholders).length > 0;
-        return (
-          <Card key={t.id} className="shadow-sm hover:shadow-md transition-shadow cursor-pointer" onClick={() => setEditing({ ...t, placeholders: t.placeholders || {} })}>
-            <CardContent className="py-3 px-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{t.name}</p>
-                  <p className="text-xs text-muted-foreground mt-1">Subject: {t.subject}</p>
-                </div>
-                {hasCustomPlaceholders && (
-                  <Badge variant="outline" className="text-xs shrink-0">
-                    {Object.keys(t.placeholders).length} custom value{Object.keys(t.placeholders).length !== 1 ? "s" : ""}
-                  </Badge>
-                )}
+      <div className="grid gap-3 md:grid-cols-2">
+        {templates.map((t: any) => (
+          <Card key={t.templateKey} className="shadow-sm hover:shadow-md transition-shadow cursor-pointer" onClick={() => setEditing({ ...t })}>
+            <CardContent className="py-3 px-4 flex flex-col h-full justify-center">
+              <div className="min-w-0 mb-2">
+                <p className="text-sm font-medium">{t.name}</p>
+                <p className="text-xs text-muted-foreground font-mono mt-0.5">{t.templateKey}</p>
+              </div>
+              <div className="text-xs text-muted-foreground truncate" title={t.subject}>
+                <span className="font-semibold">Subj:</span> {t.subject}
               </div>
             </CardContent>
           </Card>
-        );
-      })}
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EmailLogSection() {
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [status, setStatus] = useState<string>("all");
+  const [templateKey, setTemplateKey] = useState<string>("all");
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [status, templateKey]);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/admin/settings/email-log", page, debouncedSearch, status, templateKey],
+    queryFn: async () => {
+      const p = new URLSearchParams({ page: page.toString(), pageSize: "25" });
+      if (debouncedSearch) p.set("search", debouncedSearch);
+      if (status !== "all") p.set("status", status);
+      if (templateKey !== "all") p.set("templateKey", templateKey);
+      const res = await apiRequest("GET", `/api/admin/settings/email-log?${p.toString()}`);
+      return res.json();
+    }
+  });
+
+  const { data: templates } = useQuery<any[]>({ queryKey: ["/api/admin/settings/email-templates"] });
+  const { toast } = useToast();
+  const [confirmDelete, setConfirmDelete] = useState<null | { id?: number; label: string }>(null);
+  const filterParams = () => {
+    const p = new URLSearchParams();
+    if (debouncedSearch) p.set("search", debouncedSearch);
+    if (status !== "all") p.set("status", status);
+    if (templateKey !== "all") p.set("templateKey", templateKey);
+    return p.toString();
+  };
+  const deleteLogs = useMutation({
+    mutationFn: async (target: { id?: number }) => {
+      const res = await apiRequest("DELETE", target.id ? `/api/admin/settings/email-log/${target.id}` : `/api/admin/settings/email-log?${filterParams()}`);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/settings/email-log"] });
+      setConfirmDelete(null);
+      setPage(1);
+      toast({ title: `Deleted ${data.deleted} log entr${data.deleted === 1 ? "y" : "ies"}` });
+    },
+    onError: (e: any) => toast({ title: "Couldn't delete logs", description: apiErrorMessage(e), variant: "destructive" }),
+  });
+  const filtered = debouncedSearch || status !== "all" || templateKey !== "all";
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center">
+        <div>
+          <h3 className="font-medium">Email Log</h3>
+          <p className="text-sm text-muted-foreground">View sent and failed emails across the system.</p>
+        </div>
+        {data?.total > 0 && (
+          <Button variant="outline" size="sm" className="text-destructive"
+            onClick={() => setConfirmDelete({ label: filtered ? `all ${data.total} matching entries` : `all ${data.total} entries` })}>
+            <Trash2 className="w-4 h-4 mr-1" /> {filtered ? "Delete matching" : "Delete all"}
+          </Button>
+        )}
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-3 bg-muted/30 p-3 rounded-lg border">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input 
+            placeholder="Search by recipient or template..." 
+            value={search} 
+            onChange={e => setSearch(e.target.value)} 
+            className="pl-9 h-9" 
+          />
+        </div>
+        <div className="flex gap-2">
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger className="w-[120px] h-9"><SelectValue placeholder="Status" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="sent">Sent</SelectItem>
+              <SelectItem value="failed">Failed</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={templateKey} onValueChange={setTemplateKey}>
+            <SelectTrigger className="w-[160px] h-9"><SelectValue placeholder="Template" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Templates</SelectItem>
+              {templates?.map(t => (
+                <SelectItem key={t.templateKey} value={t.templateKey}>{t.name}</SelectItem>
+              ))}
+              <SelectItem value="custom">Custom Messages</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <Card>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Recipient</TableHead>
+                <TableHead>Template / Source</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Details</TableHead>
+                <TableHead className="w-10"><span className="sr-only">Delete</span></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow><TableCell colSpan={6} className="text-center py-8"><Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+              ) : data?.items?.length === 0 ? (
+                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No email logs found.</TableCell></TableRow>
+              ) : (
+                data?.items?.map((item: any) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
+                      {formatNairobi(item.createdAt)}
+                    </TableCell>
+                    <TableCell className="font-medium text-sm">{item.recipient}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="font-mono text-xs">{item.templateKey}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      {item.status === "sent" ? (
+                        <Badge variant="default" className="bg-green-500/10 text-green-700 hover:bg-green-500/20 border-green-200">Sent</Badge>
+                      ) : (
+                        <Badge variant="destructive">Failed</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs max-w-[200px] truncate" title={item.error}>
+                      {item.error ? (
+                        <span className="text-red-600">{item.error}</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Delete log entry"
+                        onClick={() => setConfirmDelete({ id: item.id, label: `the log for ${item.recipient}` })}>
+                        <Trash2 className="w-4 h-4 text-muted-foreground" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        
+        {data?.total > 0 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/20">
+            <div className="text-xs text-muted-foreground">
+              Showing {(page - 1) * data?.pageSize + 1} to {Math.min(page * data?.pageSize, data?.total)} of {data?.total}
+            </div>
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+              >
+                Previous
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setPage(p => p + 1)}
+                disabled={page * data?.pageSize >= data?.total}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <AlertDialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {confirmDelete?.label}?</AlertDialogTitle>
+            <AlertDialogDescription>This permanently removes the log record only; it doesn't affect emails already delivered.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => { e.preventDefault(); if (confirmDelete) deleteLogs.mutate({ id: confirmDelete.id }); }}>
+              {deleteLogs.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -499,7 +594,7 @@ function AdminsSection({ admins, isSuperAdmin }: { admins: any[]; isSuperAdmin: 
       setForm({ name: "", email: "", password: "", role: "examiner" });
       toast({ title: "Admin created" });
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   return (
@@ -513,7 +608,7 @@ function AdminsSection({ admins, isSuperAdmin }: { admins: any[]; isSuperAdmin: 
           <Dialog open={showAdd} onOpenChange={setShowAdd}>
             <DialogTrigger asChild><Button size="sm"><Plus className="w-3 h-3 mr-1" />Add Admin</Button></DialogTrigger>
             <DialogContent>
-              <DialogHeader><DialogTitle>Create Admin</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>Create Admin</DialogTitle><DialogDescription className="hidden">Create a new admin account</DialogDescription></DialogHeader>
               <div className="space-y-4 pt-2">
                 <div className="space-y-2"><Label>Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
                 <div className="space-y-2"><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
@@ -565,7 +660,7 @@ function UniversitiesSection({ universities }: { universities: any[] }) {
       setNewName("");
       toast({ title: "University added" });
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   const deleteUniversity = useMutation({
@@ -631,7 +726,7 @@ function ChangePasswordSection() {
       await apiRequest("POST", "/api/admin/change-password", { currentPassword: current, newPassword: newPass });
     },
     onSuccess: () => { setCurrent(""); setNewPass(""); toast({ title: "Password changed" }); },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   return (
@@ -643,6 +738,143 @@ function ChangePasswordSection() {
           <div className="space-y-2"><Label>New Password</Label><Input type="password" value={newPass} onChange={(e) => setNewPass(e.target.value)} /></div>
           <Button onClick={() => changePassword.mutate()} disabled={!current || !newPass || changePassword.isPending}>
             {changePassword.isPending ? "Changing..." : "Change Password"}
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function CohortsSection() {
+  const { toast } = useToast();
+  const { data: cohortsData, isLoading } = useQuery<any>({ queryKey: ["/api/admin/cohorts"] });
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState({ startDate: "", endDate: "", reason: "" });
+
+  const updateCohort = useMutation({
+    mutationFn: async () => {
+      if (!editingId) return;
+      await apiRequest("PATCH", `/api/admin/cohorts/${editingId}`, form);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/cohorts"] });
+      setEditingId(null);
+      toast({ title: "Cohort updated" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: apiErrorMessage(e), variant: "destructive" }),
+  });
+
+  if (isLoading) return <div className="h-40 bg-muted/20 animate-pulse rounded-lg" />;
+  const { current, next, history } = cohortsData || {};
+
+  const openEdit = (c: any) => {
+    setEditingId(c.id);
+    setForm({ startDate: c.startDate, endDate: c.endDate, reason: "" });
+  };
+
+  const renderCohort = (c: any, title: string, canEdit: boolean) => {
+    if (!c) return null;
+    return (
+      <Card key={c.id} className="shadow-sm">
+        <CardContent className="py-4 px-5 flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h4 className="font-semibold text-sm mb-1">{title}</h4>
+            <div className="flex gap-4 text-sm text-muted-foreground">
+              <span>Start: {c.startDate}</span>
+              <span>End: {c.endDate}</span>
+            </div>
+          </div>
+          {canEdit && (
+            <Dialog open={editingId === c.id} onOpenChange={(o) => !o && setEditingId(null)}>
+              <DialogTrigger asChild><Button variant="outline" size="sm" onClick={() => openEdit(c)}>Edit</Button></DialogTrigger>
+              <DialogContent>
+                <DialogHeader><DialogTitle>Edit {title}</DialogTitle></DialogHeader>
+                <div className="space-y-4 pt-2">
+                  <div className="space-y-2"><Label>Start Date (YYYY-MM-DD)</Label><Input type="date" value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} /></div>
+                  <div className="space-y-2"><Label>End Date (YYYY-MM-DD)</Label><Input type="date" value={form.endDate} onChange={e => setForm({...form, endDate: e.target.value})} /></div>
+                  <div className="space-y-2"><Label>Reason for change (Required)</Label><Input value={form.reason} onChange={e => setForm({...form, reason: e.target.value})} placeholder="e.g. Adjusted to align with exams" /></div>
+                  <Button className="w-full" disabled={!form.reason || updateCohort.isPending} onClick={() => updateCohort.mutate()}>Save Changes</Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="font-medium">Manage Cohorts</h3>
+        <p className="text-sm text-muted-foreground">Update the current and next membership cohorts. Dates must be YYYY-MM-DD.</p>
+      </div>
+      <div className="space-y-3">
+        {renderCohort(current, `Current: ${cohortName(current)}`, true)}
+        {renderCohort(next, `Next: ${cohortName(next)}`, true)}
+      </div>
+      {history?.length > 0 && (
+        <div className="mt-8">
+          <h4 className="font-medium text-sm mb-3">History</h4>
+          <div className="space-y-2 opacity-75">
+            {history.map((h: any) => renderCohort(h, cohortName(h), false))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PaymentsSection() {
+  const { toast } = useToast();
+  const { data: settings, isLoading } = useQuery<any>({ queryKey: ["/api/admin/settings"] });
+  const [form, setForm] = useState<any>(null);
+
+  useEffect(() => {
+    if (settings && !form) setForm(settings);
+  }, [settings, form]);
+
+  const updateSettings = useMutation({
+    mutationFn: async () => {
+      await apiRequest("PATCH", "/api/admin/settings", {
+        individualPrice: Number(form.individualPrice),
+        groupPrice: Number(form.groupPrice),
+        graceDays: Number(form.graceDays),
+        paybill: form.paybill,
+        accountNumber: form.accountNumber,
+        bankName: form.bankName
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/settings"] });
+      toast({ title: "Settings updated" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: apiErrorMessage(e), variant: "destructive" }),
+  });
+
+  if (isLoading || !form) return <div className="h-40 bg-muted/20 animate-pulse rounded-lg" />;
+
+  return (
+    <div className="space-y-6 max-w-xl">
+      <div>
+        <h3 className="font-medium">Payments & Grace Settings</h3>
+        <p className="text-sm text-muted-foreground">Configure global membership pricing and grace period.</p>
+      </div>
+      <Card>
+        <CardContent className="space-y-4 pt-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2"><Label>Individual Price (KSh)</Label><Input type="number" value={form.individualPrice} onChange={e => setForm({...form, individualPrice: e.target.value})} /></div>
+            <div className="space-y-2"><Label>Group Price (KSh)</Label><Input type="number" value={form.groupPrice} onChange={e => setForm({...form, groupPrice: e.target.value})} /></div>
+          </div>
+          <div className="space-y-2"><Label>Grace Period (Days)</Label><Input type="number" min="0" max="90" value={form.graceDays} onChange={e => setForm({...form, graceDays: e.target.value})} /></div>
+          <div className="grid grid-cols-2 gap-4 pt-2">
+            <div className="space-y-2"><Label>Paybill Number</Label><Input value={form.paybill} onChange={e => setForm({...form, paybill: e.target.value})} /></div>
+            <div className="space-y-2"><Label>Account Number</Label><Input value={form.accountNumber} onChange={e => setForm({...form, accountNumber: e.target.value})} /></div>
+          </div>
+          <div className="space-y-2"><Label>Bank Name</Label><Input value={form.bankName} onChange={e => setForm({...form, bankName: e.target.value})} /></div>
+
+          <Button onClick={() => updateSettings.mutate()} disabled={updateSettings.isPending} className="mt-2">
+            {updateSettings.isPending ? "Saving..." : "Save Settings"}
           </Button>
         </CardContent>
       </Card>

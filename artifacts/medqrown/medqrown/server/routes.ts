@@ -4,7 +4,7 @@ import session from "express-session";
 import { storage } from "./storage";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import nodemailer from "nodemailer";
+import { sendLoggedEmail } from "../../server/stage11-email";
 import { markSAQResponses, markSingleResponse, markStudentSAQResponses } from "./ai-orchestrator";
 import { enqueueMarking } from "./marking-queue";
 import { getExamStructure, invalidateExamCache } from "./exam-cache";
@@ -512,10 +512,6 @@ export async function registerRoutes(
     const examId = parseInt(req.params.examId);
     const { templateId, studentIds, customSubject, customBody, onlySendNew } = req.body;
 
-    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-      return res.status(503).json({ message: "Email is not configured. Set SMTP_USER and SMTP_PASS environment variables." });
-    }
-
     const exam = await storage.getExam(examId);
     if (!exam) return res.status(404).json({ message: "Exam not found" });
 
@@ -526,27 +522,6 @@ export async function registerRoutes(
       : allStudents;
     if (onlySendNew) {
       targets = targets.filter((s: any) => !s.emailSent);
-    }
-
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || "smtp.gmail.com",
-      port: parseInt(process.env.SMTP_PORT || "587"),
-      secure: false,
-      family: 4, // Force IPv4 — Render cannot reach Gmail over IPv6
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-      connectionTimeout: 15000,
-      greetingTimeout: 10000,
-      socketTimeout: 20000,
-    });
-
-    // Verify SMTP connection before looping — fail fast with clear error
-    try {
-      await transporter.verify();
-    } catch (verifyErr: any) {
-      return res.status(503).json({ message: `SMTP connection failed: ${verifyErr.message}` });
     }
 
     const subjectTemplate = customSubject || template?.subject || "MedQrown MedEazy {exam_name} - Your Access Credentials";
@@ -576,20 +551,17 @@ export async function registerRoutes(
         }
       }
 
-      let status = "failed";
-      try {
-        await transporter.sendMail({
-          from: `"${process.env.SMTP_FROM_NAME || "MedQrown MedEazy"}" <${process.env.SMTP_USER}>`,
-          to: es.student.email,
-          subject,
-          text: body,
-        });
-        status = "sent";
+      const delivery = await sendLoggedEmail({
+        to: es.student.email,
+        templateKey: `exam_template:${template?.id ?? "default"}`,
+        subject,
+        body,
+      });
+      const status = delivery.status;
+      if (status === "sent") {
         successCount++;
         await storage.updateExamStudent(es.id, { emailSent: true });
-      } catch (err: any) {
-        console.error(`Email to ${es.student.email} failed:`, err.message);
-        status = "failed";
+      } else {
         failCount++;
       }
 

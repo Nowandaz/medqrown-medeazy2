@@ -23,21 +23,36 @@ export const units = pgTable("units", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+export const medqrownClasses = pgTable("medqrown_classes", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
 export const exams = pgTable("exams", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   status: text("status").notNull().default("draft"),
   maxAttempts: integer("max_attempts").notNull().default(1),
+  classId: integer("class_id").references(() => medqrownClasses.id, { onDelete: "restrict" }),
+  opensAt: timestamp("opens_at", { withTimezone: true }),
+  closesAt: timestamp("closes_at", { withTimezone: true }),
+  durationMinutes: integer("duration_minutes"),
   timerMode: text("timer_mode").notNull().default("none"),
   perQuestionSeconds: integer("per_question_seconds"),
   fullExamSeconds: integer("full_exam_seconds"),
   createdBy: integer("created_by").references(() => admins.id),
   resultsReleased: boolean("results_released").notNull().default(false),
-  autoMarkEnabled: boolean("auto_mark_enabled").notNull().default(false),
+  autoMarkEnabled: boolean("auto_mark_enabled").notNull().default(true),
   instructions: text("instructions"),
   unitId: integer("unit_id").references(() => units.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => [
+  index("exams_class_schedule_idx").on(table.classId, table.opensAt, table.closesAt),
+]);
 
 export const universities = pgTable("universities", {
   id: serial("id").primaryKey(),
@@ -188,6 +203,7 @@ export const attempts = pgTable("attempts", {
   submittedAt: timestamp("submitted_at"),
 }, (table) => [
   index("idx_attempts_exam_student_id").on(table.examStudentId),
+  index("attempts_in_progress_started_idx").on(table.startedAt).where(sql`status = 'in_progress'`),
 ]);
 
 export const responses = pgTable("responses", {
@@ -376,6 +392,8 @@ export const demoQuestions = pgTable("demo_questions", {
   imageUrl: text("image_url"),
   options: jsonb("options").$type<{ content: string; isCorrect: boolean }[]>(),
   explanation: text("explanation"),
+  modelAnswer: text("model_answer"),
+  markingPoints: text("marking_points"),
   orderIndex: integer("order_index").notNull().default(0),
 });
 

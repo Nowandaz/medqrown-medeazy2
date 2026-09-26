@@ -847,3 +847,43 @@ Every question MUST have exactly FIVE distinct answer choices. Return JSON only:
   }
   throw new Error(`Could not generate live quiz questions. ${errors.join(" | ")}`);
 }
+
+/** Admin-only examiner analysis, routed through the configured provider service. */
+export async function analyzeExamQuestions(input: {
+  examTitle: string;
+  questions: Array<Record<string, unknown>>;
+}): Promise<unknown[]> {
+  if (!input.questions.length) throw new Error("Select at least one exam question to analyze.");
+  const providers = await getProvidersWithFallback();
+  const prompt = `You are a senior medical examiner auditing exam questions. Analyze each supplied question using the question, model answer/options, and anonymized aggregate response statistics. Return JSON only as {"analyses":[{"questionId":number,"commonMisconceptions":string[],"ambiguityOrFlaws":string[],"markingConsistencyConcerns":string[],"suggestedImprovements":string[],"summary":string}]}. Be evidence-based; state when the submitted data is insufficient rather than inventing observations.\nExam: ${input.examTitle}\nQuestions: ${JSON.stringify(input.questions)}`;
+  const errors: string[] = [];
+  for (const provider of getWeightedProviderOrder(providers, 0)) {
+    try {
+      const model = getModelName(provider);
+      let raw: string;
+      if (provider.type === "anthropic") {
+        const response = await getAnthropicClient(provider).messages.create({
+          model, max_tokens: 8192, messages: [{ role: "user", content: prompt }],
+        });
+        raw = response.content.map((part: any) => part.type === "text" ? part.text : "").join("");
+      } else if (provider.type === "gemini") {
+        const response = await getGeminiClient(provider).getGenerativeModel({ model }).generateContent(prompt);
+        raw = response.response.text();
+      } else {
+        const response = await getOpenAiClient(provider).chat.completions.create({
+          model, max_completion_tokens: 8192, messages: [{ role: "user", content: prompt }],
+        });
+        raw = response.choices[0]?.message?.content || "";
+      }
+      const parsed = parseJsonSafe(raw);
+      if (!Array.isArray(parsed?.analyses)) throw new Error("The AI response did not include an analyses array");
+      const selectedIds = new Set(input.questions.map((question) => Number(question.id)));
+      const analyses = parsed.analyses.filter((analysis: any) => selectedIds.has(Number(analysis.questionId)));
+      if (analyses.length !== selectedIds.size) throw new Error("The AI returned incomplete question analysis");
+      return analyses;
+    } catch (error: any) {
+      errors.push(`${provider.name}: ${error?.message || "provider request failed"}`);
+    }
+  }
+  throw new Error(`AI examiner analysis failed. ${errors.join("; ")}`);
+}

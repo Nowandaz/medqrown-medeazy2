@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { ShieldCheck, Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
+import { PasswordFields, passwordsValid } from "@/components/password-fields";
 
 export default function ResetPassword() {
   const search = useSearch();
@@ -16,8 +17,6 @@ export default function ResetPassword() {
   const [code, setCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPw, setShowPw] = useState(false);
-  const [showCpw, setShowCpw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -28,8 +27,8 @@ export default function ResetPassword() {
       toast({ title: "Passwords don't match", description: "Please make sure both passwords are the same.", variant: "destructive" });
       return;
     }
-    if (newPassword.length < 6) {
-      toast({ title: "Password too short", description: "Password must be at least 6 characters.", variant: "destructive" });
+    if (newPassword.length < 8) {
+      toast({ title: "Password too short", description: "Use at least 8 characters.", variant: "destructive" });
       return;
     }
     setLoading(true);
@@ -87,48 +86,12 @@ export default function ResetPassword() {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="newPassword" className="text-sm font-medium">New Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="newPassword"
-                      type={showPw ? "text" : "password"}
-                      placeholder="New password (min. 6 chars)"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      required
-                      className="h-11 pr-10"
-                    />
-                    <button type="button" onClick={() => setShowPw(p => !p)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                      {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
+                <PasswordFields
+                  password={newPassword} confirm={confirmPassword}
+                  onPasswordChange={setNewPassword} onConfirmChange={setConfirmPassword}
+                />
 
-                <div className="space-y-2">
-                  <Label htmlFor="confirmPassword" className="text-sm font-medium">Confirm New Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="confirmPassword"
-                      type={showCpw ? "text" : "password"}
-                      placeholder="Repeat your new password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      required
-                      className="h-11 pr-10"
-                    />
-                    <button type="button" onClick={() => setShowCpw(p => !p)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                      {showCpw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  {confirmPassword && newPassword !== confirmPassword && (
-                    <p className="text-xs text-red-500">Passwords don't match</p>
-                  )}
-                </div>
-
-                <Button type="submit" className="w-full h-11 text-sm font-medium" disabled={loading || code.length < 6}>
+                <Button type="submit" className="w-full h-11 text-sm font-medium" disabled={loading || code.length < 6 || !passwordsValid(newPassword, confirmPassword)}>
                   <ShieldCheck className="w-4 h-4 mr-2" />
                   {loading ? "Resetting..." : "Reset Password"}
                 </Button>

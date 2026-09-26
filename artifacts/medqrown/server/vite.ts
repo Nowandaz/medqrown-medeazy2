@@ -21,8 +21,8 @@ export async function setupVite(server: Server, app: Express) {
     customLogger: {
       ...viteLogger,
       error: (msg, options) => {
+        // Log only: a mid-edit build error should not stop the development server.
         viteLogger.error(msg, options);
-        process.exit(1);
       },
     },
     server: serverOptions,

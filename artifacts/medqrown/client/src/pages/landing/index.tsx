@@ -1,6 +1,67 @@
+// ─── FAQ section ──────────────────────────────────────────────────────────────
+
+function FaqSection() {
+  const { data } = useQuery<{ faq: { id: number; question: string; answer: string }[] }>({
+    queryKey: ["/api/site-content"],
+  });
+  const items = data?.faq || [];
+  const [open, setOpen] = useState<number | null>(null);
+
+  if (items.length === 0) return null;
+
+  return (
+    <section id="faq-section" className="bg-muted/30 py-24 px-4 scroll-mt-16">
+      <div className="max-w-3xl mx-auto">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="text-center mb-14"
+        >
+          <p className="text-primary text-xs font-semibold uppercase tracking-widest mb-2">Questions?</p>
+          <h2 className="text-3xl sm:text-4xl font-black text-foreground">Frequently Asked Questions</h2>
+        </motion.div>
+        
+        <div className="space-y-3">
+          {items.map((item) => {
+            const isOpen = open === item.id;
+            return (
+              <div
+                key={item.id}
+                className={`rounded-2xl border transition-colors ${isOpen ? "border-primary/40 bg-primary/[0.03]" : "border-border bg-card"}`}
+              >
+                <button
+                  onClick={() => setOpen(isOpen ? null : item.id)}
+                  className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left"
+                >
+                  <span className="font-semibold text-foreground text-sm">{item.question}</span>
+                  <ChevronDown className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform duration-200 ${isOpen ? "rotate-180 text-primary" : ""}`} />
+                </button>
+                <AnimatePresence initial={false}>
+                  {isOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden"
+                    >
+                      <p className="px-5 pb-4 text-muted-foreground text-sm leading-relaxed whitespace-pre-line">{item.answer}</p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -9,14 +70,23 @@ import {
   Instagram, Twitter, Linkedin, ArrowRight, Crown,
   Rocket, FlaskConical, Target, Sparkles, Send,
   ExternalLink, GraduationCap, Clock, ChevronLeft, ChevronRight,
-  Swords,
+  Swords, HelpCircle,
+  CheckCircle
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
 import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 import medqrownIcon from "@/assets/medqrown-icon.png";
 import demoStudents from "@/assets/demo-students.jpg";
+import { FEATURES } from "@/lib/feature-flags";
+import { FormattedDemoText } from "@/components/formatted-demo-text";
+import { RegistrationCta, useRegistrationStatus } from "@/components/RegistrationCta";
+import { trackEngagement } from "@/lib/engagement";
+import { formatNairobi } from "@/lib/datetime";
 
 type DemoExamData = { id: number; title: string; timerSeconds: number };
 type DemoQuestionData = {
@@ -134,85 +204,34 @@ function SubjectDropdown({
 const features = [
   {
     icon: Brain,
-    title: "AI Clinical Scenarios",
-    description:
-      "Clinical case questions framed around real patient presentations to sharpen your diagnostic instincts.",
-    badge: "COMING SOON",
-  },
-  {
-    icon: Zap,
-    title: "Standoffs — Rapid Fire",
-    description:
-      "Go head-to-head with a friend in a 1v1 or 2v2 clinical duel with a 60-second clock per question.",
-    badge: "COMING SOON",
-  },
-  {
-    icon: Trophy,
-    title: "Competitive Elo Ratings",
-    description:
-      "Track your clinical reasoning over time and watch your rating climb as you master complex topics.",
-    badge: "COMING SOON",
-  },
-  {
-    icon: Users,
-    title: "Peer-Hosted Lobbies",
-    description:
-      "Create private exam rooms, set your own time limits, and compete with your specific study group.",
-    badge: "COMING SOON",
-  },
-  {
-    icon: Star,
-    title: "The XP Grind",
-    description:
-      "Earn Clinical XP by winning Standoffs and dominating lobbies. Unlock specialty cases and exclusive themes.",
-    badge: "COMING SOON",
+    title: "Weekly Online Session",
+    description: "Mondays, 8:00–10:00 pm. We cover the objectives for the coming week so you're familiar with the content before lectures.",
+    badge: "LIVE",
   },
   {
     icon: Activity,
-    title: "Instant Results & AI Feedback",
-    description:
-      "After every exam, get per-question AI-written explanations detailing exactly why each answer was right or wrong.",
+    title: "Weekly Mock CAT",
+    description: "Saturdays, 8:00–8:30 pm, on this website, structured like the real exams.",
     badge: "LIVE",
   },
-];
-
-const premiumPerks = [
   {
-    icon: Rocket,
-    title: "Unlimited AI Exams",
-    description: "Remove the monthly cap and generate as many custom practice exams as you need.",
+    icon: Brain,
+    title: "Weekly Revision Session",
+    description: "Saturdays, 8:30–10:30 pm. We go through the tested concepts and areas of difficulty.",
+    badge: "LIVE",
   },
-  {
-    icon: Target,
-    title: "Deep Tactical Analysis",
-    description: "Post-exam breakdowns of every mechanism you misdiagnosed and why — not just a final score.",
-  },
-  {
-    icon: Users,
-    title: "Massive Lobbies",
-    description: "Host cohort-wide exams without player caps.",
-  },
-  {
-    icon: Star,
-    title: "XP Store Access",
-    description: "Unlock premium scenario packs, advanced AI features, and exclusive visual customizations.",
-  },
-];
-
-const horizonFeatures = [
   {
     icon: FlaskConical,
-    title: "Viva / Oral Assessment Simulator",
-    description:
-      "Multi-step clinical scenarios fired at you dynamically to prepare for the pressure of oral exams.",
-  },
-  {
-    icon: Sparkles,
-    title: "WARD-E: Your AI Companion",
-    description:
-      "Your personalized dashboard companion that guides you through difficult concepts and drives autonomous study sessions.",
+    title: "Physical Gross Anatomy Lab",
+    description: "Every two weeks, Saturday, 10:00 am–1:00 pm.",
+    badge: "IN PERSON",
   },
 ];
+
+
+
+
+
 
 // ─── Navbar ──────────────────────────────────────────────────────────────────
 
@@ -275,58 +294,26 @@ function Navbar() {
         {/* Desktop center nav */}
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-muted-foreground">
           <button onClick={() => scrollTo("features")} className="hover:text-primary transition-colors">
-            Features
-          </button>
-          <button onClick={() => scrollTo("study-hub")} className="hover:text-primary transition-colors">
-            Study Hub
-          </button>
-          <button onClick={() => scrollTo("leaderboards")} className="hover:text-primary transition-colors">
-            Leaderboards
+            What's included
           </button>
           <button onClick={() => scrollTo("demo-section")} className="hover:text-primary transition-colors">
             Demo
           </button>
+          <button onClick={() => scrollTo("faq-section")} className="hover:text-primary transition-colors">
+            FAQ
+          </button>
+          <button onClick={() => scrollTo("contact")} className="hover:text-primary transition-colors">
+            Contact
+          </button>
+          <Link href="/portal" className="hover:text-primary transition-colors">
+            Student Login
+          </Link>
         </nav>
 
         {/* Desktop right actions */}
         <div className="hidden md:flex items-center gap-3">
-          <div className="relative" ref={portalRef}>
-            <button
-              onClick={() => setPortalOpen((v) => !v)}
-              className="flex items-center gap-1.5 text-sm font-medium text-foreground border border-border hover:border-primary/40 rounded-lg px-4 py-2 transition-all bg-card hover:bg-muted"
-            >
-              Portal <ChevronDown className={`w-3.5 h-3.5 transition-transform ${portalOpen ? "rotate-180" : ""}`} />
-            </button>
-            <AnimatePresence>
-              {portalOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: 6, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 6, scale: 0.97 }}
-                  transition={{ duration: 0.12 }}
-                  className="absolute right-0 mt-2 w-56 bg-card border border-border rounded-xl shadow-lg overflow-hidden"
-                >
-                  <Link
-                    href="/portal"
-                    className="flex items-center gap-2 px-4 py-3 text-sm text-foreground hover:bg-muted transition-colors"
-                    onClick={() => setPortalOpen(false)}
-                  >
-                    <GraduationCap className="w-4 h-4 text-primary" /> Student Portal
-                  </Link>
-                  <Link
-                    href="/admin"
-                    className="flex items-center gap-2 px-4 py-3 text-sm text-foreground hover:bg-muted transition-colors border-t border-border"
-                    onClick={() => setPortalOpen(false)}
-                  >
-                    <Crown className="w-4 h-4 text-primary" /> Admin · Institution Login
-                  </Link>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          <Link href="/student/signup">
-            <Button size="sm" className="font-semibold px-5">Start</Button>
+          <Link href="/portal">
+            <Button size="sm" variant="outline" className="font-semibold px-4">Student Login</Button>
           </Link>
         </div>
 
@@ -361,10 +348,10 @@ function Navbar() {
               <p className="text-muted-foreground/60 text-[11px] font-bold uppercase tracking-[0.2em] mb-3 px-1">Explore</p>
               <div className="flex flex-col gap-2">
                 {[
-                  { id: "features", label: "Features", icon: Sparkles, desc: "What MedQrown can do" },
-                  { id: "study-hub", label: "Study Hub", icon: Brain, desc: "Your practice arsenal" },
-                  { id: "leaderboards", label: "Leaderboards", icon: Trophy, desc: "See who's on top" },
-                  { id: "demo-section", label: "Try the Demo", icon: Zap, desc: "A real timed question" },
+                  { id: "features", label: "What's included", icon: Sparkles, desc: "What we offer" },
+                  { id: "demo-section", label: "Demo", icon: Zap, desc: "A real timed question" },
+                  { id: "faq-section", label: "FAQ", icon: HelpCircle, desc: "Frequently asked questions" },
+                  { id: "contact", label: "Contact", icon: Mail, desc: "Get in touch" },
                 ].map(({ id, label, icon: Icon, desc }) => (
                   <button
                     key={id}
@@ -386,31 +373,19 @@ function Navbar() {
               </div>
 
               <p className="text-muted-foreground/60 text-[11px] font-bold uppercase tracking-[0.2em] mt-7 mb-3 px-1">Portals</p>
-              <div className="relative z-10 grid grid-cols-2 gap-2">
+              <div className="relative z-10 grid grid-cols-1 gap-2">
                 <Link
                   href="/portal"
                   onClick={() => setMenuOpen(false)}
                   className="flex flex-col items-center gap-2 rounded-2xl border border-border/60 bg-card px-3 py-4 active:scale-[0.98] transition-transform"
                 >
                   <GraduationCap className="w-6 h-6 text-primary" />
-                  <span className="font-bold text-foreground text-sm">Student Portal</span>
-                </Link>
-                <Link
-                  href="/admin"
-                  onClick={() => setMenuOpen(false)}
-                  className="flex flex-col items-center gap-2 rounded-2xl border border-border/60 bg-card px-3 py-4 active:scale-[0.98] transition-transform"
-                >
-                  <Crown className="w-6 h-6 text-primary" />
-                  <span className="font-bold text-foreground text-sm">Institutions</span>
+                  <span className="font-bold text-foreground text-sm">Student Login</span>
                 </Link>
               </div>
 
               <div className="relative z-10 mt-auto pt-8">
-                <Link href="/student/signup" onClick={() => setMenuOpen(false)}>
-                  <Button className="w-full h-13 rounded-2xl font-bold text-base py-6 gap-2">
-                    Start Practicing <ArrowRight className="w-5 h-5" />
-                  </Button>
-                </Link>
+                <RegistrationCta className="w-full rounded-2xl text-base py-6" onNavigate={() => setMenuOpen(false)} />
               </div>
             </nav>
           </motion.div>
@@ -423,9 +398,16 @@ function Navbar() {
 // ─── Hero ─────────────────────────────────────────────────────────────────────
 
 function HeroSection() {
+  const { data: contentData } = useQuery<{ settings: Record<string, any> }>({
+    queryKey: ["/api/site-content"],
+  });
+  
+  const { registrationOpen } = useRegistrationStatus();
+  useEffect(() => { trackEngagement("page_view", "home"); }, []);
+
   return (
-    <section className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex items-start justify-center pt-16">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 text-center pt-10 pb-16 sm:pt-14 sm:pb-20">
+    <section className="min-h-[90vh] bg-gradient-to-br from-background via-background to-primary/5 flex items-center justify-center pt-16">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 text-center py-16 sm:py-20">
         {/* Logo */}
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
@@ -441,12 +423,10 @@ function HeroSection() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.1 }}
-          className="text-5xl sm:text-6xl md:text-7xl font-black text-foreground leading-tight tracking-tight mb-6"
+          className="text-4xl sm:text-5xl md:text-6xl font-black text-foreground leading-tight tracking-tight mb-6"
         >
-          Master Medical{" "}
-          <span className="text-primary">School.</span>
-          <br />
-          Together.
+          MedQrown MedEazy<br />
+          <span className="text-primary">Academic Consultancy</span>
         </motion.h1>
 
         {/* Subheadline */}
@@ -456,9 +436,8 @@ function HeroSection() {
           transition={{ duration: 0.5, delay: 0.2 }}
           className="text-lg sm:text-xl text-muted-foreground max-w-3xl mx-auto mb-10 leading-relaxed"
         >
-          Generate targeted AI practice exams, conquer real-world clinical scenarios,
-          challenge your friends in rapid-fire duels, and see how your clinical reasoning ranks.
-          Take Timed Exams and see how you perform!
+          Consistent academic support throughout the semester: weekly online sessions,
+          mock CATs, guided revision, and hands-on anatomy practice.
         </motion.p>
 
         {/* CTAs */}
@@ -468,57 +447,29 @@ function HeroSection() {
           transition={{ duration: 0.5, delay: 0.3 }}
           className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-6"
         >
-          <Link href="/student/signup">
-            <Button size="lg" className="px-8 h-12 text-base font-semibold gap-2">
-              Start Practicing <ArrowRight className="w-5 h-5" />
-            </Button>
-          </Link>
-          <div className="relative">
-            <Button
-              size="lg"
-              variant="outline"
-              disabled
-              className="px-8 h-12 text-base font-semibold opacity-60 cursor-not-allowed"
-            >
-              Host a Group Exam
-            </Button>
-            <span className="absolute -top-2.5 -right-2 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider">
-              Soon
-            </span>
-          </div>
+          <RegistrationCta className="px-8 h-12 text-base" />
         </motion.div>
 
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
-          className="text-muted-foreground text-sm"
+          className="text-muted-foreground text-sm mt-4"
         >
-          Sign up or log in to take exams, host lobbies, and climb the leaderboard.
+          {registrationOpen
+            ? (contentData?.settings?.registrationClosesAt
+                ? `Registration is open until ${formatNairobi(contentData.settings.registrationClosesAt)}.`
+                : "Registration is open for this cohort.")
+            : (contentData?.settings?.registrationOpensAt
+                ? `Registration opens ${formatNairobi(contentData.settings.registrationOpensAt)}. Join the waitlist and we'll email you.`
+                : "Registration is currently closed. Join our waitlist to be notified when spots open.")}
         </motion.p>
 
-        {/* Stats */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6 }}
-          className="mt-16 grid grid-cols-3 gap-6 max-w-lg mx-auto border-t border-border pt-10"
-        >
-          {[
-            { value: "AI-Powered", label: "Clinical Marking" },
-            { value: "Timed", label: "Exam Mode" },
-            { value: "Free", label: "To Start" },
-          ].map((stat) => (
-            <div key={stat.label} className="text-center">
-              <div className="text-lg font-black text-primary">{stat.value}</div>
-              <div className="text-xs text-muted-foreground mt-0.5">{stat.label}</div>
-            </div>
-          ))}
-        </motion.div>
       </div>
     </section>
   );
 }
+
 
 // ─── Demo section ─────────────────────────────────────────────────────────────
 
@@ -529,6 +480,7 @@ function InteractiveDemoCard() {
   const [phase, setPhase] = useState<DemoPhase>("select");
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [saqText, setSaqText] = useState("");
+  const [saqResultData, setSaqResultData] = useState<{ modelAnswer?: string; markingPoints?: string } | null>(null);
   const [timeLeft, setTimeLeft] = useState(60);
   const [timerActive, setTimerActive] = useState(false);
   const [demoSessionId, setDemoSessionId] = useState("");
@@ -537,6 +489,14 @@ function InteractiveDemoCard() {
   const { data: demoExams = [] } = useQuery<DemoExamData[]>({
     queryKey: ["/api/demo/exams"],
   });
+
+  // Shared demo links: /demo?subject=Anatomy preselects that subject.
+  useEffect(() => {
+    if (selectedExamId || !demoExams.length) return;
+    const wanted = new URLSearchParams(window.location.search).get("subject")?.trim().toLowerCase();
+    const match = wanted && demoExams.find((e) => e.title.toLowerCase() === wanted);
+    if (match) setSelectedExamId(match.id);
+  }, [demoExams, selectedExamId]);
 
   const selectedExam = demoExams.find((e) => e.id === selectedExamId);
 
@@ -565,6 +525,7 @@ function InteractiveDemoCard() {
     const sessionId = createDemoSessionId();
     setDemoSessionId(sessionId);
     trackDemoEngagement({ examId: selectedExamId, sessionId, eventType: "started" });
+    trackEngagement("demo_start", "demo");
     // Refetch so a fresh random MCQ + SAQ is pulled from the bank each attempt
     queryClient.invalidateQueries({ queryKey: [`/api/demo/exams/${selectedExamId}/questions`] });
     setPhase("mcq");
@@ -593,6 +554,7 @@ function InteractiveDemoCard() {
     if (!saqQ) {
       if (selectedExamId && demoSessionId) {
         trackDemoEngagement({ examId: selectedExamId, sessionId: demoSessionId, eventType: "completed" });
+        trackEngagement("demo_complete", "demo");
       }
       setPhase("done");
       return;
@@ -611,19 +573,42 @@ function InteractiveDemoCard() {
     setSaqText("");
   };
 
-  const handleSaqSubmit = () => {
-    if (selectedExamId && demoSessionId && saqQ) {
-      trackDemoEngagement({
-        examId: selectedExamId,
-        sessionId: demoSessionId,
-        eventType: "saq_submitted",
-        questionId: saqQ.id,
-        responseLength: saqText.trim().length,
+  const saqSubmit = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/demo/saq-submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          examId: selectedExamId,
+          questionId: saqQ?.id,
+          sessionId: demoSessionId,
+          response: saqText,
+        }),
       });
-      trackDemoEngagement({ examId: selectedExamId, sessionId: demoSessionId, eventType: "completed" });
-    }
-    setTimerActive(false);
-    setPhase("saq_result");
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setSaqResultData(data);
+      setTimerActive(false);
+      setPhase("saq_result");
+      if (selectedExamId && demoSessionId && saqQ) {
+        trackDemoEngagement({
+          examId: selectedExamId,
+          sessionId: demoSessionId,
+          eventType: "saq_submitted",
+          questionId: saqQ.id,
+          responseLength: saqText.trim().length,
+        });
+        trackDemoEngagement({ examId: selectedExamId, sessionId: demoSessionId, eventType: "completed" });
+        trackEngagement("demo_complete", "demo");
+      }
+    },
+  });
+
+  const handleSaqSubmit = () => {
+    if (!saqText.trim()) return;
+    saqSubmit.mutate();
   };
 
   const handleReset = () => {
@@ -772,12 +757,9 @@ function InteractiveDemoCard() {
                     <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
                       <p className="text-xs text-foreground leading-snug">
                         <span className="font-bold">Enjoying this?</span>{" "}
-                        <span className="text-muted-foreground">Create a free account to save your streak.</span>
+                        <span className="text-muted-foreground">Members take a Mock CAT like this every Saturday.</span>
                       </p>
                       <div className="flex items-center gap-2 shrink-0">
-                        <Link href="/student/signup">
-                          <Button size="sm" className="text-xs h-7 px-3 rounded-lg font-bold">Sign up free</Button>
-                        </Link>
                         <button
                           onClick={() => setMcqNudgeDismissed(true)}
                           aria-label="Dismiss"
@@ -822,28 +804,30 @@ function InteractiveDemoCard() {
                 className="w-full bg-background border border-input rounded-xl px-4 py-3 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
               />
               {phase === "saq" && (
-                <Button onClick={handleSaqSubmit} disabled={!saqText.trim()} className="w-full rounded-xl h-11 font-bold">
-                  Submit Answer
+                <Button onClick={handleSaqSubmit} disabled={!saqText.trim() || saqSubmit.isPending} className="w-full rounded-xl h-11 font-bold">
+                  {saqSubmit.isPending ? "Submitting..." : "Submit Answer"}
                 </Button>
               )}
               {phase === "saq_result" && (
-                <div className="relative rounded-2xl overflow-hidden">
-                  <div className="border border-primary/15 rounded-2xl p-5 select-none pointer-events-none" aria-hidden>
-                    <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2">AI Analysis & Model Answer</p>
-                    <p className="text-sm text-foreground mb-2">Your answer demonstrates a solid understanding of the primary pathway. You correctly identified the mechanism but missed the compensatory feedback loop. <strong>Score: 7/10.</strong></p>
-                    <p className="text-xs text-muted-foreground">Model answer: The correct sequence involves activation of the renin–angiotensin–aldosterone system, leading to sodium retention and secondary hypertension.</p>
-                  </div>
-                  <div className="absolute inset-0 backdrop-blur-md bg-background/55 flex flex-col items-center justify-center text-center px-5">
-                    <Crown className="w-8 h-8 text-primary mb-2" />
-                    <p className="font-black text-foreground text-sm mb-1">Unlock AI Analysis &amp; Feedback</p>
-                    <p className="text-muted-foreground text-xs mb-4 max-w-[220px] leading-relaxed">
-                      Create an account to see your score, model answer, and full AI explanation.
-                    </p>
-                    <div className="flex gap-2">
-                      <Link href="/student/signup">
-                        <Button size="sm" className="font-bold text-xs rounded-lg">Create Account</Button>
-                      </Link>
-                      <Button size="sm" variant="outline" onClick={handleReset} className="text-xs rounded-lg">Try Again</Button>
+                <div className="space-y-4">
+                  {/* The answer is shown blurred: members get the full answer, marking and explanations every week. */}
+                  <div className="relative overflow-hidden rounded-2xl border border-primary/20">
+                    <div aria-hidden="true" className="p-5 bg-primary/[0.03] blur-[5px] select-none pointer-events-none">
+                      <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2">Model Answer</p>
+                      <FormattedDemoText text={saqResultData?.modelAnswer || ""} className="text-sm text-foreground mb-4 leading-relaxed whitespace-pre-wrap" />
+                      <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2 border-t border-primary/10 pt-4">Marking Points</p>
+                      <FormattedDemoText text={saqResultData?.markingPoints || ""} className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap" />
+                    </div>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/60 backdrop-blur-[1px] px-5 text-center">
+                      <Crown className="w-8 h-8 text-primary" />
+                      <p className="font-bold text-foreground text-lg leading-tight">Unlock the model answer &amp; marking</p>
+                      <p className="text-sm text-muted-foreground max-w-xs">
+                        Members see exactly how every answer is marked, get it explained, and take a Mock CAT like this every Saturday.
+                      </p>
+                      <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                        <RegistrationCta size="default" className="rounded-xl" />
+                        <Button variant="outline" onClick={handleReset} className="rounded-xl">Try again</Button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -856,11 +840,13 @@ function InteractiveDemoCard() {
 
         {phase === "done" && (
           <motion.div key="done" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="text-center">
-            <div className="text-5xl mb-3">🎯</div>
+            <div className="flex justify-center mb-3">
+              <Target className="w-12 h-12 text-primary" />
+            </div>
             <h3 className="font-black text-foreground text-xl mb-2">Challenge complete!</h3>
-            <p className="text-muted-foreground text-sm mb-6">Create an account to compete for real, track your Elo, and get AI-powered feedback.</p>
+            <p className="text-muted-foreground text-sm mb-6">Sign in to access your official exams and results.</p>
             <div className="flex gap-3 justify-center">
-              <Link href="/student/signup"><Button className="font-bold rounded-xl">Create Account</Button></Link>
+              <Link href="/portal"><Button className="font-bold rounded-xl">Student Sign In</Button></Link>
               <Button variant="outline" onClick={handleReset} className="rounded-xl">Try Again</Button>
             </div>
           </motion.div>
@@ -871,207 +857,57 @@ function InteractiveDemoCard() {
   );
 }
 
-function toYouTubeEmbed(url: string): string | null {
-  const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/);
-  return m ? `https://www.youtube.com/embed/${m[1]}` : null;
-}
+
 
 function DemoSection() {
-  const trackRef = useRef<HTMLDivElement>(null);
-  const [slide, setSlide] = useState(0);
-  const SLIDES = 3;
-
   const { data: siteContent } = useQuery<SiteContentData>({ queryKey: ["/api/site-content"] });
   const settings = siteContent?.settings || {};
-  const videoUrl: string = settings.demoVideoUrl || "";
-  const youtubeEmbed = videoUrl ? toYouTubeEmbed(videoUrl) : null;
   const photoUrl: string = settings.demoPhotoUrl || demoStudents;
-  const photoHeadline: string = settings.demoPhotoHeadline || "Study less. Rank higher.";
+  const photoHeadline: string = settings.demoPhotoHeadline || "Stay ahead all semester.";
   const photoSubtext: string =
     settings.demoPhotoSubtext ||
-    "Thousands of questions, AI feedback in seconds, and classmates to outscore. This is how the top of your class prepares.";
-  const photoCta: string = settings.demoPhotoCta || "Join Them";
-
-  const goTo = (i: number) => {
-    const el = trackRef.current;
-    if (!el) return;
-    const clamped = Math.max(0, Math.min(SLIDES - 1, i));
-    el.scrollTo({ left: clamped * el.clientWidth, behavior: "smooth" });
-  };
-
-  const onScroll = () => {
-    const el = trackRef.current;
-    if (!el) return;
-    setSlide(Math.round(el.scrollLeft / el.clientWidth));
-  };
+    "Weekly sessions before lectures, a Saturday Mock CAT structured like the real exams, and revision on the concepts you found hardest.";
 
   return (
     <section id="demo-section" className="relative bg-background pt-24 pb-10 overflow-hidden scroll-mt-16">
-      {/* Section header */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        className="text-center mb-12 px-4"
-      >
-        <p className="text-primary text-xs font-semibold uppercase tracking-widest mb-2">Try It Now</p>
-        <h2 className="text-3xl sm:text-4xl font-black text-foreground">
-          See what exam day actually feels like.
-        </h2>
-        <p className="text-muted-foreground mt-3 max-w-xl mx-auto">
-          A real timed question from our bank. No signup needed.
-        </p>
-      </motion.div>
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
+      <div className="max-w-6xl mx-auto px-4 lg:px-8">
+        <div className="text-center mb-10">
+          <h2 className="text-3xl sm:text-4xl font-black text-foreground">See for yourself</h2>
+        </div>
 
-      {/* Full-width slider */}
-      <div className="relative">
-        <div
-          ref={trackRef}
-          onScroll={onScroll}
-          className="flex overflow-x-auto snap-x snap-mandatory scroll-smooth"
-          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-        >
-          {/* ── Slide 1: quiz popup on ambient backdrop ── */}
-          <div className="w-full shrink-0 snap-center relative px-4 sm:px-8 py-14 flex items-center justify-center min-h-[620px]">
-            {/* Ambient backdrop */}
-            <div className="absolute inset-0 bg-gradient-to-b from-primary/[0.06] via-primary/[0.10] to-primary/[0.05]" aria-hidden />
-            <div
-              className="absolute inset-0 opacity-[0.35]"
-              aria-hidden
-              style={{
-                backgroundImage:
-                  "radial-gradient(ellipse 60% 50% at 50% 40%, hsl(var(--primary) / 0.18), transparent 70%)",
-              }}
-            />
-            <div
-              className="absolute inset-0 opacity-[0.05]"
-              aria-hidden
-              style={{
-                backgroundImage:
-                  "linear-gradient(hsl(var(--foreground)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--foreground)) 1px, transparent 1px)",
-                backgroundSize: "44px 44px",
-              }}
-            />
-            <div className="relative z-10 w-full">
-              <InteractiveDemoCard />
-            </div>
-          </div>
-
-          {/* ── Slide 2: video ── */}
-          <div className="w-full shrink-0 snap-center relative flex items-center justify-center min-h-[620px] px-4 sm:px-8 py-14">
-            <div className="absolute inset-0 bg-gradient-to-br from-[#06251f] via-[#0a3a30] to-[#06251f]" aria-hidden />
-            <div
-              className="absolute inset-0 opacity-30"
-              aria-hidden
-              style={{
-                backgroundImage:
-                  "radial-gradient(ellipse 50% 60% at 50% 50%, hsl(var(--primary) / 0.35), transparent 70%)",
-              }}
-            />
-            {videoUrl ? (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.97 }}
-                whileInView={{ opacity: 1, scale: 1 }}
-                viewport={{ once: true }}
-                className="relative z-10 w-full max-w-3xl mx-auto"
-              >
-                <div className="aspect-video rounded-2xl overflow-hidden shadow-[0_24px_80px_-16px_rgba(0,0,0,0.5)] border border-white/10 bg-black">
-                  {youtubeEmbed ? (
-                    <iframe
-                      src={youtubeEmbed}
-                      title="MedQrown platform walkthrough"
-                      className="w-full h-full"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                    />
-                  ) : (
-                    <video src={videoUrl} controls playsInline className="w-full h-full object-contain" />
-                  )}
-                </div>
-                <p className="text-white/70 text-sm text-center mt-5">Watch the platform in action.</p>
-              </motion.div>
-            ) : (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                whileInView={{ opacity: 1, scale: 1 }}
-                viewport={{ once: true }}
-                className="relative z-10 text-center max-w-lg mx-auto"
-              >
-                <motion.button
-                  whileHover={{ scale: 1.06 }}
-                  whileTap={{ scale: 0.97 }}
-                  className="w-24 h-24 rounded-full bg-white/10 backdrop-blur border border-white/25 flex items-center justify-center mx-auto mb-8 shadow-[0_0_60px_rgba(255,255,255,0.12)]"
-                >
-                  <Play className="w-9 h-9 text-white ml-1.5 fill-white" />
-                </motion.button>
-                <h3 className="text-white text-2xl sm:text-3xl font-black mb-3">Watch the platform in action</h3>
-                <p className="text-white/70 text-sm max-w-sm mx-auto leading-relaxed">
-                  From first question to leaderboard glory — a full walkthrough is coming soon.
-                </p>
-              </motion.div>
-            )}
-          </div>
-
-          {/* ── Slide 3: photo ── */}
-          <div className="w-full shrink-0 snap-center relative flex items-end min-h-[620px]">
-            <img
-              src={photoUrl}
-              alt="Medical students studying together"
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-black/10" aria-hidden />
-            <motion.div
-              initial={{ opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              className="relative z-10 w-full max-w-3xl mx-auto text-center px-6 pb-16"
-            >
-              <h3 className="text-white text-3xl sm:text-4xl font-black mb-3 leading-tight">
-                {photoHeadline}
-              </h3>
-              <p className="text-white/80 text-sm sm:text-base max-w-lg mx-auto mb-7 leading-relaxed">
-                {photoSubtext}
-              </p>
-              <Link href="/student/signup">
-                <Button size="lg" className="px-8 h-12 font-bold rounded-xl gap-2">
-                  {photoCta} <ArrowRight className="w-5 h-5" />
-                </Button>
-              </Link>
-            </motion.div>
+        <div className="flex justify-center mb-16">
+          <div className="w-full">
+            <InteractiveDemoCard />
           </div>
         </div>
 
-        {/* Arrows */}
-        <button
-          onClick={() => goTo(slide - 1)}
-          aria-label="Previous slide"
-          className={`hidden sm:flex absolute left-4 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full items-center justify-center bg-background/80 backdrop-blur border border-border shadow-lg hover:bg-background transition-all ${slide === 0 ? "opacity-0 pointer-events-none" : "opacity-100"}`}
-        >
-          <ChevronLeft className="w-5 h-5 text-foreground" />
-        </button>
-        <button
-          onClick={() => goTo(slide + 1)}
-          aria-label="Next slide"
-          className={`hidden sm:flex absolute right-4 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full items-center justify-center bg-background/80 backdrop-blur border border-border shadow-lg hover:bg-background transition-all ${slide === SLIDES - 1 ? "opacity-0 pointer-events-none" : "opacity-100"}`}
-        >
-          <ChevronRight className="w-5 h-5 text-foreground" />
-        </button>
-      </div>
-
-      {/* Dots */}
-      <div className="flex items-center justify-center gap-2.5 mt-8">
-        {Array.from({ length: SLIDES }).map((_, i) => (
-          <button
-            key={i}
-            onClick={() => goTo(i)}
-            aria-label={`Go to slide ${i + 1}`}
-            className={`rounded-full transition-all duration-300 ${slide === i ? "w-8 h-2.5 bg-primary" : "w-2.5 h-2.5 bg-muted-foreground/25 hover:bg-muted-foreground/50"}`}
-          />
-        ))}
+        <div className="max-w-5xl mx-auto">
+          <div className="grid md:grid-cols-2 gap-10 items-center">
+            <div className="relative aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl bg-muted border border-border/50">
+              <img src={photoUrl} alt="Students studying" className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+              <div className="absolute bottom-6 left-6 right-6 text-left">
+                <MedQrownBrand size="sm" className="opacity-90 mb-2 brightness-0 invert" />
+              </div>
+            </div>
+            
+            <div className="flex flex-col gap-6 items-start">
+              <h3 className="text-3xl md:text-4xl font-black text-foreground leading-tight tracking-tight">
+                {photoHeadline}
+              </h3>
+              <p className="text-muted-foreground text-lg leading-relaxed">
+                {photoSubtext}
+              </p>
+              <RegistrationCta className="rounded-xl px-8" />
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   );
 }
+
 
 // ─── Features grid ────────────────────────────────────────────────────────────
 
@@ -1130,273 +966,40 @@ function FeaturesSection() {
   );
 }
 
-// ─── Leaderboard teaser ───────────────────────────────────────────────────────
 
-const fakeLeaders = [
-  { rank: 1, name: "Amara K.", specialty: "Internal Medicine", xp: "2,340 XP", elo: "1,842" },
-  { rank: 2, name: "David O.", specialty: "Surgery", xp: "2,190 XP", elo: "1,811" },
-  { rank: 3, name: "Fatima H.", specialty: "Paediatrics", xp: "1,975 XP", elo: "1,793" },
-  { rank: 4, name: "Yusuf A.", specialty: "Obstetrics", xp: "1,860 XP", elo: "1,765" },
-  { rank: 5, name: "Sofia R.", specialty: "Pharmacology", xp: "1,720 XP", elo: "1,748" },
-];
 
-function LeaderboardTeaser() {
-  return (
-    <section id="leaderboards" className="bg-muted/30 py-24 px-4 scroll-mt-16">
-      <div className="max-w-3xl mx-auto">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="text-center mb-10"
-        >
-          <p className="text-primary text-xs font-semibold uppercase tracking-widest mb-2">Leaderboards</p>
-          <h2 className="text-3xl sm:text-4xl font-black text-foreground">Where do you rank globally?</h2>
-          <p className="text-muted-foreground mt-3 max-w-md mx-auto">
-            Compete with medical students worldwide. Your Elo rating updates in real time after every Standoff.
-          </p>
-          <span className="inline-block mt-3 bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full">
-            Coming Soon
-          </span>
-        </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-        >
-          <Card className="border-primary/10 overflow-hidden">
-            <div className="px-5 py-3 border-b border-border flex items-center justify-between bg-muted/40">
-              <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">Global Elo Rankings</span>
-              <Trophy className="w-4 h-4 text-primary" />
-            </div>
-            {fakeLeaders.map((leader, i) => (
-              <div
-                key={leader.rank}
-                className={`flex items-center gap-4 px-5 py-3.5 border-b border-border last:border-0 ${
-                  i === 0 ? "bg-primary/5" : ""
-                }`}
-              >
-                <span
-                  className={`text-sm font-black w-5 text-center ${
-                    i === 0 ? "text-yellow-500" : i === 1 ? "text-muted-foreground" : i === 2 ? "text-amber-600" : "text-muted-foreground/40"
-                  }`}
-                >
-                  #{leader.rank}
-                </span>
-                <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary text-xs font-bold">
-                  {leader.name[0]}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-foreground text-sm font-semibold">{leader.name}</p>
-                  <p className="text-muted-foreground text-xs truncate">{leader.specialty}</p>
-                </div>
-                <div className="text-right hidden sm:block">
-                  <p className="text-primary text-xs font-bold">{leader.xp}</p>
-                  <p className="text-muted-foreground text-xs">Elo {leader.elo}</p>
-                </div>
-              </div>
-            ))}
-          </Card>
-        </motion.div>
-      </div>
-    </section>
-  );
-}
 
 // ─── Premium block ────────────────────────────────────────────────────────────
 
-function PremiumSection() {
-  const [email, setEmail] = useState("");
-  const [submitted, setSubmitted] = useState(false);
 
-  const handleNotify = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim()) return;
-    setSubmitted(true);
-  };
-
-  return (
-    <section className="bg-background py-24 px-4">
-      <div className="max-w-5xl mx-auto">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="text-center mb-14"
-        >
-          <p className="text-primary text-xs font-semibold uppercase tracking-widest mb-2">Premium</p>
-          <h2 className="text-3xl sm:text-4xl font-black text-foreground">Take Your Prep to the Next Level.</h2>
-        </motion.div>
-
-        <div className="grid sm:grid-cols-2 gap-5 mb-12">
-          {premiumPerks.map((perk, i) => {
-            const Icon = perk.icon;
-            return (
-              <motion.div
-                key={perk.title}
-                initial={{ opacity: 0, x: i % 2 === 0 ? -15 : 15 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.08 }}
-              >
-                <Card className="h-full border-primary/10">
-                  <CardContent className="p-5 flex gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                      <Icon className="w-5 h-5 text-primary" />
-                    </div>
-                    <div>
-                      <h3 className="text-foreground font-bold text-sm mb-1">{perk.title}</h3>
-                      <p className="text-muted-foreground text-sm leading-relaxed">{perk.description}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            );
-          })}
-        </div>
-
-        {/* Notify me */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-        >
-          <Card className="border-primary/20 max-w-lg mx-auto">
-            <CardContent className="p-8 text-center">
-              <Crown className="w-7 h-7 text-primary mx-auto mb-3" />
-              <h3 className="text-foreground font-black text-lg mb-1">Premium is almost here.</h3>
-              <p className="text-muted-foreground text-sm mb-6">Be the first to know when it launches.</p>
-              {submitted ? (
-                <p className="text-primary font-semibold text-sm">✓ You're on the list — we'll notify you!</p>
-              ) : (
-                <form onSubmit={handleNotify} className="flex gap-2">
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="your@email.com"
-                    maxLength={254}
-                    className="flex-1 bg-background border border-input rounded-lg px-4 py-2.5 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                    required
-                  />
-                  <Button type="submit" size="sm" className="px-4 whitespace-nowrap">Notify Me</Button>
-                </form>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
-    </section>
-  );
-}
 
 // ─── Horizon features ─────────────────────────────────────────────────────────
 
-function HorizonSection() {
-  const [waitlistEmail, setWaitlistEmail] = useState("");
-  const [waitlistDone, setWaitlistDone] = useState(false);
 
-  const handleWaitlist = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!waitlistEmail.trim()) return;
-    setWaitlistDone(true);
-  };
 
-  return (
-    <section id="study-hub" className="bg-muted/30 py-24 px-4 scroll-mt-16">
-      <div className="max-w-5xl mx-auto">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="text-center mb-14"
-        >
-          <span className="inline-flex items-center gap-1.5 bg-primary/10 border border-primary/20 text-primary text-xs font-semibold uppercase tracking-widest px-3 py-1 rounded-full mb-4">
-            <Rocket className="w-3 h-3" /> On the Horizon
-          </span>
-          <h2 className="text-3xl sm:text-4xl font-black text-foreground mt-3">The platform is just getting started.</h2>
-          <p className="text-muted-foreground mt-3 max-w-xl mx-auto">
-            Two next-level features in active development.
-          </p>
-        </motion.div>
-
-        <div className="grid sm:grid-cols-2 gap-6 mb-12">
-          {horizonFeatures.map((feat, i) => {
-            const Icon = feat.icon;
-            return (
-              <motion.div
-                key={feat.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.1 }}
-              >
-                <Card className="h-full border-primary/10">
-                  <CardContent className="p-7">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-                        <Icon className="w-6 h-6 text-primary" />
-                      </div>
-                      <span className="bg-primary/10 border border-primary/20 text-primary text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full">
-                        In Development
-                      </span>
-                    </div>
-                    <h3 className="text-foreground font-black text-lg mb-2">{feat.title}</h3>
-                    <p className="text-muted-foreground text-sm leading-relaxed">{feat.description}</p>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            );
-          })}
-        </div>
-
-        {/* Waitlist */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="text-center"
-        >
-          {waitlistDone ? (
-            <p className="text-primary font-semibold">✓ You're on the waitlist — first in line!</p>
-          ) : (
-            <>
-              <p className="text-muted-foreground text-sm mb-4 font-medium">Join our waitlist for these features</p>
-              <form onSubmit={handleWaitlist} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
-                <input
-                  type="email"
-                  value={waitlistEmail}
-                  onChange={(e) => setWaitlistEmail(e.target.value)}
-                  placeholder="your@email.com"
-                  maxLength={254}
-                  className="flex-1 bg-background border border-input rounded-xl px-5 py-3 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                  required
-                />
-                <Button type="submit" className="whitespace-nowrap">Join Waitlist</Button>
-              </form>
-            </>
-          )}
-        </motion.div>
-      </div>
-    </section>
-  );
-}
+// ─── Contact section ──────────────────────────────────────────────────────────
 
 // ─── Contact section ──────────────────────────────────────────────────────────
 
 function ContactSection() {
-  const [form, setForm] = useState({ name: "", email: "", message: "" });
+  const [form, setForm] = useState({ name: "", email: "", message: "", website: "" });
+  const [submitted, setSubmitted] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const subject = encodeURIComponent(`MedQrown Enquiry from ${form.name}`);
-    const body = encodeURIComponent(`Name: ${form.name}\nEmail: ${form.email}\n\n${form.message}`);
-    window.location.href = `mailto:norysndachule@gmail.com?subject=${subject}&body=${body}`;
-  };
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form)
+      });
+      if (!response.ok) throw new Error((await response.json()).message || "Message could not be sent");
+    },
+    onSuccess: () => setSubmitted(true),
+  });
 
   return (
-    <section id="contact" className="bg-background py-24 px-4 scroll-mt-16">
+    <section id="contact" className="bg-background py-24 px-4 scroll-mt-16 border-t border-border">
       <div className="max-w-5xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -1412,7 +1015,6 @@ function ContactSection() {
         </motion.div>
 
         <div className="grid md:grid-cols-2 gap-8">
-          {/* Direct contact */}
           <motion.div
             initial={{ opacity: 0, x: -15 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -1421,231 +1023,145 @@ function ContactSection() {
           >
             <a
               href="mailto:norysndachule@gmail.com"
-              className="group"
+              className="flex items-center gap-4 p-5 rounded-2xl border border-border bg-card hover:border-primary/30 transition-colors"
             >
-              <Card className="border-primary/10 hover:border-primary/30 transition-colors hover:shadow-md">
-                <CardContent className="p-5 flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                    <Mail className="w-5 h-5 text-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-muted-foreground text-xs mb-0.5">Email us</p>
-                    <p className="text-foreground font-semibold text-sm group-hover:text-primary transition-colors truncate">
-                      norysndachule@gmail.com
-                    </p>
-                  </div>
-                  <ExternalLink className="w-4 h-4 text-muted-foreground/50 group-hover:text-primary transition-colors shrink-0" />
-                </CardContent>
-              </Card>
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                <Mail className="w-5 h-5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <span className="block text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-0.5">Email</span>
+                <span className="block font-medium text-foreground truncate">norysndachule@gmail.com</span>
+              </div>
             </a>
-
             <a
               href="https://wa.me/254702797977"
               target="_blank"
               rel="noopener noreferrer"
-              className="group"
+              className="flex items-center gap-4 p-5 rounded-2xl border border-border bg-card hover:border-primary/30 transition-colors"
             >
-              <Card className="border-primary/10 hover:border-primary/30 transition-colors hover:shadow-md">
-                <CardContent className="p-5 flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                    <MessageCircle className="w-5 h-5 text-primary" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-muted-foreground text-xs mb-0.5">WhatsApp</p>
-                    <p className="text-foreground font-semibold text-sm group-hover:text-primary transition-colors">
-                      +254 702 797 977
-                    </p>
-                  </div>
-                  <ExternalLink className="w-4 h-4 text-muted-foreground/50 group-hover:text-primary transition-colors shrink-0" />
-                </CardContent>
-              </Card>
+              <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center shrink-0">
+                <MessageCircle className="w-5 h-5 text-green-600" />
+              </div>
+              <div className="min-w-0">
+                <span className="block text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-0.5">WhatsApp</span>
+                <span className="block font-medium text-foreground truncate">+254 702 797 977</span>
+              </div>
             </a>
-
-            <Card className="border-primary/10">
-              <CardContent className="p-5">
-                <p className="text-muted-foreground text-xs mb-3 uppercase tracking-wider font-semibold">Follow Us</p>
-                <div className="flex gap-3">
-                  {[
-                    { Icon: Instagram, label: "Instagram" },
-                    { Icon: Twitter, label: "X / Twitter" },
-                    { Icon: Linkedin, label: "LinkedIn" },
-                  ].map(({ Icon, label }) => (
-                    <button
-                      key={label}
-                      title={`${label} — coming soon`}
-                      className="w-10 h-10 rounded-xl bg-muted border border-border flex items-center justify-center text-muted-foreground cursor-not-allowed"
-                    >
-                      <Icon className="w-4 h-4" />
-                    </button>
-                  ))}
-                </div>
-                <p className="text-muted-foreground/60 text-xs mt-2">Social handles coming soon.</p>
-              </CardContent>
-            </Card>
           </motion.div>
 
-          {/* Contact form */}
-          <motion.form
+          <motion.div
             initial={{ opacity: 0, x: 15 }}
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true }}
-            onSubmit={handleSubmit}
           >
-            <Card className="border-primary/10 h-full">
-              <CardContent className="p-6 flex flex-col gap-4 h-full">
-                <div>
-                  <label className="text-muted-foreground text-xs font-semibold uppercase tracking-wider block mb-1.5">Name</label>
+            {submitted ? (
+              <div className="rounded-2xl border border-primary/20 bg-primary/[0.04] p-8 text-center h-full flex flex-col items-center justify-center">
+                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                  <CheckCircle className="w-6 h-6 text-primary" />
+                </div>
+                <h3 className="font-bold text-lg text-foreground mb-2">Message Received</h3>
+                <p className="text-muted-foreground text-sm">Thanks for reaching out! We'll get back to you shortly.</p>
+              </div>
+            ) : (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  mutation.mutate();
+                }}
+                className="rounded-2xl border border-border bg-card p-6"
+              >
+                <h3 className="font-bold text-foreground mb-4">Send us a message</h3>
+                <div className="space-y-4">
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Name</Label>
+                      <Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Email</Label>
+                      <Input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Message</Label>
+                    <Textarea required rows={4} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} />
+                  </div>
                   <input
                     type="text"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="Your name"
-                    maxLength={250}
-                    className="w-full bg-background border border-input rounded-lg px-4 py-2.5 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                    required
+                    name="website"
+                    value={form.website}
+                    onChange={(e) => setForm({ ...form, website: e.target.value })}
+                    tabIndex={-1}
+                    autoComplete="off"
+                    aria-hidden="true"
+                    className="absolute -left-[9999px] top-auto w-px h-px opacity-0"
                   />
+                  <Button type="submit" disabled={mutation.isPending} className="w-full font-bold">
+                    {mutation.isPending ? "Sending..." : "Send Message"}
+                  </Button>
+                  {mutation.isError && <p role="alert" className="text-sm text-destructive">{mutation.error instanceof Error ? mutation.error.message : "Message could not be sent"}</p>}
                 </div>
-                <div>
-                  <label className="text-muted-foreground text-xs font-semibold uppercase tracking-wider block mb-1.5">Email</label>
-                  <input
-                    type="email"
-                    value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                    placeholder="your@email.com"
-                    maxLength={254}
-                    className="w-full bg-background border border-input rounded-lg px-4 py-2.5 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                    required
-                  />
-                </div>
-                <div className="flex-1">
-                  <label className="text-muted-foreground text-xs font-semibold uppercase tracking-wider block mb-1.5">Message</label>
-                  <textarea
-                    value={form.message}
-                    onChange={(e) => setForm({ ...form, message: e.target.value })}
-                    placeholder="Tell us what's on your mind…"
-                    rows={5}
-                    maxLength={2000}
-                    className="w-full bg-background border border-input rounded-lg px-4 py-2.5 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
-                    required
-                  />
-                </div>
-                <Button type="submit" className="w-full gap-2">
-                  <Send className="w-4 h-4" /> Send Message
-                </Button>
-              </CardContent>
-            </Card>
-          </motion.form>
+              </form>
+            )}
+          </motion.div>
         </div>
       </div>
     </section>
   );
 }
 
+
 // ─── Final CTA band ───────────────────────────────────────────────────────────
 
-function FinalCTASection() {
-  return (
-    <section className="bg-gradient-to-br from-background via-background to-primary/5 py-28 px-4">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        className="text-center max-w-3xl mx-auto"
-      >
-        <h2 className="text-4xl sm:text-5xl font-black text-foreground leading-tight mb-6">
-          Ready to dominate your next block?
-        </h2>
-        <p className="text-muted-foreground text-lg mb-10">
-          Join medical students already sharpening their clinical edge with MedQrown MedEazy.
-        </p>
-        <Link href="/student/signup">
-          <Button size="lg" className="px-10 h-14 text-lg font-bold gap-2">
-            Start Practicing <ArrowRight className="w-5 h-5" />
-          </Button>
-        </Link>
-      </motion.div>
-    </section>
-  );
-}
+
 
 // ─── Footer ───────────────────────────────────────────────────────────────────
 
 function Footer() {
   return (
     <footer className="bg-card border-t border-border py-14 px-4">
-      <div className="max-w-6xl mx-auto">
-        <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-10 mb-12">
-          <div className="md:col-span-2">
-            <div className="flex items-center gap-2 mb-3">
-              <MedQrownBrand size="sm" />
-            </div>
-            <p className="text-muted-foreground text-sm leading-relaxed max-w-xs">
-              The competitive clinical training ground for the next generation of medical professionals.
-            </p>
-          </div>
-
-          <div>
-            <p className="text-foreground text-xs font-semibold uppercase tracking-wider mb-4">Platform</p>
-            <div className="flex flex-col gap-2.5">
-              {["features", "study-hub", "leaderboards", "contact"].map((id) => (
-                <button
-                  key={id}
-                  onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" })}
-                  className="text-muted-foreground hover:text-primary text-sm text-left transition-colors capitalize"
-                >
-                  {id === "study-hub" ? "Study Hub" : id.charAt(0).toUpperCase() + id.slice(1)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <p className="text-foreground text-xs font-semibold uppercase tracking-wider mb-4">Legal</p>
-            <div className="flex flex-col gap-2.5">
-              {[
-                { label: "Terms of Service", href: "/terms" },
-                { label: "Privacy Policy", href: "/privacy" },
-                { label: "FAQ", href: "/faq" },
-              ].map(({ label, href }) => (
-                <Link key={href} href={href} className="text-muted-foreground hover:text-primary text-sm transition-colors">
-                  {label}
-                </Link>
-              ))}
-            </div>
-          </div>
+      <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="flex items-center gap-2">
+          <MedQrownBrand size="sm" />
         </div>
-
-        <div className="border-t border-border pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-muted-foreground text-xs">
-            © {new Date().getFullYear()} MedQrown MedEazy. All rights reserved.
-          </p>
-          <Link
-            href="/institutions"
-            className="text-muted-foreground hover:text-primary text-xs underline underline-offset-2 transition-colors"
-          >
-            Are you a University Administrator? Click here for MedQrown Institutions →
-          </Link>
+        <div className="flex items-center gap-6">
+          <Link href="/terms" className="text-sm font-medium text-muted-foreground hover:text-foreground">Terms</Link>
+          <Link href="/privacy" className="text-sm font-medium text-muted-foreground hover:text-foreground">Privacy</Link>
+          <Link href="/faq" className="text-sm font-medium text-muted-foreground hover:text-foreground">FAQ</Link>
         </div>
+      </div>
+      <div className="max-w-6xl mx-auto mt-8 pt-8 border-t border-border/40 text-center md:text-left flex flex-col md:flex-row justify-between text-xs text-muted-foreground">
+        <p>&copy; {new Date().getFullYear()} MedQrown MedEazy. All rights reserved.</p>
+        <p>Built for medical students.</p>
       </div>
     </footer>
   );
 }
 
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LandingPage() {
+  // Shareable link straight to the demo: /demo, /demo?subject=Anatomy&src=whatsapp or /#demo.
+  useEffect(() => {
+    if (window.location.pathname !== "/demo" && window.location.hash !== "#demo") return;
+    const timer = setTimeout(() => document.getElementById("demo-section")?.scrollIntoView({ behavior: "smooth", block: "start" }), 400);
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
     <div className="min-h-screen">
       <Navbar />
       <AnnouncementBanner />
       <HeroSection />
-      <DemoSection />
       <FeaturesSection />
-      <LeaderboardTeaser />
-      <PremiumSection />
-      <HorizonSection />
+      <DemoSection />
+      
+      
+      
+      <FaqSection />
       <ContactSection />
-      <FinalCTASection />
+      
       <Footer />
     </div>
   );

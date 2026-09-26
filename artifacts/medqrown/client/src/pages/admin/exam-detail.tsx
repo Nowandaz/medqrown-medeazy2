@@ -24,7 +24,11 @@ import {
   Loader2, XCircle, Star, Pencil, AlertTriangle, Reply, Sparkles
 } from "lucide-react";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
+import { AnalyticsTab } from "@/components/admin/analytics-tab";
 import { TEXT_LIMITS } from "@/lib/text-limits";
+import { ExamTimerFields, type TimerMode } from "@/components/admin/exam-timer-fields";
+import { toNairobiInput } from "@/lib/datetime";
+import { apiErrorMessage } from "@/lib/api-error";
 
 export default function AdminExamDetail() {
   const [, params] = useRoute("/admin/exams/:id");
@@ -36,8 +40,7 @@ export default function AdminExamDetail() {
   const { data: exam, isLoading } = useQuery<any>({ queryKey: ["/api/exams", examId] });
   const { data: examStudents } = useQuery<any[]>({ queryKey: ["/api/exams", examId, "students"] });
   const { data: examQuestions } = useQuery<any[]>({ queryKey: ["/api/exams", examId, "questions"] });
-  const { data: rankings } = useQuery<any[]>({ queryKey: ["/api/exams", examId, "rankings"], enabled: activeTab === "rankings" });
-  const { data: analytics } = useQuery<any[]>({ queryKey: ["/api/exams", examId, "analytics"], enabled: activeTab === "analytics" });
+  const { data: rankings } = useQuery<any[]>({ queryKey: ["/api/exams", examId, "rankings"], enabled: activeTab === "results" });
   const { data: feedback } = useQuery<any[]>({
     queryKey: ["/api/exams", examId, "feedback"],
     refetchInterval: 30000,
@@ -111,17 +114,17 @@ export default function AdminExamDetail() {
             <TabsTrigger value="overview" className="text-xs gap-1" data-testid="tab-overview">
               <Eye className="w-3 h-3" />Overview
             </TabsTrigger>
-            <TabsTrigger value="students" className="text-xs gap-1" data-testid="tab-students">
-              <Users className="w-3 h-3" />Students
-            </TabsTrigger>
             <TabsTrigger value="questions" className="text-xs gap-1" data-testid="tab-questions">
               <FileText className="w-3 h-3" />Questions
             </TabsTrigger>
-            <TabsTrigger value="rankings" className="text-xs gap-1" data-testid="tab-rankings">
-              <Trophy className="w-3 h-3" />Rankings
+            <TabsTrigger value="setup" className="text-xs gap-1" data-testid="tab-setup">
+              <Settings className="w-3 h-3" />Setup
             </TabsTrigger>
-            <TabsTrigger value="analytics" className="text-xs gap-1" data-testid="tab-analytics">
-              <BarChart3 className="w-3 h-3" />Analytics
+            <TabsTrigger value="marking" className="text-xs gap-1" data-testid="tab-marking">
+              <Brain className="w-3 h-3" />Marking
+            </TabsTrigger>
+            <TabsTrigger value="results" className="text-xs gap-1" data-testid="tab-results">
+              <Trophy className="w-3 h-3" />Results
             </TabsTrigger>
             <TabsTrigger value="feedback" className="text-xs gap-1 relative" data-testid="tab-feedback">
               <MessageSquare className="w-3 h-3" />Feedback
@@ -131,55 +134,31 @@ export default function AdminExamDetail() {
                 </span>
               )}
             </TabsTrigger>
-            <TabsTrigger value="marking" className="text-xs gap-1" data-testid="tab-marking">
-              <Brain className="w-3 h-3" />AI Marking
-            </TabsTrigger>
-            <TabsTrigger value="emails" className="text-xs gap-1" data-testid="tab-emails">
-              <Mail className="w-3 h-3" />Emails
-            </TabsTrigger>
-            <TabsTrigger value="instructions" className="text-xs gap-1" data-testid="tab-instructions">
-              <BookOpen className="w-3 h-3" />Instructions
-            </TabsTrigger>
-            <TabsTrigger value="settings" className="text-xs gap-1" data-testid="tab-settings">
-              <Settings className="w-3 h-3" />Settings
-            </TabsTrigger>
-            <TabsTrigger value="reattempts" className="text-xs gap-1" data-testid="tab-reattempts">
-              <RotateCcw className="w-3 h-3" />Reattempts
-            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
-            <OverviewTab stats={stats} examStudents={examStudents || []} examId={examId} exam={exam} />
-          </TabsContent>
-          <TabsContent value="students">
-            <StudentsTab examId={examId} examStudents={examStudents || []} examQuestions={examQuestions || []} />
+            <OverviewTab stats={stats} examId={examId} exam={exam} />
           </TabsContent>
           <TabsContent value="questions">
             <QuestionsTab examId={examId} questions={examQuestions || []} />
           </TabsContent>
-          <TabsContent value="rankings">
-            <RankingsTab rankings={rankings || []} examId={examId} />
+          <TabsContent value="setup">
+            <SetupTab exam={exam} examId={examId} />
           </TabsContent>
-          <TabsContent value="analytics">
-            <AnalyticsTab analytics={analytics || []} />
+          <TabsContent value="marking">
+            <div className="space-y-6">
+              <MarkingTab examId={examId} responses={examResponses || []} stats={stats} />
+              <ReattemptsTab examId={examId} />
+            </div>
+          </TabsContent>
+          <TabsContent value="results">
+            <div className="space-y-6">
+              <RankingsTab rankings={rankings || []} examId={examId} />
+              <AnalyticsTab examId={examId} />
+            </div>
           </TabsContent>
           <TabsContent value="feedback">
             <FeedbackTab feedback={feedback || []} examId={examId} />
-          </TabsContent>
-          <TabsContent value="marking">
-            <MarkingTab examId={examId} responses={examResponses || []} stats={stats} />
-          </TabsContent>
-          <TabsContent value="emails">
-            <EmailsTab examId={examId} examStudents={examStudents || []} templates={emailTemplates || []} />
-          </TabsContent>
-          <TabsContent value="instructions">
-            <InstructionsTab exam={exam} examId={examId} />
-          </TabsContent>
-          <TabsContent value="settings">
-            <SettingsTab exam={exam} examId={examId} />
-          </TabsContent>
-          <TabsContent value="reattempts">
-            <ReattemptsTab examId={examId} />
           </TabsContent>
         </Tabs>
       </main>
@@ -187,7 +166,7 @@ export default function AdminExamDetail() {
   );
 }
 
-function OverviewTab({ stats, examStudents, examId, exam }: any) {
+function OverviewTab({ stats, examId, exam }: any) {
   const { toast } = useToast();
   const releaseResults = useMutation({
     mutationFn: async () => {
@@ -290,172 +269,6 @@ function OverviewTab({ stats, examStudents, examId, exam }: any) {
   );
 }
 
-function StudentsTab({ examId, examStudents, examQuestions }: { examId: number; examStudents: any[]; examQuestions: any[] }) {
-  const { toast } = useToast();
-  const [showAdd, setShowAdd] = useState(false);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [sending, setSending] = useState(false);
-
-  const addStudent = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", `/api/exams/${examId}/students`, { name, email });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/exams", examId, "students"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/exams", examId] });
-      setShowAdd(false);
-      setName("");
-      setEmail("");
-      toast({ title: "Student added" });
-    },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
-
-  const removeStudent = useMutation({
-    mutationFn: async (esId: number) => {
-      await apiRequest("DELETE", `/api/exams/${examId}/students/${esId}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/exams", examId, "students"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/exams", examId] });
-    },
-  });
-
-  const resetAttempt = useMutation({
-    mutationFn: async (esId: number) => {
-      await apiRequest("POST", `/api/exams/${examId}/students/${esId}/reset`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/exams", examId, "students"] });
-      toast({ title: "Attempt reset" });
-    },
-  });
-
-  const sendEmails = async (onlySendNew: boolean) => {
-    setSending(true);
-    try {
-      const res = await apiRequest("POST", `/api/exams/${examId}/send-emails`, { onlySendNew });
-      const data = await res.json();
-      queryClient.invalidateQueries({ queryKey: ["/api/exams", examId, "students"] });
-      toast({ title: `Emails: ${data.sent} sent, ${data.failed} failed` });
-    } catch (e: any) {
-      const msg = e?.message?.includes("{") ? JSON.parse(e.message.replace(/^\d+: /, ""))?.message : e?.message;
-      toast({ title: "Email failed", description: msg || "Could not connect to mail server. Check SMTP settings.", variant: "destructive" });
-    } finally {
-      setSending(false);
-    }
-  };
-
-  const resendSingle = async (esId: number, studentName: string) => {
-    try {
-      const res = await apiRequest("POST", `/api/exams/${examId}/send-emails`, { studentIds: [esId] });
-      const data = await res.json();
-      queryClient.invalidateQueries({ queryKey: ["/api/exams", examId, "students"] });
-      if (data.sent > 0) toast({ title: `Login resent to ${studentName}` });
-      else toast({ title: `Failed to send to ${studentName}`, variant: "destructive" });
-    } catch {
-      toast({ title: "Failed to resend login", variant: "destructive" });
-    }
-  };
-  const unsentCount = examStudents.filter((es: any) => !es.emailSent).length;
-
-  const statusBadge = (es: any) => {
-    switch (es.attemptStatus) {
-      case "submitted": return <Badge variant="default" className="text-xs gap-1"><CheckCircle className="w-3 h-3" />Submitted</Badge>;
-      case "in_progress": {
-        if (es.attempt && es.totalQuestions) {
-          const qNum = (es.attempt.currentQuestionIndex ?? 0) + 1;
-          const typeLabel = es.currentQuestionType === "mcq" ? "MCQ" : es.currentQuestionType === "saq" ? "SAQ" : "Q";
-          return <Badge variant="secondary" className="text-xs gap-1"><Clock className="w-3 h-3" />{typeLabel} {qNum}/{es.totalQuestions}</Badge>;
-        }
-        return <Badge variant="secondary" className="text-xs gap-1"><Clock className="w-3 h-3" />In Progress</Badge>;
-      }
-      default: return <Badge variant="outline" className="text-xs gap-1"><AlertCircle className="w-3 h-3" />Not Started</Badge>;
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h3 className="font-semibold">Students</h3>
-          <p className="text-xs text-muted-foreground">{examStudents.length} enrolled</p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button variant="secondary" size="sm" onClick={() => sendEmails(true)} disabled={sending || unsentCount === 0} className="text-xs" data-testid="button-send-new-emails" title={`Send to ${unsentCount} students who haven't received credentials yet`}>
-            <Mail className="w-3.5 h-3.5 mr-1" />
-            {sending ? "Sending..." : `Send New (${unsentCount})`}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => sendEmails(false)} disabled={sending || examStudents.length === 0} className="text-xs" data-testid="button-resend-all-emails">
-            <RotateCcw className="w-3.5 h-3.5 mr-1" />
-            Resend All
-          </Button>
-          <Dialog open={showAdd} onOpenChange={setShowAdd}>
-            <DialogTrigger asChild>
-              <Button size="sm" className="text-xs" data-testid="button-add-student"><UserPlus className="w-3.5 h-3.5 mr-1" />Add Student</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader><DialogTitle>Add Student</DialogTitle></DialogHeader>
-              <div className="space-y-4 pt-2">
-                <div className="space-y-2">
-                  <Label>Full Name</Label>
-                  <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="John Doe" className="h-11" data-testid="input-student-name" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Email</Label>
-                  <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="john@example.com" className="h-11" data-testid="input-student-email" />
-                </div>
-                <Button className="w-full h-11" onClick={() => addStudent.mutate()} disabled={!name || !email || addStudent.isPending} data-testid="button-submit-student">
-                  {addStudent.isPending ? "Adding..." : "Add Student"}
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
-
-      {examStudents.length === 0 ? (
-        <Card className="border-dashed border-2 shadow-none">
-          <CardContent className="py-10 text-center">
-            <Users className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-            <p className="text-sm text-muted-foreground">No students added yet</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {examStudents.map((es: any) => (
-            <Card key={es.id} className="shadow-sm" data-testid={`card-student-${es.id}`}>
-              <CardContent className="py-3 px-4 flex items-center justify-between gap-3 flex-wrap">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{es.student?.name}</p>
-                  <p className="text-xs text-muted-foreground">{es.student?.email}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Password: <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">{es.password}</code>
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {statusBadge(es)}
-                  {es.emailSent && <Badge variant="outline" className="text-xs gap-1"><Mail className="w-3 h-3" />Sent</Badge>}
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => resendSingle(es.id, es.student?.name)} title="Resend login email" data-testid={`button-resend-${es.id}`}>
-                    <Mail className="w-3 h-3" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => resetAttempt.mutate(es.id)} title="Reset attempt" data-testid={`button-reset-${es.id}`}>
-                    <RotateCcw className="w-3 h-3" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => removeStudent.mutate(es.id)} data-testid={`button-remove-${es.id}`}>
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function QuestionsTab({ examId, questions }: { examId: number; questions: any[] }) {
   const { toast } = useToast();
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
@@ -544,7 +357,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
       setEditImageUrl(urlData.objectPath);
       toast({ title: "Image uploaded" });
     } catch (e: any) {
-      toast({ title: "Upload failed", description: e.message, variant: "destructive" });
+      toast({ title: "Upload failed", description: apiErrorMessage(e), variant: "destructive" });
     } finally {
       setEditUploading(false);
     }
@@ -568,7 +381,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
       setEditQ(null);
       toast({ title: "Question updated" });
     },
-    onError: (e: any) => toast({ title: "Update failed", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Update failed", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   const uploadImage = async (file: File) => {
@@ -590,7 +403,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
       setImageUrl(urlData.objectPath);
       toast({ title: "Image uploaded" });
     } catch (e: any) {
-      toast({ title: "Upload failed", description: e.message, variant: "destructive" });
+      toast({ title: "Upload failed", description: apiErrorMessage(e), variant: "destructive" });
     } finally {
       setUploading(false);
     }
@@ -1235,53 +1048,6 @@ function RankingsTab({ rankings, examId }: { rankings: any[]; examId: number }) 
   );
 }
 
-function AnalyticsTab({ analytics }: { analytics: any[] }) {
-  return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="font-semibold">Performance by Question</h3>
-        <p className="text-xs text-muted-foreground">{analytics.length} question{analytics.length !== 1 ? "s" : ""} analyzed</p>
-      </div>
-      {analytics.length === 0 ? (
-        <Card className="border-dashed border-2 shadow-none">
-          <CardContent className="py-10 text-center">
-            <BarChart3 className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-            <p className="text-sm text-muted-foreground">No analytics data available</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {analytics.map((a: any) => {
-            const correctRate = a.totalAttempts > 0 ? (a.correctCount / a.totalAttempts) * 100 : 0;
-            return (
-              <Card key={a.questionId} className="shadow-sm overflow-hidden" data-testid={`card-analytic-${a.questionId}`}>
-                <CardContent className="py-3 px-4">
-                  <p className="text-sm mb-2 line-clamp-2 leading-relaxed">{a.content}</p>
-                  <div className="flex items-center gap-3 text-xs flex-wrap">
-                    <Badge variant="outline" className="text-xs">{a.type.toUpperCase()}</Badge>
-                    <span className="text-muted-foreground">{a.totalAttempts} attempts</span>
-                    <span className="text-muted-foreground">Avg: {a.avgMarks.toFixed(1)}</span>
-                    {a.totalAttempts > 0 && (
-                      <Badge variant={correctRate >= 50 ? "default" : "destructive"} className="text-xs ml-auto">
-                        {correctRate.toFixed(0)}% correct
-                      </Badge>
-                    )}
-                  </div>
-                  {a.totalAttempts > 0 && (
-                    <div className="mt-2">
-                      <Progress value={correctRate} className="h-1.5" />
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function FeedbackTab({ feedback, examId }: { feedback: any[]; examId: number }) {
   const { toast } = useToast();
   const [replyTarget, setReplyTarget] = useState<any | null>(null);
@@ -1312,7 +1078,7 @@ function FeedbackTab({ feedback, examId }: { feedback: any[]; examId: number }) 
       setDraftContent("");
       toast({ title: "Reply sent successfully" });
     },
-    onError: (e: any) => toast({ title: "Failed to send reply", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Failed to send reply", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   const generateAiDraft = async (fb: any) => {
@@ -1323,7 +1089,7 @@ function FeedbackTab({ feedback, examId }: { feedback: any[]; examId: number }) 
       if (!res.ok) throw new Error(data.message || "AI failed");
       setDraftContent(data.draft || "");
     } catch (e: any) {
-      toast({ title: "AI draft failed", description: e.message, variant: "destructive" });
+      toast({ title: "AI draft failed", description: apiErrorMessage(e), variant: "destructive" });
     } finally {
       setGenerating(false);
     }
@@ -1516,7 +1282,7 @@ function MarkingTab({ examId, responses, stats }: { examId: number; responses: a
         }
       }
     } catch (e: any) {
-      toast({ title: "Marking failed", description: e.message, variant: "destructive" });
+      toast({ title: "Marking failed", description: apiErrorMessage(e), variant: "destructive" });
     } finally {
       setIsMarking(false);
       setMarkingStudentId(null);
@@ -1738,315 +1504,6 @@ function MarkingTab({ examId, responses, stats }: { examId: number; responses: a
   );
 }
 
-function EmailsTab({ examId, examStudents, templates }: { examId: number; examStudents: any[]; templates: any[] }) {
-  const { toast } = useToast();
-  const [selectedTemplate, setSelectedTemplate] = useState<string>("");
-  const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
-  const [selectAll, setSelectAll] = useState(true);
-  const [customSubject, setCustomSubject] = useState("");
-  const [customBody, setCustomBody] = useState("");
-  const [useCustom, setUseCustom] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [results, setResults] = useState<any>(null);
-
-  const activeTemplate = templates.find(t => String(t.id) === selectedTemplate);
-
-  const handleTemplateChange = (val: string) => {
-    setSelectedTemplate(val);
-    if (val === "custom") {
-      setUseCustom(true);
-    } else {
-      setUseCustom(false);
-      const tmpl = templates.find(t => String(t.id) === val);
-      if (tmpl) {
-        setCustomSubject(tmpl.subject);
-        setCustomBody(tmpl.body);
-      }
-    }
-  };
-
-  const toggleStudent = (id: number) => {
-    setSelectedStudentIds(prev =>
-      prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
-    );
-    setSelectAll(false);
-  };
-
-  const handleSelectAll = (checked: boolean) => {
-    setSelectAll(checked);
-    if (checked) {
-      setSelectedStudentIds([]);
-    }
-  };
-
-  const sendEmails = async () => {
-    setSending(true);
-    setResults(null);
-    try {
-      const payload: any = {};
-      if (!selectAll && selectedStudentIds.length > 0) {
-        payload.studentIds = selectedStudentIds;
-      }
-      if (useCustom) {
-        payload.customSubject = customSubject;
-        payload.customBody = customBody;
-      } else if (selectedTemplate) {
-        payload.templateId = parseInt(selectedTemplate);
-      }
-
-      const res = await apiRequest("POST", `/api/exams/${examId}/send-emails`, payload);
-      const data = await res.json();
-      setResults(data);
-      queryClient.invalidateQueries({ queryKey: ["/api/exams", examId, "students"] });
-       toast({ title: `Emails accepted: ${data.sent}, ${data.failed} failed`, description: data.deliveryNote });
-    } catch (e: any) {
-      const msg = e?.message?.includes("{") ? JSON.parse(e.message.replace(/^\d+: /, ""))?.message : e?.message;
-      toast({ title: "Email failed", description: msg || "Could not connect to mail server. Check SMTP settings.", variant: "destructive" });
-    } finally {
-      setSending(false);
-    }
-  };
-
-  const targetCount = selectAll ? examStudents.length : selectedStudentIds.length;
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="font-semibold">Send Emails</h3>
-        <p className="text-sm text-muted-foreground">Send emails to exam students using templates or write custom messages.</p>
-      </div>
-
-      <Card className="shadow-sm border-primary/10">
-        <div className="bg-gradient-to-r from-primary/5 to-transparent px-4 py-2.5 border-b border-primary/5">
-          <h4 className="text-sm font-semibold flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">1</span>
-            Choose Template
-          </h4>
-        </div>
-        <CardContent className="p-4 space-y-4">
-          <Select value={selectedTemplate} onValueChange={handleTemplateChange}>
-            <SelectTrigger data-testid="select-email-template">
-              <SelectValue placeholder="Select a template..." />
-            </SelectTrigger>
-            <SelectContent>
-              {templates.map(t => (
-                <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
-              ))}
-              <SelectItem value="custom">Write custom email</SelectItem>
-            </SelectContent>
-          </Select>
-
-          {activeTemplate && !useCustom && (
-            <div className="bg-muted/30 rounded-xl p-4 space-y-2 border">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Preview</p>
-              <p className="text-sm"><strong>Subject:</strong> {activeTemplate.subject}</p>
-              <p className="text-sm whitespace-pre-wrap leading-relaxed">{activeTemplate.body}</p>
-              <p className="text-xs text-muted-foreground mt-2">
-                Placeholders: {"{student_name}"}, {"{exam_name}"}, {"{email}"}, {"{password}"}, {"{portal_link}"}
-              </p>
-            </div>
-          )}
-
-          {useCustom && (
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <Label>Subject</Label>
-                <Input
-                  value={customSubject}
-                  onChange={(e) => setCustomSubject(e.target.value)}
-                  placeholder="e.g. CAT Reminder - {exam_name}"
-                  data-testid="input-custom-subject"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Body</Label>
-                <Textarea
-                  value={customBody}
-                  onChange={(e) => setCustomBody(e.target.value)}
-                  placeholder="Dear {student_name},..."
-                  className="min-h-[150px] bg-background"
-                  data-testid="textarea-custom-body"
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Placeholders: {"{student_name}"}, {"{exam_name}"}, {"{email}"}, {"{password}"}, {"{portal_link}"}
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="shadow-sm">
-        <div className="bg-gradient-to-r from-primary/5 to-transparent px-4 py-2.5 border-b border-primary/5">
-          <h4 className="text-sm font-semibold flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">2</span>
-            Select Recipients
-          </h4>
-        </div>
-        <CardContent className="p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <Switch checked={selectAll} onCheckedChange={handleSelectAll} data-testid="switch-select-all" />
-            <Label>Send to all students ({examStudents.length})</Label>
-          </div>
-
-          {!selectAll && (
-            <div className="space-y-1 max-h-60 overflow-y-auto border rounded-xl p-3">
-              {examStudents.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No students added to this exam yet.</p>
-              ) : (
-                examStudents.map((es: any) => (
-                  <label key={es.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-muted/50 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedStudentIds.includes(es.id)}
-                      onChange={() => toggleStudent(es.id)}
-                      className="rounded"
-                      data-testid={`checkbox-student-${es.id}`}
-                    />
-                    <span className="text-sm">{es.student?.name}</span>
-                    <span className="text-xs text-muted-foreground">({es.student?.email})</span>
-                    {es.emailSent && <Badge variant="outline" className="text-xs ml-auto gap-0.5"><Mail className="w-3 h-3" />Sent</Badge>}
-                  </label>
-                ))
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="shadow-sm">
-        <div className="bg-gradient-to-r from-primary/5 to-transparent px-4 py-2.5 border-b border-primary/5">
-          <h4 className="text-sm font-semibold flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">3</span>
-            Send
-          </h4>
-        </div>
-        <CardContent className="p-4 space-y-4">
-          <p className="text-sm text-muted-foreground">
-            {targetCount} student{targetCount !== 1 ? "s" : ""} will receive this email via Gmail SMTP.
-          </p>
-          <Button
-            onClick={sendEmails}
-            disabled={sending || targetCount === 0 || (!selectedTemplate && !useCustom) || (useCustom && (!customSubject || !customBody))}
-            className="shadow-sm"
-            data-testid="button-send-emails"
-          >
-            {sending ? (
-              <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" />Sending...</>
-            ) : (
-              <><Send className="w-4 h-4 mr-1.5" />Send to {targetCount} Student{targetCount !== 1 ? "s" : ""}</>
-            )}
-          </Button>
-
-          {results && (
-            <Card className="mt-2 shadow-sm border-primary/10">
-              <CardContent className="py-3 px-4">
-                 <div className="flex items-center gap-3 mb-3 flex-wrap">
-                   <Badge variant="default" className="text-xs">{results.sent} accepted by mail server</Badge>
-                  {results.failed > 0 && <Badge variant="destructive" className="text-xs">{results.failed} failed</Badge>}
-                  <span className="text-xs text-muted-foreground">{results.total} total</span>
-                </div>
-                 <p className="text-xs text-muted-foreground mb-2">
-                   Accepted by Gmail does not guarantee inbox placement. Check Spam, Promotions, filters, and the recipient mailbox quota.
-                 </p>
-                <div className="space-y-1 max-h-40 overflow-y-auto">
-                  {results.emails?.map((em: any, i: number) => (
-                    <div key={i} className="flex items-center justify-between text-xs py-1.5 border-b last:border-0">
-                      <span>{em.studentName} ({em.email})</span>
-                      <Badge variant={em.status === "sent" ? "default" : "destructive"} className="text-xs gap-0.5">
-                        {em.status === "sent" ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                        {em.status}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function SettingsTab({ exam, examId }: { exam: any; examId: number }) {
-  const { toast } = useToast();
-  const [timerMode, setTimerMode] = useState(exam.timerMode);
-  const [perQ, setPerQ] = useState(exam.perQuestionSeconds || 60);
-  const [fullExam, setFullExam] = useState(exam.fullExamSeconds || 3600);
-  const [maxAttempts, setMaxAttempts] = useState(exam.maxAttempts || 1);
-
-  const updateSettings = useMutation({
-    mutationFn: async () => {
-      await apiRequest("PATCH", `/api/exams/${examId}`, {
-        timerMode,
-        perQuestionSeconds: timerMode === "per_question" ? perQ : null,
-        fullExamSeconds: timerMode === "full_exam" ? fullExam : null,
-        maxAttempts,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/exams", examId] });
-      toast({ title: "Settings saved" });
-    },
-  });
-
-  return (
-    <div className="max-w-lg space-y-4">
-      <Card className="shadow-sm border-primary/10">
-        <CardHeader className="pb-3">
-          <h3 className="font-semibold flex items-center gap-2">
-            <Settings className="w-4 h-4 text-primary" />
-            Timer Settings
-          </h3>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Maximum Attempts</Label>
-            <Input
-              type="number"
-              min={1}
-              max={100}
-              value={maxAttempts}
-              onChange={(e) => setMaxAttempts(Math.max(1, parseInt(e.target.value) || 1))}
-              data-testid="input-max-attempts"
-            />
-            <p className="text-xs text-muted-foreground">Students can request an administrator-approved reattempt after this limit is reached.</p>
-          </div>
-          <div className="border-t" />
-          <div className="space-y-2">
-            <Label>Timer Mode</Label>
-            <Select value={timerMode} onValueChange={setTimerMode}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No Timer</SelectItem>
-                <SelectItem value="per_question">Per Question</SelectItem>
-                <SelectItem value="full_exam">Full Exam</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {timerMode === "per_question" && (
-            <div className="space-y-2">
-              <Label>Seconds Per Question</Label>
-              <Input type="number" value={perQ} onChange={(e) => setPerQ(parseInt(e.target.value) || 60)} />
-            </div>
-          )}
-          {timerMode === "full_exam" && (
-            <div className="space-y-2">
-              <Label>Total Exam Time (seconds)</Label>
-              <Input type="number" value={fullExam} onChange={(e) => setFullExam(parseInt(e.target.value) || 3600)} />
-              <p className="text-xs text-muted-foreground">{Math.floor(fullExam / 60)} minutes</p>
-            </div>
-          )}
-          <Button onClick={() => updateSettings.mutate()} disabled={updateSettings.isPending} className="shadow-sm" data-testid="button-save-settings">
-            {updateSettings.isPending ? "Saving..." : "Save Settings"}
-          </Button>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
 function ReattemptsTab({ examId }: { examId: number }) {
   const { toast } = useToast();
   const { data: requests = [] } = useQuery<any[]>({
@@ -2059,7 +1516,7 @@ function ReattemptsTab({ examId }: { examId: number }) {
       queryClient.invalidateQueries({ queryKey: ["/api/exams", examId, "reattempt-requests"] });
       toast({ title: "Reattempt request updated" });
     },
-    onError: (error: Error) => toast({ title: "Could not update request", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Could not update request", description: apiErrorMessage(error), variant: "destructive" }),
   });
 
   return (
@@ -2097,82 +1554,96 @@ function ReattemptsTab({ examId }: { examId: number }) {
   );
 }
 
-function InstructionsTab({ exam, examId }: { exam: any; examId: number }) {
+
+function SetupTab({ exam, examId }: { exam: any; examId: number }) {
   const { toast } = useToast();
+  const [maxAttempts, setMaxAttempts] = useState(exam.maxAttempts || 1);
+  const [durationMinutes, setDurationMinutes] = useState(exam.durationMinutes || 30);
+  const [timerMode, setTimerMode] = useState<TimerMode>(exam.timerMode === "per_question" ? "per_question" : "full_exam");
+  const [perQuestionSeconds, setPerQuestionSeconds] = useState(exam.perQuestionSeconds || 60);
+  // datetime-local inputs hold Nairobi wall-clock time; the server reads them as +03:00.
+  const [opensAt, setOpensAt] = useState(toNairobiInput(exam.opensAt));
+  const [closesAt, setClosesAt] = useState(toNairobiInput(exam.closesAt));
   const [instructions, setInstructions] = useState<string>(exam.instructions ?? "");
 
-  const saveInstructions = useMutation({
+  const updateSetup = useMutation({
     mutationFn: async () => {
-      await apiRequest("PATCH", `/api/exams/${examId}/instructions`, { instructions: instructions.trim() || null });
+      await apiRequest("PATCH", `/api/exams/${examId}`, {
+        maxAttempts,
+        timerMode,
+        ...(timerMode === "full_exam" ? { durationMinutes } : { perQuestionSeconds }),
+        opensAt: opensAt || undefined,
+        closesAt: closesAt || undefined,
+        instructions: instructions.trim() || null
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/exams", examId] });
-      toast({ title: "Instructions saved" });
+      toast({ title: "Setup saved" });
     },
-    onError: () => {
-      toast({ title: "Failed to save instructions", variant: "destructive" });
-    },
+    onError: (e: any) => {
+      toast({ title: "Failed to save setup", description: apiErrorMessage(e), variant: "destructive" });
+    }
   });
 
-  const hasInstructions = instructions.trim().length > 0;
-
   return (
-    <div className="max-w-2xl space-y-4">
+    <div className="max-w-xl space-y-4">
       <Card className="shadow-sm border-primary/10">
         <CardHeader className="pb-3">
           <h3 className="font-semibold flex items-center gap-2">
-            <BookOpen className="w-4 h-4 text-primary" />
-            Exam Instructions
+            <Settings className="w-4 h-4 text-primary" />
+            Exam Setup
           </h3>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Write custom instructions shown to students before they begin the exam. Leave empty to use the auto-generated instructions based on timer settings.
-          </p>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label>Instructions text</Label>
+            <Label>Opens At (Nairobi Time)</Label>
+            <Input
+              type="datetime-local"
+              value={opensAt}
+              onChange={(e) => setOpensAt(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Closes At (Nairobi Time)</Label>
+            <Input
+              type="datetime-local"
+              value={closesAt}
+              onChange={(e) => setClosesAt(e.target.value)}
+            />
+          </div>
+          <ExamTimerFields
+            timerMode={timerMode} onTimerModeChange={setTimerMode}
+            durationMinutes={durationMinutes} onDurationMinutesChange={setDurationMinutes}
+            perQuestionSeconds={perQuestionSeconds} onPerQuestionSecondsChange={setPerQuestionSeconds}
+          />
+          <div className="space-y-2">
+            <Label>Maximum Attempts</Label>
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              value={maxAttempts}
+              onChange={(e) => setMaxAttempts(Math.max(1, parseInt(e.target.value) || 1))}
+              data-testid="input-max-attempts"
+            />
+            <p className="text-xs text-muted-foreground">Students can request an administrator-approved reattempt after this limit is reached.</p>
+          </div>
+          <div className="space-y-2 pt-2 border-t border-border">
+            <Label>Exam Instructions</Label>
             <Textarea
               value={instructions}
               onChange={(e) => setInstructions(e.target.value)}
-              placeholder={`Example:\n- This exam consists of 30 multiple choice questions.\n- Each question has only one correct answer.\n- You have 2 minutes per question. When time runs out, the question auto-progresses.\n- You cannot go back to a previous question.\n- Do not communicate with other students during the exam.`}
-              className="min-h-[240px] bg-background font-normal text-sm leading-relaxed"
-              data-testid="textarea-instructions"
+              placeholder="Write custom instructions shown to students before they begin the exam..."
+              rows={4}
             />
             <p className="text-xs text-muted-foreground">
-              {instructions.trim().length} characters · supports line breaks
+              Leave empty to use the auto-generated instructions based on timer settings.
             </p>
           </div>
-
-          {hasInstructions && (
-            <Card className="bg-muted/30 border-dashed">
-              <CardContent className="p-4">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Preview (what students will see)</p>
-                <p className="text-sm whitespace-pre-wrap leading-relaxed">{instructions}</p>
-              </CardContent>
-            </Card>
-          )}
-
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={() => saveInstructions.mutate()}
-              disabled={saveInstructions.isPending}
-              className="shadow-sm"
-              data-testid="button-save-instructions"
-            >
-              {saveInstructions.isPending ? "Saving..." : "Save Instructions"}
-            </Button>
-            {hasInstructions && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-muted-foreground"
-                onClick={() => setInstructions("")}
-                data-testid="button-clear-instructions"
-              >
-                Clear (use auto-generated)
-              </Button>
-            )}
-          </div>
+          <Button onClick={() => updateSetup.mutate()} disabled={updateSetup.isPending} className="shadow-sm w-full" data-testid="button-save-setup">
+            {updateSetup.isPending ? "Saving..." : "Save Setup"}
+          </Button>
         </CardContent>
       </Card>
     </div>

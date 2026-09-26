@@ -9,6 +9,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { Eye, EyeOff, LogIn, Phone, MessageSquare, Mail as MailIcon, UserPlus } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
+import { FEATURES } from "@/lib/feature-flags";
+import { apiErrorMessage } from "@/lib/api-error";
 
 export default function StudentLogin() {
   const [email, setEmail] = useState("");
@@ -18,24 +20,25 @@ export default function StudentLogin() {
   const [location, setLocation] = useLocation();
   const { toast } = useToast();
 
+  const [loginError, setLoginError] = useState("");
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setLoginError("");
     try {
-      const res = await apiRequest("POST", "/api/student/login", { email, password });
-      const data = await res.json();
-      if (res.ok && data.accountType === "dashboard") {
-        const next = new URLSearchParams(location.split("?")[1] || "").get("next");
-        setLocation(next && next.startsWith("/") && !next.startsWith("//") ? next : "/student/dashboard");
-      } else {
-        toast({ title: "Login Failed", description: data.message || "Invalid email or password", variant: "destructive" });
-      }
+      await apiRequest("POST", "/api/student/login", { email: email.trim(), password });
+      const next = new URLSearchParams(location.split("?")[1] || "").get("next");
+      setLocation(next && next.startsWith("/") && !next.startsWith("//") ? next : "/student/dashboard");
     } catch (error: any) {
-      toast({ title: "Login Failed", description: "Could not connect. Please try again.", variant: "destructive" });
+      const message = apiErrorMessage(error, "We couldn't sign you in. Please try again.");
+      setLoginError(message);
+      toast({ title: "Couldn't sign in", description: message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
   };
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex flex-col">
@@ -52,7 +55,7 @@ export default function StudentLogin() {
             <CardContent className="p-6">
               <form onSubmit={handleLogin} className="space-y-5">
                 <div className="space-y-2">
-                  <Label htmlFor="email" className="text-sm font-medium">School email address</Label>
+                  <Label htmlFor="email" className="text-sm font-medium">Email address</Label>
                   <Input
                     id="email"
                     type="email"
@@ -63,7 +66,6 @@ export default function StudentLogin() {
                     className="h-11"
                     data-testid="input-email"
                   />
-                  <p className="text-xs text-muted-foreground">Use your school or institution email address.</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="password" className="text-sm font-medium">Password</Label>
@@ -91,6 +93,9 @@ export default function StudentLogin() {
                     </button>
                   </div>
                 </div>
+                {loginError && (
+                  <p role="alert" className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2">{loginError}</p>
+                )}
                 <Button type="submit" className="w-full h-11 text-sm font-medium" disabled={loading} data-testid="button-login">
                   <LogIn className="w-4 h-4 mr-2" />
                   {loading ? "Signing in..." : "Sign In"}
@@ -126,14 +131,14 @@ export default function StudentLogin() {
           </Card>
 
           <div className="mt-5 space-y-3">
-            <button
+            {FEATURES.publicSignup && <button
               onClick={() => setLocation("/student/signup")}
               className="w-full flex items-center justify-center gap-2 h-11 rounded-lg border border-primary/20 text-sm text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors bg-primary/5 hover:bg-primary/10"
               data-testid="button-signup"
             >
               <UserPlus className="w-4 h-4" />
                 New student? Create your verified account
-            </button>
+            </button>}
             <p className="text-center text-xs text-muted-foreground">
               <button
                 onClick={() => setLocation("/student/forgot-password")}
@@ -141,9 +146,6 @@ export default function StudentLogin() {
               >
                 Forgot password?
               </button>
-            </p>
-            <p className="text-center text-xs text-muted-foreground">
-              <a href="/admin" className="hover:text-primary transition-colors underline underline-offset-2" data-testid="link-admin-portal">Admin Portal</a>
             </p>
           </div>
         </div>

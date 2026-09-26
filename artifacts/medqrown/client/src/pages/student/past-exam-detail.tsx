@@ -2,6 +2,7 @@ import { useStudentPastExam } from "@/hooks/use-student";
 import { useParams, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FEATURES } from "@/lib/feature-flags";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChevronLeft, Calendar, BookOpen, Target, Award } from "lucide-react";
 
@@ -68,10 +69,10 @@ export default function StudentPastExamDetail() {
           <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-8">
             <div className="space-y-4 flex-1">
               <div>
-                <span className="inline-flex items-center text-xs font-semibold uppercase tracking-wider text-primary bg-primary/10 px-2 py-1 rounded mb-3">
+                {FEATURES.studentUnits && <span className="inline-flex items-center text-xs font-semibold uppercase tracking-wider text-primary bg-primary/10 px-2 py-1 rounded mb-3">
                   <BookOpen className="w-3 h-3 mr-1.5" />
                   {exam.unitName}
-                </span>
+                </span>}
                 <h1 className="text-3xl sm:text-4xl font-bold tracking-tight leading-tight text-balance">
                   {exam.title}
                 </h1>

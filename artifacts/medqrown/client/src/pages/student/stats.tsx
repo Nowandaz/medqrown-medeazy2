@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Award, BarChart3, CheckCircle2, Target, TrendingUp } from "lucide-react";
+import { FEATURES } from "@/lib/feature-flags";
 
 export default function StudentStats() {
   const { data: stats, isLoading } = useStudentStats();
@@ -59,11 +60,11 @@ export default function StudentStats() {
           <CardContent className="flex min-h-56 flex-col items-center justify-center px-6 text-center">
             <BarChart3 className="mb-4 h-10 w-10 text-muted-foreground/40" />
             <h2 className="font-semibold">Your stats will appear here</h2>
-            <p className="mt-1 max-w-md text-sm text-muted-foreground">Complete an official exam to start tracking your scores, pass rate, and unit progress.</p>
+            <p className="mt-1 max-w-md text-sm text-muted-foreground">Complete an official exam to start tracking your scores and pass rate.</p>
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className={`grid gap-6 ${FEATURES.studentUnits ? "lg:grid-cols-2" : ""}`}>
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg"><TrendingUp className="h-5 w-5 text-primary" />Recent results</CardTitle>
@@ -75,7 +76,7 @@ export default function StudentStats() {
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{attempt.title}</p>
-                      <p className="text-xs text-muted-foreground">{attempt.unitName} · {new Date(attempt.submittedAt).toLocaleDateString()}</p>
+                          <p className="text-xs text-muted-foreground">{FEATURES.studentUnits ? `${attempt.unitName} · ` : ""}{new Date(attempt.submittedAt).toLocaleDateString()}</p>
                     </div>
                     <span className="shrink-0 text-sm font-bold text-primary">{attempt.scorePercent}%</span>
                   </div>
@@ -85,7 +86,7 @@ export default function StudentStats() {
             </CardContent>
           </Card>
 
-          <Card>
+          {FEATURES.studentUnits && <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg"><BarChart3 className="h-5 w-5 text-primary" />Performance by unit</CardTitle>
               <CardDescription>Average score across completed attempts.</CardDescription>
@@ -104,7 +105,7 @@ export default function StudentStats() {
                 </div>
               ))}
             </CardContent>
-          </Card>
+          </Card>}
         </div>
       )}
     </div>

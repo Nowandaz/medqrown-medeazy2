@@ -39,7 +39,7 @@ export default function AdminSelfTestReports() {
   });
 
   if (!admin) {
-    setLocation("/admin");
+    setLocation("/");
     return null;
   }
 
