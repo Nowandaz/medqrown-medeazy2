@@ -69,6 +69,9 @@ export const students = pgTable("students", {
   resetCode: text("reset_code"),
   resetExpiresAt: timestamp("reset_expires_at"),
   avatarKey: text("avatar_key").notNull().default("teal"),
+  // Added by the startup migrations; declared here so drizzle-kit never drops them.
+  phone: text("phone"),
+  onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
