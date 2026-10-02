@@ -32,10 +32,10 @@ const keepRawBody = (req: any, _res: any, buf: Buffer) => {
   req.rawBody = buf;
 };
 const jsonParser = express.json({ verify: keepRawBody });
-// Bulk question imports can carry hundreds of long questions, so they get a
+// Bulk question imports and JSON updates can carry hundreds of long questions, so they get a
 // larger body limit than the 100kb default used everywhere else.
 const bulkImportJsonParser = express.json({ limit: "10mb", verify: keepRawBody });
-const BULK_IMPORT_PATH = /^\/api\/exams\/[^/]+\/questions\/bulk$/;
+const BULK_IMPORT_PATH = /^\/api\/exams\/[^/]+\/questions\/bulk(-update)?$/;
 
 app.use((req, res, next) =>
   req.method === "POST" && BULK_IMPORT_PATH.test(req.path)

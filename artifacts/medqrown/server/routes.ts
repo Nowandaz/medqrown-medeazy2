@@ -20,6 +20,7 @@ import { registerStage9Routes, updateStage9SiteSettings } from "./stage9";
 import { registerStage10Routes } from "./stage10";
 import { registerStage11Routes } from "./stage11";
 import { registerTimetableRoutes } from "./timetable";
+import { registerQuestionJsonUpdateRoutes } from "./question-json-update";
 import { sendLoggedEmail } from "./stage11-email";
 import { broadcastLiveQuiz, issueLiveQuizTicket } from "./live-quiz";
 import { featureForPath, isFeatureEnabled } from "./feature-flags";
@@ -138,8 +139,8 @@ export async function registerRoutes(
   });
   app.use((req, res, next) => {
     if (!req.path.startsWith("/api/") || !req.body) return next();
-    // Bulk question imports are exempt from per-field character limits.
-    if (req.method === "POST" && /^\/api\/exams\/[^/]+\/questions\/bulk$/.test(req.path)) return next();
+    // Bulk question imports and JSON updates are exempt from per-field character limits.
+    if (req.method === "POST" && /^\/api\/exams\/[^/]+\/questions\/bulk(-update)?$/.test(req.path)) return next();
     const oversizedField = findOversizedText(req.body);
     if (oversizedField) {
       return res.status(400).json({ message: `The ${oversizedField} field is too long. Please shorten it and try again.` });
@@ -420,6 +421,7 @@ export async function registerRoutes(
 
   registerStage5Routes(app, requireAdmin, requireStudent);
   registerStage6Routes(app, requireAdmin, requireStudent);
+  registerQuestionJsonUpdateRoutes(app, requireAdmin);
   registerStage7Routes(app, requireAdmin, requireStudent);
   registerStage8Routes(app, requireStudent);
   registerStage9Routes(app, requireAdmin);
@@ -1118,6 +1120,8 @@ export async function registerRoutes(
       const exam = await storage.getExam(examId);
       if (!exam) return res.status(404).json({ message: "Exam not found" });
       await storage.deleteExam(examId);
+      invalidateExamCache(examId);
+      await storage.createAuditLog({ adminId: (req as any).admin.id, action: "delete_exam", details: `${exam.title} (#${examId})` });
       res.json({ ok: true });
     } catch (error: any) {
       console.error("Delete exam error:", error);
@@ -3687,11 +3691,17 @@ export async function registerRoutes(
       const options = await storage.getQuestionOptions(questionId);
       const selectedOption = options.find(o => o.id === parseInt(answer));
       const isCorrect = selectedOption?.isCorrect || false;
-      await storage.upsertResponse({
+      const marksAwarded = isCorrect ? question.marks : 0;
+      const saved = await storage.upsertResponse({
         attemptId, questionId, subquestionId: null,
-        answer, isCorrect, marksAwarded: isCorrect ? question.marks : 0,
+        answer, isCorrect, marksAwarded,
         aiFeedback: null,
       });
+      // upsertResponse only rewrites the answer on an existing row, so a changed
+      // choice must also refresh its score.
+      if (saved.isCorrect !== isCorrect || saved.marksAwarded !== marksAwarded) {
+        await storage.updateResponse(saved.id, { isCorrect, marksAwarded });
+      }
     } else {
       await storage.upsertResponse({
         attemptId, questionId, subquestionId: subquestionId || null,
@@ -3781,6 +3791,177 @@ export async function registerRoutes(
       questionStartedAt: questionStartedAt?.toISOString() ?? null,
       question: questionData,
       upcomingImageUrl,
+    });
+  });
+
+  // One request per click on the exam page: save every answer for the current
+  // question and, with `advance`, move to the next question. Access is checked
+  // once and questions come from the exam cache. save-answer and next-question
+  // above stay for exam tabs opened before this was deployed.
+  app.post("/api/student/answer", async (req, res) => {
+    const esId = Number((req.session as any)?.examStudentId);
+    if (!esId) return res.status(401).json({ message: "Not authenticated" });
+    const attemptId = Number(req.body?.attemptId);
+    const questionId = Number(req.body?.questionId);
+    const advance = req.body?.advance === true;
+    const expectedIndex = req.body?.expectedCurrentQuestionIndex;
+    if (!Number.isInteger(attemptId) || !Number.isInteger(questionId)) {
+      return res.status(400).json({ message: "attemptId and questionId are required" });
+    }
+    // Only non-blank answers are saved, so an empty box never overwrites a saved answer.
+    const isAnswer = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
+    const mainAnswer = isAnswer(req.body?.answer) ? req.body.answer : null;
+    const subAnswers: { subquestionId: number; answer: string }[] = Array.isArray(req.body?.subAnswers)
+      ? req.body.subAnswers
+          .filter((item: any) => item && isAnswer(item.answer))
+          .map((item: any) => ({ subquestionId: Number(item.subquestionId), answer: item.answer }))
+      : [];
+
+    const examStudent = await storage.getExamStudent(esId);
+    if (!examStudent) return res.status(401).json({ message: "Session expired" });
+    const authenticatedStudentId = (req.session as any)?.studentId;
+    if (authenticatedStudentId && Number(authenticatedStudentId) !== examStudent.studentId) {
+      return res.status(403).json({ message: "This exam session belongs to another student" });
+    }
+    const access = await studentExamAccess(examStudent.examId, examStudent.studentId);
+    if (!access.allowed) return res.status(access.status || 403).json({ message: access.message, code: (access as any).code });
+    const exam = access.exam;
+    const { questions: qs, optionsByQuestion, subsByQuestion } = await getExamStructure(examStudent.examId);
+
+    const client = await pool.connect();
+    let nextIndex: number | null = null;
+    let questionStartedAt: Date | null = null;
+    let saved = 0;
+    try {
+      await client.query("BEGIN");
+      // Row lock: a double click or a timer firing during a click is handled one at a time.
+      const { rows: [attempt] } = await client.query(
+        `SELECT id, exam_student_id AS "examStudentId", status,
+                current_question_index AS "currentQuestionIndex", started_at AS "startedAt"
+           FROM attempts WHERE id = $1 FOR UPDATE`,
+        [attemptId],
+      );
+      const fail = async (status: number, body: Record<string, unknown>) => {
+        await client.query("ROLLBACK");
+        res.status(status).json(body);
+      };
+      if (!attempt || attempt.examStudentId !== esId) return await fail(403, { message: "Forbidden" });
+      if (attempt.status !== "in_progress") {
+        return await fail(409, { message: "This attempt has already been submitted", submitted: true });
+      }
+      // The closing time is enforced by the access check; the duration is checked here.
+      // The background sweep submits the attempt; this only stops late saves.
+      const durationMinutes = Number(exam.durationMinutes) || 0;
+      if (durationMinutes > 0 && Date.now() >= new Date(attempt.startedAt).getTime() + durationMinutes * 60_000) {
+        // Release the row lock first: the sweep updates this same attempt.
+        await client.query("ROLLBACK");
+        await submitDueStage6Attempts();
+        return res.status(409).json({ message: "Time is up for this attempt", expired: true });
+      }
+      if (typeof expectedIndex === "number" && expectedIndex !== attempt.currentQuestionIndex) {
+        return await fail(409, { message: "Stale request — already advanced", staleRequest: true, currentQuestionIndex: attempt.currentQuestionIndex });
+      }
+      const current = qs[attempt.currentQuestionIndex];
+      if (!current || current.id !== questionId) {
+        return await fail(409, { message: "Answers can only be saved for the current question", staleRequest: true, currentQuestionIndex: attempt.currentQuestionIndex });
+      }
+
+      const saveResponse = async (subquestionId: number | null, answer: string, score: { isCorrect: boolean; marks: number } | null) => {
+        const { rows: existing } = await client.query(
+          `SELECT id FROM responses
+            WHERE attempt_id = $1 AND question_id = $2 AND subquestion_id IS NOT DISTINCT FROM $3
+            ORDER BY id LIMIT 1`,
+          [attemptId, current.id, subquestionId],
+        );
+        if (existing[0] && score) {
+          await client.query(
+            "UPDATE responses SET answer = $2, is_correct = $3, marks_awarded = $4 WHERE id = $1",
+            [existing[0].id, answer, score.isCorrect, score.marks],
+          );
+        } else if (existing[0]) {
+          await client.query("UPDATE responses SET answer = $2 WHERE id = $1", [existing[0].id, answer]);
+        } else {
+          await client.query(
+            `INSERT INTO responses (attempt_id, question_id, subquestion_id, answer, is_correct, marks_awarded, ai_feedback)
+             VALUES ($1, $2, $3, $4, $5, $6, NULL)`,
+            [attemptId, current.id, subquestionId, answer, score?.isCorrect ?? null, score?.marks ?? null],
+          );
+        }
+        saved++;
+      };
+
+      const currentSubs = subsByQuestion.get(current.id) ?? [];
+      if (current.hasSubquestions && currentSubs.length > 0) {
+        const validIds = new Set(currentSubs.map((sub) => sub.id));
+        if (subAnswers.some((item) => !validIds.has(item.subquestionId))) {
+          return await fail(400, { message: "subquestionId must belong to the current SAQ" });
+        }
+        for (const item of subAnswers) await saveResponse(item.subquestionId, item.answer, null);
+      } else if (mainAnswer !== null) {
+        if (current.type === "mcq") {
+          const option = (optionsByQuestion.get(current.id) ?? []).find((o) => o.id === parseInt(mainAnswer));
+          const isCorrect = option?.isCorrect || false;
+          await saveResponse(null, mainAnswer, { isCorrect, marks: isCorrect ? current.marks : 0 });
+        } else {
+          await saveResponse(null, mainAnswer, null);
+        }
+      }
+
+      if (advance && attempt.currentQuestionIndex + 1 < qs.length) {
+        nextIndex = attempt.currentQuestionIndex + 1;
+        questionStartedAt = exam.timerMode === "per_question" ? new Date() : null;
+        await client.query(
+          `UPDATE attempts SET current_question_index = $2,
+                  question_started_at = COALESCE($3, question_started_at)
+            WHERE id = $1`,
+          [attemptId, nextIndex, questionStartedAt],
+        );
+      }
+      await client.query("COMMIT");
+      if (advance && nextIndex === null) {
+        return res.json({ saved, isLastQuestion: true, currentQuestionIndex: attempt.currentQuestionIndex });
+      }
+      if (!advance) return res.json({ saved, currentQuestionIndex: attempt.currentQuestionIndex });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("Save answer error:", error);
+      return res.status(500).json({ message: "Could not save your answer. Check your connection and try again." });
+    } finally {
+      client.release();
+    }
+
+    const nextQ = qs[nextIndex!];
+    const options = optionsByQuestion.get(nextQ.id) ?? [];
+    const subs = nextQ.hasSubquestions ? subsByQuestion.get(nextQ.id) ?? [] : [];
+    const { rows: savedRows } = await pool.query(
+      `SELECT subquestion_id AS "subquestionId", answer FROM responses
+        WHERE attempt_id = $1 AND question_id = $2 ORDER BY id`,
+      [attemptId, nextQ.id],
+    );
+    const questionData: any = {
+      ...nextQ,
+      expectedAnswer: undefined,
+      explanation: undefined, // never reveal explanations before results are released
+      options: nextQ.type === "mcq" ? options.map((o) => ({ id: o.id, content: o.content, orderIndex: o.orderIndex })) : [],
+      subquestions: subs.map((s) => ({ id: s.id, content: s.content, marks: s.marks, orderIndex: s.orderIndex })),
+      savedAnswer: savedRows.find((r: any) => r.subquestionId == null)?.answer || null,
+    };
+    if (nextQ.hasSubquestions) {
+      const subResponses: Record<number, string> = {};
+      for (const s of subs) {
+        const row = savedRows.find((r: any) => r.subquestionId === s.id);
+        if (row?.answer) subResponses[s.id] = row.answer;
+      }
+      questionData.savedSubAnswers = subResponses;
+    }
+    res.json({
+      saved,
+      currentQuestionIndex: nextIndex,
+      totalQuestions: qs.length,
+      questionStartedAt: questionStartedAt?.toISOString() ?? null,
+      question: questionData,
+      // Hint the client about the question after this one so it can preload its image
+      upcomingImageUrl: qs[nextIndex! + 1]?.imageUrl || null,
     });
   });
 

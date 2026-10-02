@@ -85,7 +85,12 @@ export function registerStage6Routes(app: Express, requireAdmin: RequestHandler,
         ...exam,
         membershipStatus,
         state: !scheduleConfigured ? "unavailable"
-          : beforeOpen ? "upcoming" : afterClose ? (exam.resultsReleased ? "results_available" : "results_pending") : "open",
+          : beforeOpen ? "upcoming"
+          : afterClose
+            // A student with no attempt has no results to view.
+            ? (exam.attemptsUsed === 0 && !exam.hasInProgressAttempt ? "missed"
+              : exam.resultsReleased ? "results_available" : "results_pending")
+          : "open",
         lockedReason: !["active", "grace"].includes(membershipStatus) ? "renew_to_access"
           : !scheduleConfigured ? "schedule_incomplete" : beforeOpen ? "not_open" : afterClose ? "closed" : null,
         canOpen: canTake && (exam.hasInProgressAttempt || exam.attemptsUsed < exam.maxAttempts || exam.hasApprovedReattempt),
@@ -220,7 +225,7 @@ export function registerStage6Routes(app: Express, requireAdmin: RequestHandler,
     }
     const { rows: questions } = await pool.query(
       `SELECT q.id, q.type, q.content, q.marks, q.expected_answer AS "expectedAnswer",
-              q.explanation, q.image_url AS "imageUrl",
+              q.explanation, q.image_url AS "imageUrl", q.image_caption AS "imageCaption",
               COALESCE((SELECT json_agg(json_build_object(
                 'id', qo.id, 'content', qo.content, 'isCorrect', qo.is_correct, 'orderIndex', qo.order_index
               ) ORDER BY qo.order_index) FROM question_options qo WHERE qo.question_id = q.id), '[]'::json) AS options,

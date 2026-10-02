@@ -67,32 +67,50 @@ export default function StudentExam() {
     img.src = upcomingImageUrl;
   }, [upcomingImageUrl]);
 
-  const saveCurrentAnswerImmediate = useCallback(async () => {
+  /**
+   * One request: saves every non-blank answer for the current question and, with
+   * `advance`, moves to the next question. Blank boxes are never sent, so they can't
+   * overwrite a saved answer. Returns the server's reply; throws on failure.
+   */
+  const sendAnswer = useCallback(async (advance: boolean, answerOverride?: string) => {
     const data = attemptDataRef.current;
-    if (!data?.question) return;
+    if (!data?.question) return null;
     const q = data.question;
-    try {
-      if (q.hasSubquestions && q.subquestions?.length > 0) {
-        for (const sq of q.subquestions) {
-          const subAns = subAnswersRef.current[sq.id];
-          if (subAns) {
-            await apiRequest("POST", "/api/student/save-answer", {
-              attemptId: data.attemptId,
-              questionId: q.id,
-              subquestionId: sq.id,
-              answer: subAns,
-            });
-          }
-        }
-      } else if (answerRef.current) {
-        await apiRequest("POST", "/api/student/save-answer", {
-          attemptId: data.attemptId,
-          questionId: q.id,
-          answer: answerRef.current,
-        });
-      }
-    } catch {}
+    const body: Record<string, unknown> = {
+      attemptId: data.attemptId,
+      questionId: q.id,
+      expectedCurrentQuestionIndex: data.currentQuestionIndex,
+      advance,
+    };
+    if (q.hasSubquestions && q.subquestions?.length > 0) {
+      body.subAnswers = q.subquestions
+        .filter((sq: any) => subAnswersRef.current[sq.id])
+        .map((sq: any) => ({ subquestionId: sq.id, answer: subAnswersRef.current[sq.id] }));
+    } else {
+      const value = answerOverride ?? answerRef.current;
+      if (value) body.answer = value;
+    }
+    const res = await apiRequest("POST", "/api/student/answer", body);
+    return res.json();
   }, []);
+
+  /** Show the question the server just moved this attempt to. */
+  const applyNextQuestion = useCallback((nextData: any) => {
+    setAttemptData((prev: any) => ({
+      ...prev,
+      currentQuestionIndex: nextData.currentQuestionIndex,
+      totalQuestions: nextData.totalQuestions,
+      question: nextData.question,
+    }));
+    setAnswer(nextData.question?.savedAnswer || "");
+    setSubAnswers(nextData.question?.savedSubAnswers || {});
+    if (nextData.questionStartedAt) setQuestionStartedAt(nextData.questionStartedAt);
+    setUpcomingImageUrl(nextData.upcomingImageUrl || null);
+  }, []);
+
+  const saveCurrentAnswerImmediate = useCallback(async () => {
+    try { await sendAnswer(false); } catch {}
+  }, [sendAnswer]);
 
   const submitExamImmediate = useCallback(async () => {
     const data = attemptDataRef.current;
@@ -132,34 +150,21 @@ export default function StudentExam() {
     }
   }, [setLocation]);
 
-  const moveNextImmediate = useCallback(async (): Promise<boolean> => {
-    const data = attemptDataRef.current;
-    if (!data) return false;
+  /** Saves the current answers and moves on in one request. Returns true on the last question. */
+  const saveAndMoveNextImmediate = useCallback(async (): Promise<boolean> => {
     try {
-      const res = await apiRequest("POST", "/api/student/next-question", {
-        attemptId: data.attemptId,
-        expectedCurrentQuestionIndex: data.currentQuestionIndex,
-      });
-      const nextData = await res.json();
-      setAttemptData((prev: any) => ({
-        ...prev,
-        currentQuestionIndex: nextData.currentQuestionIndex,
-        totalQuestions: nextData.totalQuestions,
-        question: nextData.question,
-      }));
-      setAnswer(nextData.question?.savedAnswer || "");
-      setSubAnswers(nextData.question?.savedSubAnswers || {});
-      if (nextData.questionStartedAt) setQuestionStartedAt(nextData.questionStartedAt);
-      setUpcomingImageUrl(nextData.upcomingImageUrl || null);
+      const nextData = await sendAnswer(true);
+      if (!nextData || nextData.isLastQuestion) return true;
+      applyNextQuestion(nextData);
       return false;
     } catch (e: any) {
       const errorData = apiErrorBody(e);
-      if (errorData?.isLastQuestion) return true;
-      // The server already moved this attempt on (or ended it): show where it really is.
+      if (errorData?.submitted || errorData?.expired) { goToSubmitted(); return false; }
+      // The server already moved this attempt on (or the connection failed): show where it really is.
       await resyncAttempt();
       return false;
     }
-  }, [resyncAttempt]);
+  }, [sendAnswer, applyNextQuestion, resyncAttempt, goToSubmitted]);
 
   const handleTimerExpiry = useCallback(async () => {
     if (isAutoSubmittingRef.current) return;
@@ -171,13 +176,12 @@ export default function StudentExam() {
     if (!data) { isAutoSubmittingRef.current = false; return; }
 
     if (data.timerMode === "per_question") {
-      await saveCurrentAnswerImmediate();
       const totalQ = data.totalQuestions || 0;
       const currentIdx = data.currentQuestionIndex || 0;
       if (currentIdx >= totalQ - 1) {
         await submitExamImmediate();
       } else {
-        const isLast = await moveNextImmediate();
+        const isLast = await saveAndMoveNextImmediate();
         if (isLast) {
           await submitExamImmediate();
         } else {
@@ -190,7 +194,7 @@ export default function StudentExam() {
     } else if (data.timerMode === "full_exam") {
       await submitExamImmediate();
     }
-  }, [saveCurrentAnswerImmediate, submitExamImmediate, moveNextImmediate]);
+  }, [submitExamImmediate, saveAndMoveNextImmediate]);
 
   const loadExam = useCallback(async () => {
     try {
@@ -277,32 +281,20 @@ export default function StudentExam() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [attemptData?.timerMode, attemptData?.perQuestionSeconds, attemptData?.fullExamSeconds, attemptData?.deadlineAt, questionStartedAt, attemptStartedAt, handleTimerExpiry]);
 
-  const saveCurrentAnswer = async (answerOverride?: string) => {
-    if (!attemptData?.question) return;
-    const q = attemptData.question;
+  /** Returns false if the answer could not be saved. */
+  const saveCurrentAnswer = async (answerOverride?: string): Promise<boolean> => {
+    if (!attemptData?.question) return true;
     setSaving(true);
     try {
-      if (q.hasSubquestions && q.subquestions?.length > 0) {
-        for (const sq of q.subquestions) {
-          const subAns = subAnswers[sq.id];
-          if (subAns) {
-            await apiRequest("POST", "/api/student/save-answer", {
-              attemptId: attemptData.attemptId,
-              questionId: q.id,
-              subquestionId: sq.id,
-              answer: subAns,
-            });
-          }
-        }
-      } else if (answerOverride ?? answer) {
-        await apiRequest("POST", "/api/student/save-answer", {
-          attemptId: attemptData.attemptId,
-          questionId: q.id,
-          answer: answerOverride ?? answer,
-        });
-      }
-    } catch {
+      await sendAnswer(false, answerOverride);
+      return true;
+    } catch (e) {
+      const errorData = apiErrorBody(e);
+      // Stale: Next already moved on, carrying this answer with it. Submitted/expired:
+      // the server already ended the attempt, so there is nothing left to save.
+      if (errorData?.staleRequest || errorData?.submitted || errorData?.expired) return true;
       toast({ title: "Save failed", variant: "destructive" });
+      return false;
     } finally {
       setSaving(false);
     }
@@ -317,27 +309,19 @@ export default function StudentExam() {
     setAdvancing(true);
     let shouldSubmitAfter = false;
     try {
-      await saveCurrentAnswer(answerOverride);
-      const res = await apiRequest("POST", "/api/student/next-question", {
-        attemptId: attemptData.attemptId,
-        // Optimistic concurrency: server will reject the request as a stale duplicate
-        // (rather than skipping forward) if the client's expected index doesn't match.
-        expectedCurrentQuestionIndex: attemptData.currentQuestionIndex,
-      });
-      const data = await res.json();
-      setAttemptData((prev: any) => ({
-        ...prev,
-        currentQuestionIndex: data.currentQuestionIndex,
-        totalQuestions: data.totalQuestions,
-        question: data.question,
-      }));
-      setAnswer(data.question?.savedAnswer || "");
-      setSubAnswers(data.question?.savedSubAnswers || {});
-      if (data.questionStartedAt) setQuestionStartedAt(data.questionStartedAt);
-      setUpcomingImageUrl(data.upcomingImageUrl || null);
+      // Saves this question's answers and moves on in a single request. The server
+      // rejects it as stale (rather than skipping forward) if the expected index doesn't match.
+      const data = await sendAnswer(true, answerOverride);
+      if (!data || data.isLastQuestion) {
+        shouldSubmitAfter = true;
+      } else {
+        applyNextQuestion(data);
+      }
     } catch (e: any) {
       const errorData = apiErrorBody(e);
-      if (errorData?.isLastQuestion) {
+      if (errorData?.submitted || errorData?.expired) {
+        goToSubmitted();
+      } else if (errorData?.isLastQuestion) {
         // Defer the submit until after we release the in-flight lock below,
         // otherwise submitExam's own guard will see advancingRef and bail.
         shouldSubmitAfter = true;
@@ -345,7 +329,7 @@ export default function StudentExam() {
         // The server already advanced (e.g. the question's time ran out): catch up.
         await resyncAttempt();
       } else {
-        toast({ title: "Couldn't load the next question", description: apiErrorMessage(e, "Check your connection and tap Next again. Your answer is saved."), variant: "destructive" });
+        toast({ title: "Couldn't load the next question", description: apiErrorMessage(e, "Check your connection and tap Next again. Your answer stays on screen until it's saved."), variant: "destructive" });
       }
     } finally {
       advancingRef.current = false;
@@ -362,7 +346,8 @@ export default function StudentExam() {
     advancingRef.current = true;
     setSubmitting(true);
     try {
-      await saveCurrentAnswer(answerOverride);
+      // Never submit over an unsaved last answer; the student can tap Submit again.
+      if (!(await saveCurrentAnswer(answerOverride))) throw new Error("Your last answer wasn't saved yet.");
       await apiRequest("POST", "/api/student/submit-exam", {
         attemptId: attemptData.attemptId,
       });

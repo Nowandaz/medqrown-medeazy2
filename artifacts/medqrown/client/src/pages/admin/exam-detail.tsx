@@ -29,6 +29,8 @@ import { TEXT_LIMITS } from "@/lib/text-limits";
 import { ExamTimerFields, type TimerMode } from "@/components/admin/exam-timer-fields";
 import { toNairobiInput } from "@/lib/datetime";
 import { apiErrorMessage } from "@/lib/api-error";
+import { DeleteExamButton } from "@/components/admin/delete-exam-button";
+import { UpdateQuestionsJsonDialog } from "@/components/admin/update-questions-json-dialog";
 
 export default function AdminExamDetail() {
   const [, params] = useRoute("/admin/exams/:id");
@@ -105,6 +107,7 @@ export default function AdminExamDetail() {
               </span>
             </div>
           </div>
+          <DeleteExamButton exam={exam} />
         </div>
       </header>
 
@@ -551,7 +554,8 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
           <h3 className="font-semibold">Questions</h3>
           <p className="text-xs text-muted-foreground">{questions.length} question{questions.length !== 1 ? "s" : ""}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+        <UpdateQuestionsJsonDialog examId={examId} questions={questions} />
         {/* ── Bulk Import ─────────────────────────────────────── */}
         <Dialog open={showBulk} onOpenChange={(v) => { setShowBulk(v); if (!v) { setBulkJson(""); setBulkParsed(null); setBulkError(""); } }}>
           <DialogTrigger asChild>

@@ -15,6 +15,7 @@ import {
   Star, Award, ImageIcon, TrendingUp, TrendingDown, Printer, Loader2, ArrowLeft
 } from "lucide-react";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
+import { ImageDescriptionInfo } from "@/components/student/image-description-info";
 
 export default function StudentResults() {
   const [, setLocation] = useLocation();
@@ -247,16 +248,14 @@ export default function StudentResults() {
                     <p className="text-sm font-medium leading-relaxed whitespace-pre-wrap">{q.content}</p>
 
                     {q.imageUrl && (
-                      <div className="rounded-xl border bg-muted/30 p-3">
+                      <div className="relative rounded-xl border bg-muted/30 p-3">
                         <img
                           src={q.imageUrl}
                           alt={q.imageCaption || "Question image"}
                           className="max-w-full max-h-56 rounded-lg mx-auto object-contain"
                           data-testid={`img-question-${q.id}`}
                         />
-                        {q.imageCaption && (
-                          <p className="text-xs text-muted-foreground mt-2 text-center italic">{q.imageCaption}</p>
-                        )}
+                        {q.imageCaption && <ImageDescriptionInfo description={q.imageCaption} />}
                       </div>
                     )}
 

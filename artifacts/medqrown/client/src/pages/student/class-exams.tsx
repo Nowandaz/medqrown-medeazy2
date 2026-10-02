@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { BookOpen, Clock, Calendar, AlertCircle, ArrowRight, Lock, Play, FileText, CheckCircle2, Megaphone, MessageSquare } from "lucide-react";
+import { BookOpen, Clock, Calendar, AlertCircle, ArrowRight, Lock, Play, FileText, CheckCircle2, XCircle, Megaphone, MessageSquare } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -219,6 +219,12 @@ export default function StudentClassExams() {
                         </Button>
                       )}
                       
+                      {exam.state === "missed" && (
+                        <Button variant="secondary" className="flex-1 gap-2" disabled>
+                          <XCircle className="w-4 h-4" />
+                          Not attempted
+                        </Button>
+                      )}
                       {exam.state === "results_pending" && (
                         <Button variant="secondary" className="flex-1 gap-2" disabled>
                           <FileText className="w-4 h-4" />
