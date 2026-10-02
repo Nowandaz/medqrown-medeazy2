@@ -957,6 +957,85 @@ export async function registerRoutes(
     res.json(exam);
   });
 
+  // Copy an exam (settings, instructions, questions, options, subquestions) into
+  // a class under a new title and schedule. Student data is never copied.
+  app.post("/api/exams/:id/copy", requireAdmin, async (req, res) => {
+    const sourceId = Number(req.params.id);
+    const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+    const classId = Number(req.body?.classId);
+    const opensAt = parseNairobiExamTime(req.body?.opensAt);
+    const closesAt = parseNairobiExamTime(req.body?.closesAt);
+    if (!Number.isInteger(sourceId) || sourceId < 1) return res.status(400).json({ message: "Invalid exam id" });
+    if (!title || title.length > 250) return res.status(400).json({ message: "Enter a title of at most 250 characters" });
+    if (!Number.isInteger(classId) || classId < 1) return res.status(400).json({ message: "Choose a class for the copy" });
+    if (!opensAt || !closesAt || opensAt >= closesAt) {
+      return res.status(400).json({ message: "Choose valid open and close times; the close time must be after the open time" });
+    }
+    const source = await storage.getExam(sourceId);
+    if (!source) return res.status(404).json({ message: "Exam to copy was not found" });
+    const { rows: classes } = await pool.query(
+      "SELECT id FROM medqrown_classes WHERE id = $1 AND status = 'active'",
+      [classId],
+    );
+    if (!classes[0]) return res.status(400).json({ message: "Choose an active class for this exam" });
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows: [exam] } = await client.query(
+        `INSERT INTO exams (title, status, max_attempts, class_id, opens_at, closes_at, duration_minutes,
+                            timer_mode, per_question_seconds, full_exam_seconds, created_by,
+                            results_released, auto_mark_enabled, instructions)
+         SELECT $2, 'active', max_attempts, $3, $4, $5, duration_minutes,
+                timer_mode, per_question_seconds, full_exam_seconds, $6,
+                false, auto_mark_enabled, instructions
+           FROM exams WHERE id = $1
+         RETURNING id, title`,
+        [sourceId, title, classId, opensAt, closesAt, (req as any).admin.id],
+      );
+      const { rows: sourceQuestions } = await client.query(
+        "SELECT id FROM questions WHERE exam_id = $1 ORDER BY order_index, id",
+        [sourceId],
+      );
+      for (let i = 0; i < sourceQuestions.length; i++) {
+        const { rows: [question] } = await client.query(
+          `INSERT INTO questions (exam_id, type, content, order_index, marks, expected_answer, explanation,
+                                  image_url, image_caption, has_subquestions)
+           SELECT $2, type, content, $3, marks, expected_answer, explanation,
+                  image_url, image_caption, has_subquestions
+             FROM questions WHERE id = $1
+           RETURNING id`,
+          [sourceQuestions[i].id, exam.id, i],
+        );
+        await client.query(
+          `INSERT INTO question_options (question_id, content, is_correct, order_index)
+           SELECT $2, content, is_correct, order_index FROM question_options WHERE question_id = $1
+            ORDER BY order_index, id`,
+          [sourceQuestions[i].id, question.id],
+        );
+        await client.query(
+          `INSERT INTO subquestions (question_id, content, marks, expected_answer, order_index)
+           SELECT $2, content, marks, expected_answer, order_index FROM subquestions WHERE question_id = $1
+            ORDER BY order_index, id`,
+          [sourceQuestions[i].id, question.id],
+        );
+      }
+      await client.query("COMMIT");
+      await storage.createAuditLog({
+        adminId: (req as any).admin.id,
+        action: "copy_exam",
+        details: `${source.title} (#${sourceId}) -> ${exam.title} (#${exam.id})`,
+      });
+      res.json({ ...exam, questionCount: sourceQuestions.length });
+    } catch (error: any) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("Copy exam error:", error);
+      res.status(500).json({ message: "Failed to copy exam" });
+    } finally {
+      client.release();
+    }
+  });
+
   app.patch("/api/exams/:id", requireAdmin, async (req, res) => {
     const updates = { ...req.body };
     const id = Number(req.params.id);

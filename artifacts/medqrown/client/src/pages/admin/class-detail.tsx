@@ -22,6 +22,7 @@ import { AdminNav } from "@/components/admin/admin-nav";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MembersTable } from "@/components/admin/members-table";
 import { CreateExamDialog } from "@/components/admin/create-exam-dialog";
+import { CopyExamDialog } from "@/components/admin/copy-exam-dialog";
 import { apiErrorMessage } from "@/lib/api-error";
 import { ClassTimetable } from "@/components/admin/class-timetable";
 
@@ -207,7 +208,10 @@ function ClassExams({ classId }: { classId: number }) {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-medium">Class Exams</h3>
-        <CreateExamDialog classId={classId} />
+        <div className="flex flex-wrap gap-2">
+          <CopyExamDialog classId={classId} />
+          <CreateExamDialog classId={classId} />
+        </div>
       </div>
       
       {isLoading ? (

@@ -19,6 +19,16 @@ import {
   type StudentSignup, type University, type DemoExam, type DemoQuestion,
 } from "@shared/schema";
 
+/** Copied exams share image files, so only delete files no remaining question uses. */
+async function unreferencedImageUrls(urls: string[]): Promise<string[]> {
+  const unique = Array.from(new Set(urls));
+  if (unique.length === 0) return [];
+  const rows = await db.selectDistinct({ imageUrl: questions.imageUrl }).from(questions)
+    .where(inArray(questions.imageUrl, unique));
+  const stillUsed = new Set(rows.map(r => r.imageUrl));
+  return unique.filter(url => !stillUsed.has(url));
+}
+
 export interface IStorage {
   getAdmin(id: number): Promise<Admin | undefined>;
   getAdminByEmail(email: string): Promise<Admin | undefined>;
@@ -211,7 +221,8 @@ export class DatabaseStorage implements IStorage {
     await db.delete(exams).where(eq(exams.id, id));
     if (imageUrls.length > 0) {
       // Fire-and-forget — don't block the response on bucket cleanup
-      deleteSupabaseStorageObjects(imageUrls)
+      unreferencedImageUrls(imageUrls)
+        .then(urls => deleteSupabaseStorageObjects(urls))
         .then(r => console.log(`[deleteExam ${id}] bucket cleanup: ${r.deleted} deleted, ${r.failed} failed`))
         .catch(e => console.warn(`[deleteExam ${id}] bucket cleanup error:`, e?.message || e));
     }
@@ -303,7 +314,9 @@ export class DatabaseStorage implements IStorage {
     const [q] = await db.select({ imageUrl: questions.imageUrl }).from(questions).where(eq(questions.id, id));
     await db.delete(questions).where(eq(questions.id, id));
     if (q?.imageUrl) {
-      deleteSupabaseStorageObject(q.imageUrl).catch(e => console.warn(`[deleteQuestion ${id}] bucket cleanup error:`, e?.message || e));
+      unreferencedImageUrls([q.imageUrl])
+        .then(([url]) => url ? deleteSupabaseStorageObject(url) : undefined)
+        .catch(e => console.warn(`[deleteQuestion ${id}] bucket cleanup error:`, e?.message || e));
     }
   }
 
@@ -320,7 +333,9 @@ export class DatabaseStorage implements IStorage {
     await db.delete(questionOptions).where(eq(questionOptions.questionId, id));
     await db.delete(questions).where(eq(questions.id, id));
     if (q?.imageUrl) {
-      deleteSupabaseStorageObject(q.imageUrl).catch(e => console.warn(`[deleteQuestionCascade ${id}] bucket cleanup error:`, e?.message || e));
+      unreferencedImageUrls([q.imageUrl])
+        .then(([url]) => url ? deleteSupabaseStorageObject(url) : undefined)
+        .catch(e => console.warn(`[deleteQuestionCascade ${id}] bucket cleanup error:`, e?.message || e));
     }
   }
 
