@@ -138,6 +138,8 @@ export async function registerRoutes(
   });
   app.use((req, res, next) => {
     if (!req.path.startsWith("/api/") || !req.body) return next();
+    // Bulk question imports are exempt from per-field character limits.
+    if (req.method === "POST" && /^\/api\/exams\/[^/]+\/questions\/bulk$/.test(req.path)) return next();
     const oversizedField = findOversizedText(req.body);
     if (oversizedField) {
       return res.status(400).json({ message: `The ${oversizedField} field is too long. Please shorten it and try again.` });
