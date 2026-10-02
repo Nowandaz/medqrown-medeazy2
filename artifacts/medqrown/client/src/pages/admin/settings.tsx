@@ -13,9 +13,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { AdminNav } from "@/components/admin/admin-nav";
-import { ArrowLeft, Brain, Mail, Users, Shield, Plus, Trash2, Save, Pencil, FlaskConical, CheckCircle, XCircle, Loader2, Building2, Calendar, CreditCard, FileText, Search } from "lucide-react";
+import { ArrowLeft, Brain, Mail, Users, Shield, Plus, Trash2, Save, Pencil, FlaskConical, CheckCircle, XCircle, Loader2, Building2, Calendar, CreditCard, FileText, Search, RotateCcw } from "lucide-react";
 import { FEATURES } from "@/lib/feature-flags";
 import { cohortName, formatNairobi } from "@/lib/datetime";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -431,6 +432,36 @@ function EmailLogSection() {
   });
   const filtered = debouncedSearch || status !== "all" || templateKey !== "all";
 
+  // Resending failed emails: pick rows, or resend every failed email matching the filters.
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  useEffect(() => { setSelected(new Set()); }, [page, debouncedSearch, status, templateKey]);
+  const resendable: any[] = (data?.items ?? []).filter((item: any) => item.canResend);
+  const toggle = (id: number, on: boolean) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (on) next.add(id); else next.delete(id);
+    return next;
+  });
+  const resend = useMutation({
+    mutationFn: async (body: { ids?: number[]; allFailed?: boolean }) => {
+      const payload = body.allFailed
+        ? { allFailed: true, search: debouncedSearch, templateKey: templateKey === "all" ? "" : templateKey }
+        : body;
+      const res = await apiRequest("POST", "/api/admin/settings/email-log/resend", payload);
+      return res.json();
+    },
+    onSuccess: (r: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/settings/email-log"] });
+      setSelected(new Set());
+      const total = r.sent + r.failed + r.skipped;
+      toast({
+        title: total === 0 ? "Nothing to resend" : `Resent ${r.sent} of ${total} email${total === 1 ? "" : "s"}`,
+        description: [r.failed ? `${r.failed} failed again` : "", r.skipped ? `${r.skipped} couldn't be resent` : ""].filter(Boolean).join(" · ") || undefined,
+        variant: r.failed || r.skipped ? "destructive" : undefined,
+      });
+    },
+    onError: (e: any) => toast({ title: "Couldn't resend", description: apiErrorMessage(e), variant: "destructive" }),
+  });
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center">
@@ -438,12 +469,26 @@ function EmailLogSection() {
           <h3 className="font-medium">Email Log</h3>
           <p className="text-sm text-muted-foreground">View sent and failed emails across the system.</p>
         </div>
+        <div className="flex flex-wrap gap-2">
+        {selected.size > 0 && (
+          <Button size="sm" onClick={() => resend.mutate({ ids: Array.from(selected) })} disabled={resend.isPending} data-testid="button-resend-selected">
+            {resend.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <RotateCcw className="w-4 h-4 mr-1" />}
+            Resend selected ({selected.size})
+          </Button>
+        )}
+        {status !== "sent" && data?.total > 0 && (
+          <Button variant="outline" size="sm" onClick={() => resend.mutate({ allFailed: true })} disabled={resend.isPending} data-testid="button-resend-all-failed">
+            {resend.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <RotateCcw className="w-4 h-4 mr-1" />}
+            {resend.isPending ? "Resending..." : filtered ? "Resend failed (matching)" : "Resend all failed"}
+          </Button>
+        )}
         {data?.total > 0 && (
           <Button variant="outline" size="sm" className="text-destructive"
             onClick={() => setConfirmDelete({ label: filtered ? `all ${data.total} matching entries` : `all ${data.total} entries` })}>
             <Trash2 className="w-4 h-4 mr-1" /> {filtered ? "Delete matching" : "Delete all"}
           </Button>
         )}
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 bg-muted/30 p-3 rounded-lg border">
@@ -483,22 +528,34 @@ function EmailLogSection() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox aria-label="Select all failed emails on this page"
+                    disabled={!resendable.length}
+                    checked={resendable.length > 0 && resendable.every((item) => selected.has(item.id))}
+                    onCheckedChange={(on) => setSelected(on ? new Set(resendable.map((item) => item.id)) : new Set())} />
+                </TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Recipient</TableHead>
                 <TableHead>Template / Source</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Details</TableHead>
-                <TableHead className="w-10"><span className="sr-only">Delete</span></TableHead>
+                <TableHead className="w-20"><span className="sr-only">Actions</span></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={6} className="text-center py-8"><Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center py-8"><Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
               ) : data?.items?.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No email logs found.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No email logs found.</TableCell></TableRow>
               ) : (
                 data?.items?.map((item: any) => (
                   <TableRow key={item.id}>
+                    <TableCell>
+                      {item.canResend && (
+                        <Checkbox aria-label={`Select email to ${item.recipient}`} checked={selected.has(item.id)}
+                          onCheckedChange={(on) => toggle(item.id, on === true)} data-testid={`checkbox-resend-${item.id}`} />
+                      )}
+                    </TableCell>
                     <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
                       {formatNairobi(item.createdAt)}
                     </TableCell>
@@ -515,12 +572,18 @@ function EmailLogSection() {
                     </TableCell>
                     <TableCell className="text-xs max-w-[200px] truncate" title={item.error}>
                       {item.error ? (
-                        <span className="text-red-600">{item.error}</span>
+                        <span className="text-red-600">{item.attempts > 1 ? `Tried ${item.attempts}×: ` : ""}{item.error}</span>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {item.canResend && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Resend to ${item.recipient}`} title="Resend"
+                          onClick={() => resend.mutate({ ids: [item.id] })} disabled={resend.isPending} data-testid={`button-resend-${item.id}`}>
+                          <RotateCcw className="w-4 h-4 text-primary" />
+                        </Button>
+                      )}
                       <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Delete log entry"
                         onClick={() => setConfirmDelete({ id: item.id, label: `the log for ${item.recipient}` })}>
                         <Trash2 className="w-4 h-4 text-muted-foreground" />

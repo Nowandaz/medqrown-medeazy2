@@ -1,6 +1,6 @@
 import type { Express, RequestHandler } from "express";
 import { pool } from "./db";
-import { logEmailFailure, sendLoggedEmail } from "./stage11-email";
+import { logEmailFailure, resendLoggedEmail, sendLoggedEmail } from "./stage11-email";
 import { STAGE11_TEMPLATES } from "./stage11-migration";
 
 const validTemplateKeys = new Set<string>(STAGE11_TEMPLATES.map((template) => template.key));
@@ -55,7 +55,8 @@ export function registerStage11Routes(app: Express, requireAdmin: RequestHandler
     );
     const { rows } = await pool.query(
       `SELECT id, recipient, template_key AS "templateKey", status, error,
-              created_at AS "createdAt"
+              created_at AS "createdAt", attempts,
+              (status = 'failed' AND (payload IS NOT NULL OR template_key = 'announcement')) AS "canResend"
          FROM medqrown_email_log
         WHERE ($1 = '' OR recipient ILIKE '%' || $1 || '%' OR template_key ILIKE '%' || $1 || '%')
           AND ($2 = '' OR template_key = $2)
@@ -64,6 +65,38 @@ export function registerStage11Routes(app: Express, requireAdmin: RequestHandler
       [...filterValues, pageSize, offset],
     );
     res.json({ items: rows, page, pageSize, total: count.rows[0]?.total ?? 0 });
+  });
+
+  /** Resends failed emails by log id and updates each log entry with the new outcome. */
+  app.post("/api/admin/settings/email-log/resend", requireAdmin, async (req: any, res) => {
+    let ids = req.body?.ids;
+    if (req.body?.allFailed === true) {
+      // Every resendable failed entry matching the list's search/template filters.
+      const search = typeof req.body?.search === "string" ? req.body.search.trim().slice(0, 254) : "";
+      const templateKey = typeof req.body?.templateKey === "string" ? req.body.templateKey.trim() : "";
+      const { rows } = await pool.query(
+        `SELECT id FROM medqrown_email_log
+          WHERE status = 'failed' AND (payload IS NOT NULL OR template_key = 'announcement')
+            AND ($1 = '' OR recipient ILIKE '%' || $1 || '%' OR template_key ILIKE '%' || $1 || '%')
+            AND ($2 = '' OR template_key = $2 OR ($2 = 'custom' AND template_key LIKE 'custom:%'))
+          ORDER BY created_at, id LIMIT 500`,
+        [search, templateKey],
+      );
+      ids = rows.map((row: any) => Number(row.id));
+      if (!ids.length) return res.json({ sent: 0, failed: 0, skipped: 0, results: [] });
+    } else {
+      // Log ids are BIGSERIAL, which the list returns as strings.
+      ids = Array.isArray(ids) ? ids.map((id: unknown) => Number(id)) : null;
+      if (!ids || ids.length === 0 || ids.length > 500 || ids.some((id: number) => !Number.isInteger(id) || id < 1)) {
+        return res.status(400).json({ message: "ids must be a list of 1–500 log entry ids" });
+      }
+    }
+    // Sends queue on the shared, rate-limited SMTP connection.
+    const results = await Promise.all([...new Set<number>(ids)].map((id) => resendLoggedEmail(id)));
+    const count = (status: string) => results.filter((r) => r.status === status).length;
+    await pool.query("INSERT INTO audit_logs (admin_id, action, details) VALUES ($1, $2, $3)",
+      [req.admin.id, "email_resend", `Resent ${results.length} email(s): ${count("sent")} sent, ${count("failed")} failed, ${count("skipped")} skipped`]);
+    res.json({ sent: count("sent"), failed: count("failed"), skipped: count("skipped"), results });
   });
 
   app.delete("/api/admin/settings/email-log/:id", requireAdmin, async (req, res) => {

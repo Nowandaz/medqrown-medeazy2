@@ -85,6 +85,11 @@ export async function migrateStage11(): Promise<void> {
       ON medqrown_email_log (created_at DESC, id DESC);
     CREATE INDEX IF NOT EXISTS medqrown_email_log_recipient_idx
       ON medqrown_email_log (LOWER(recipient));
+    -- Resending: failed emails keep their rendered content until they go out.
+    ALTER TABLE medqrown_email_log
+      ADD COLUMN IF NOT EXISTS payload JSONB,
+      ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMP;
   `);
   for (const template of STAGE11_TEMPLATES) {
     await pool.query(
