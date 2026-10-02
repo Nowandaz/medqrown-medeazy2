@@ -78,8 +78,10 @@ export function registerStage8Routes(app: Express, requireStudent: RequestHandle
                           WHERE rr.exam_id = e.id AND rr.student_id = $1
                             AND rr.status = 'approved' AND rr.consumed_at IS NULL)
             )
-          ORDER BY CASE WHEN e.opens_at > CURRENT_TIMESTAMP THEN 0 ELSE 1 END,
-                   e.opens_at, e.id
+          -- Exams open right now come first (the one closing soonest), then upcoming ones.
+          ORDER BY CASE WHEN e.opens_at <= CURRENT_TIMESTAMP THEN 0 ELSE 1 END,
+                   CASE WHEN e.opens_at <= CURRENT_TIMESTAMP THEN e.closes_at ELSE e.opens_at END,
+                   e.id
           LIMIT 1`,
         [studentId],
       ),
