@@ -198,14 +198,31 @@ export default function StudentClassExams() {
                       )}
                       
                       {exam.state === "open" && !exam.canOpen && exam.attemptsUsed >= exam.maxAttempts && exam.membershipStatus !== "expired" && (
-                        <Button 
-                          variant="secondary"
-                          className="flex-1 gap-2" 
-                          onClick={() => requestReattempt.mutate({ examId: exam.id, reason: "Requested from dashboard" })}
-                          disabled={requestReattempt.isPending}
-                        >
-                          Request Reattempt
-                        </Button>
+                        // Attempts used: lead with the result, keep the reattempt request small.
+                        <div className="flex-1 space-y-1.5">
+                          {exam.resultsReleased ? (
+                            <Button variant="outline" className="w-full gap-2 border-primary text-primary hover:bg-primary/5" onClick={() => setLocation(`/student/results?examId=${exam.id}`)}>
+                              <CheckCircle2 className="w-4 h-4" />
+                              View Results
+                            </Button>
+                          ) : (
+                            <Button variant="secondary" className="w-full gap-2" disabled>
+                              <FileText className="w-4 h-4" />
+                              Results Pending
+                            </Button>
+                          )}
+                          <div className="text-center">
+                            <button
+                              type="button"
+                              className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline disabled:opacity-50"
+                              onClick={() => requestReattempt.mutate({ examId: exam.id, reason: "Requested from dashboard" })}
+                              disabled={requestReattempt.isPending}
+                              data-testid={`button-request-reattempt-${exam.id}`}
+                            >
+                              Request a reattempt
+                            </button>
+                          </div>
+                        </div>
                       )}
                       
                       {exam.state === "results_available" && (
