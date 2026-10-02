@@ -67,6 +67,17 @@ export function registerStage8Routes(app: Express, requireStudent: RequestHandle
           WHERE cs.student_id = $1
             AND e.opens_at IS NOT NULL AND e.closes_at IS NOT NULL
             AND e.closes_at > CURRENT_TIMESTAMP
+            -- Skip exams the student has finished: same rule as "Start Exam" on My Class.
+            AND (
+              (SELECT COUNT(*) FROM attempts a JOIN exam_students es ON es.id = a.exam_student_id
+                WHERE es.exam_id = e.id AND es.student_id = $1 AND a.status = 'submitted')
+                < COALESCE(e.max_attempts, 1)
+              OR EXISTS (SELECT 1 FROM attempts a JOIN exam_students es ON es.id = a.exam_student_id
+                          WHERE es.exam_id = e.id AND es.student_id = $1 AND a.status = 'in_progress')
+              OR EXISTS (SELECT 1 FROM exam_reattempt_requests rr
+                          WHERE rr.exam_id = e.id AND rr.student_id = $1
+                            AND rr.status = 'approved' AND rr.consumed_at IS NULL)
+            )
           ORDER BY CASE WHEN e.opens_at > CURRENT_TIMESTAMP THEN 0 ELSE 1 END,
                    e.opens_at, e.id
           LIMIT 1`,
