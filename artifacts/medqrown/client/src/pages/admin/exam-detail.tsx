@@ -571,6 +571,7 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
               <div className="space-y-2">
                 <Label>Paste your JSON here</Label>
                 <Textarea
+                  maxLength={10_000_000}
                   value={bulkJson}
                   onChange={(e) => { setBulkJson(e.target.value); setBulkParsed(null); setBulkError(""); }}
                   placeholder="Paste JSON array of questions..."
