@@ -12,5 +12,10 @@ export async function migrateStage4(): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS medqrown_invites_expiry_idx ON medqrown_invites(expires_at);
+    -- Students who set a password via forgot-password or sign-up are already activated:
+    -- retire their unused invite link so it can't overwrite that password.
+    UPDATE medqrown_invites mi SET used_at = CURRENT_TIMESTAMP
+     WHERE mi.used_at IS NULL
+       AND EXISTS (SELECT 1 FROM student_accounts sa WHERE sa.student_id = mi.student_id);
   `);
 }

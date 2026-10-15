@@ -52,7 +52,7 @@ async function masterMembers(classId?: number) {
             m.end_date::text AS "membershipEndDate",
             (SELECT grace_days FROM medqrown_settings WHERE id = 1) AS "graceDays",
             mi.used_at AS "inviteUsedAt", mi.expires_at AS "inviteExpiresAt",
-            sa.is_active AS "accountActive",
+            sa.is_active AS "accountActive", (sa.student_id IS NOT NULL) AS "hasAccount",
             (SELECT p.plan FROM medqrown_payment_entries p WHERE p.student_id = s.id
               ORDER BY p.created_at DESC, p.id DESC LIMIT 1) AS "latestPlan",
             COALESCE((SELECT COUNT(DISTINCT ats.exam_id)::int FROM attempt_scores ats
@@ -84,10 +84,13 @@ async function masterMembers(classId?: number) {
         : today <= row.membershipEndDate ? "active"
           : today <= graceEnd.toISOString().slice(0, 10) ? "grace" : "expired";
     }
-    const inviteStatus = row.inviteUsedAt ? "activated"
+    // Having a password is what activates an account (login checks the same thing), whether it
+    // was set from the invite link, the forgot-password flow or self sign-up.
+    const inviteStatus = row.hasAccount || row.inviteUsedAt ? "activated"
       : row.inviteExpiresAt && new Date(row.inviteExpiresAt).getTime() <= Date.now() ? "expired"
-        : row.inviteExpiresAt ? "pending" : row.accountActive ? "activated" : "not_invited";
-    return { ...row, status, inviteStatus, averageScore: row.averageScore == null ? null : Number(row.averageScore) };
+        : row.inviteExpiresAt ? "pending" : "not_invited";
+    const { hasAccount: _hasAccount, ...member } = row;
+    return { ...member, status, inviteStatus, averageScore: row.averageScore == null ? null : Number(row.averageScore) };
   });
 }
 

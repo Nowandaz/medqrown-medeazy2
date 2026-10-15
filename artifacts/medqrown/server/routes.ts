@@ -4296,6 +4296,10 @@ export async function registerRoutes(
           "INSERT INTO student_accounts (student_id, password_hash) VALUES ($1, $2)",
           [student.id, signupPasswordHash],
         );
+        await pool.query(
+          "UPDATE medqrown_invites SET used_at = CURRENT_TIMESTAMP WHERE student_id = $1 AND used_at IS NULL",
+          [student.id],
+        );
       }
       await storage.updateStudentSignup(signup.id, {
         ...(signupPasswordHash ? { password: signupPasswordHash } : {}),
@@ -4431,6 +4435,11 @@ export async function registerRoutes(
          VALUES ($1, $2)
          ON CONFLICT (student_id) DO UPDATE SET password_hash = EXCLUDED.password_hash`,
         [student.id, await bcrypt.hash(newPassword, 10)],
+      );
+      // The account is now activated, so an unused invite link must not be able to overwrite this password.
+      await pool.query(
+        "UPDATE medqrown_invites SET used_at = CURRENT_TIMESTAMP WHERE student_id = $1 AND used_at IS NULL",
+        [student.id],
       );
       // Clear the reset code
       await storage.updateStudent(student.id, { resetCode: null, resetExpiresAt: null });
