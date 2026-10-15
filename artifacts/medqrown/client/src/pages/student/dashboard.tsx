@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RenewMembershipDialog } from "@/components/student/renew-membership-dialog";
+import { PauseNotice, useSubscriptionPause } from "@/components/student/pause-notice";
 import { OccurrenceRow, useNow, useStudentTimetable } from "@/components/student/timetable-bits";
 import { ScoreTrend } from "@/components/student/score-trend";
 import { formatNairobi, formatCalendarDate } from "@/lib/datetime";
@@ -38,6 +39,7 @@ export default function StudentDashboard() {
   const { data: dashboard, isLoading } = useStage8Dashboard();
   const { data: me } = useStudentMe();
   const { data: timetable } = useStudentTimetable();
+  const { data: pause } = useSubscriptionPause();
   const { data: history } = useQuery<any[]>({ queryKey: ["/api/student/results/history"] });
   const now = useNow();
 
@@ -67,8 +69,11 @@ export default function StudentDashboard() {
   const showRenew = membership && (membership.status !== "active" || (membership.daysRemaining ?? 0) <= 7);
   const examOpen = nextExam && Date.parse(nextExam.opensAt) <= now;
 
+  const paused = !!pause?.active;
   const whatsNext = examOpen
     ? `${nextExam.title} is open now — good luck!`
+    : paused
+      ? "Classes are paused for now, but your CATs are all still here."
     : nextSession
       ? `Next up: ${nextSession.title}, ${formatNairobi(nextSession.startsAt)}.`
       : nextExam
@@ -81,6 +86,8 @@ export default function StudentDashboard() {
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{greeting()}{firstName ? `, ${firstName}` : ""} 👋</h1>
         <p className="text-muted-foreground mt-1">{whatsNext}</p>
       </div>
+
+      {paused && pause && <PauseNotice pause={pause} />}
 
       {membership?.status === "grace" && (
         <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
@@ -108,7 +115,9 @@ export default function StudentDashboard() {
             <CardTitle className="flex items-center gap-2 text-base"><CalendarDays className="w-5 h-5 text-primary" />Next class</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {nextSession ? (
+            {paused ? (
+              <p className="text-sm text-muted-foreground">Classes are paused. Your timetable comes back when we resume.</p>
+            ) : nextSession ? (
               <>
                 <OccurrenceRow occ={nextSession} now={now} />
                 {timetable?.linksHidden && <p className="text-xs text-muted-foreground">Meeting links appear here while your membership is active.</p>}
@@ -194,6 +203,9 @@ export default function StudentDashboard() {
                 </div>
                 {membership.status === "active" && (
                   <p className="text-sm"><span className="text-2xl font-bold">{membership.daysRemaining}</span> day{membership.daysRemaining === 1 ? "" : "s"} left</p>
+                )}
+                {paused && membership.status !== "expired" && (
+                  <p className="text-xs text-muted-foreground">Paused: your days aren't counting down, and your end date moves later when we resume.</p>
                 )}
                 {pendingPayment && (
                   <p className="text-sm rounded-lg bg-muted p-2">Payment <span className="font-mono">{pendingPayment.code}</span> is being verified.</p>

@@ -14,6 +14,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { getStudentAvatarUrl } from "@/lib/avatar";
 import { formatCalendarDate } from "@/lib/datetime";
 
@@ -81,6 +82,23 @@ export function MembersTable({ classId }: { classId?: number }) {
   const [endDateReason, setEndDateReason] = useState("");
   const [removeFor, setRemoveFor] = useState<MemberRow | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkMode, setBulkMode] = useState<"set" | "extend">("extend");
+  const [bulkEndDate, setBulkEndDate] = useState("");
+  const [bulkDays, setBulkDays] = useState("7");
+  const [bulkReason, setBulkReason] = useState("");
+
+  // Only rows currently shown count as selected, so a filter change never edits hidden students.
+  const selectedMembers = (members ?? []).filter((member) => selected.has(member.id));
+  const selectedIds = selectedMembers.map((member) => member.id);
+  const withoutMembership = selectedMembers.filter((member) => !member.membershipEndDate);
+  const allSelected = !!members?.length && members.every((member) => selected.has(member.id));
+  const toggle = (id: number, on: boolean) => setSelected((previous) => {
+    const next = new Set(previous);
+    if (on) next.add(id); else next.delete(id);
+    return next;
+  });
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: [baseUrl] });
@@ -105,6 +123,24 @@ export function MembersTable({ classId }: { classId?: number }) {
     onSuccess: () => { refresh(); setEndDateFor(null); toast({ title: "Membership end date updated" }); },
     onError: (e) => toast({ title: "Could not update end date", description: errorMessage(e), variant: "destructive" }),
   });
+
+  const bulkUpdate = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/memberships/bulk-end-date", {
+      studentIds: selectedIds,
+      ...(bulkMode === "set" ? { endDate: bulkEndDate } : { extendDays: Number(bulkDays) }),
+      reason: bulkReason.trim(),
+    }),
+    onSuccess: () => {
+      refresh();
+      setBulkOpen(false);
+      setSelected(new Set());
+      toast({ title: `End date updated for ${selectedIds.length} student${selectedIds.length === 1 ? "" : "s"}` });
+    },
+    onError: (e) => toast({ title: "Could not update end dates", description: errorMessage(e), variant: "destructive" }),
+  });
+  const bulkDaysValid = /^-?\d+$/.test(bulkDays.trim()) && Number(bulkDays) !== 0 && Math.abs(Number(bulkDays)) <= 366;
+  const bulkReady = selectedIds.length > 0 && !withoutMembership.length && !!bulkReason.trim()
+    && (bulkMode === "set" ? !!bulkEndDate : bulkDaysValid);
 
   const removeFromClass = useMutation({
     mutationFn: (member: MemberRow) => apiRequest("DELETE", `/api/admin/classes/${classId}/members/${member.id}`),
@@ -149,10 +185,29 @@ export function MembersTable({ classId }: { classId?: number }) {
         </div>
       </div>
 
+      {selectedIds.length > 0 && (
+        <div className="mx-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-primary/5 px-3 py-2" data-testid="bulk-bar">
+          <span className="text-sm font-medium">{selectedIds.length} selected</span>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>Clear</Button>
+            <Button size="sm" onClick={() => { setBulkReason(""); setBulkOpen(true); }}>
+              <CalendarClock className="w-4 h-4 mr-1.5" />Edit end dates
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={(v) => setSelected(v === true ? new Set((members ?? []).map((member) => member.id)) : new Set())}
+                  aria-label="Select all shown students"
+                />
+              </TableHead>
               <TableHead>Student</TableHead>
               <TableHead>Phone</TableHead>
               <TableHead>Plan</TableHead>
@@ -166,11 +221,14 @@ export function MembersTable({ classId }: { classId?: number }) {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Loading members...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Loading members...</TableCell></TableRow>
             ) : !members?.length ? (
-              <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">No members match.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">No members match.</TableCell></TableRow>
             ) : members.map((member) => (
-              <TableRow key={member.id}>
+              <TableRow key={member.id} data-state={selected.has(member.id) ? "selected" : undefined}>
+                <TableCell>
+                  <Checkbox checked={selected.has(member.id)} onCheckedChange={(v) => toggle(member.id, v === true)} aria-label={`Select ${member.name}`} />
+                </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-3 min-w-[180px]">
                     <img src={getStudentAvatarUrl(member.avatarKey, 64)} alt="" className="w-8 h-8 rounded-full bg-muted shrink-0" loading="lazy" />
@@ -240,6 +298,52 @@ export function MembersTable({ classId }: { classId?: number }) {
             <Button variant="outline" onClick={() => setEndDateFor(null)}>Cancel</Button>
             <Button onClick={() => endDateFor && updateEndDate.mutate(endDateFor)} disabled={!newEndDate || !endDateReason.trim() || updateEndDate.isPending}>
               {updateEndDate.isPending ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit end dates for {selectedIds.length} student{selectedIds.length === 1 ? "" : "s"}</DialogTitle>
+            <DialogDescription>Each change and your reason are recorded in the student's membership audit log.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex gap-2" role="radiogroup" aria-label="How to change end dates">
+              <Button type="button" size="sm" variant={bulkMode === "extend" ? "default" : "outline"} onClick={() => setBulkMode("extend")} role="radio" aria-checked={bulkMode === "extend"}>
+                Move by days
+              </Button>
+              <Button type="button" size="sm" variant={bulkMode === "set" ? "default" : "outline"} onClick={() => setBulkMode("set")} role="radio" aria-checked={bulkMode === "set"}>
+                Set one date
+              </Button>
+            </div>
+            {bulkMode === "extend" ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="bulk-days">Days to add (use a minus sign to shorten)</Label>
+                <Input id="bulk-days" inputMode="numeric" value={bulkDays} onChange={(e) => setBulkDays(e.target.value)} />
+                <p className="text-xs text-muted-foreground">Each student keeps their own end date, moved by this many days.</p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label htmlFor="bulk-end-date">New end date for everyone selected</Label>
+                <Input id="bulk-end-date" type="date" value={bulkEndDate} onChange={(e) => setBulkEndDate(e.target.value)} />
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="bulk-reason">Reason *</Label>
+              <Input id="bulk-reason" value={bulkReason} onChange={(e) => setBulkReason(e.target.value)} placeholder="e.g. Compensation for missed classes" />
+            </div>
+            {withoutMembership.length > 0 && (
+              <p className="text-sm text-destructive">
+                {withoutMembership.map((member) => member.name).join(", ")} {withoutMembership.length === 1 ? "has" : "have"} no membership yet. Unselect them to continue.
+              </p>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setBulkOpen(false)}>Cancel</Button>
+            <Button onClick={() => bulkUpdate.mutate()} disabled={!bulkReady || bulkUpdate.isPending}>
+              {bulkUpdate.isPending ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>

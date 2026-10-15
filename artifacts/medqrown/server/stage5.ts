@@ -1,6 +1,6 @@
 import type { Express, RequestHandler } from "express";
 import { pool } from "./db";
-import { ensureCurrentAndNextCohorts, cohortEndDate, isDate, nairobiDate } from "./stage3-storage";
+import { ensureCurrentAndNextCohorts, cohortEndDate, getPauseState, isDate, membershipAsOf, nairobiDate } from "./stage3-storage";
 import { insertInvite, inviteOrigin, normalizeMpesaCode, sendInvite, validatePaymentCode } from "./stage4";
 import { dispatchPushToStudents } from "./stage7";
 import { sendLoggedEmail } from "./stage11-email";
@@ -45,8 +45,9 @@ async function nextCohortFor(db: Queryable, studentId: number): Promise<any> {
   const graceDays = Number(graceResult.rows[0]?.days ?? 3);
   const previous = membership.rows[0];
   if (previous) {
-    const active = today >= previous.startDate && today <= previous.endDate;
-    const inGrace = today > previous.endDate && today <= addDays(previous.endDate, graceDays);
+    const asOf = membershipAsOf(today, await getPauseState(db));
+    const active = today >= previous.startDate && asOf <= previous.endDate;
+    const inGrace = asOf > previous.endDate && asOf <= addDays(previous.endDate, graceDays);
     if (active || inGrace) {
       let found = cohorts.find((item: any) => item.startDate > previous.endDate);
       while (!found) {
@@ -142,8 +143,8 @@ export async function groupedQueue(statusFilter?: string) {
               'createdAt', p.created_at, 'reviewedAt', p.reviewed_at,
               'membershipStatus', CASE WHEN m.student_id IS NULL THEN 'none'
                 WHEN $1::date < m.start_date THEN 'invited'
-                WHEN $1::date <= m.end_date THEN 'active'
-                WHEN $1::date <= m.end_date + COALESCE(settings.grace_days, 3) THEN 'grace'
+                WHEN $2::date <= m.end_date THEN 'active'
+                WHEN $2::date <= m.end_date + COALESCE(settings.grace_days, 3) THEN 'grace'
                 ELSE 'expired' END
             ) ORDER BY p.created_at, p.id) AS entries,
             MIN(p.created_at) AS first_created_at,
@@ -158,7 +159,7 @@ export async function groupedQueue(statusFilter?: string) {
        LEFT JOIN medqrown_settings settings ON settings.id = 1
       GROUP BY UPPER(REGEXP_REPLACE(p.code, '[[:space:]]', '', 'g'))
       ORDER BY MAX(p.created_at) DESC`,
-    [today],
+    [today, membershipAsOf(today, await getPauseState())],
   );
   const now = Date.now();
   const groups = result.rows.map((group: any) => {
@@ -499,6 +500,8 @@ export function registerStage5Routes(app: Express, requireAdmin: RequestHandler,
 
 /** Idempotent scheduled worker, invoked on boot and periodically by the server. */
 export async function sendDueRenewalReminders(): Promise<void> {
+  // Nobody's membership runs down while subscriptions are paused, so there is nothing to remind about.
+  if ((await getPauseState()).active) return;
   await ensureCurrentAndNextCohorts();
   const today = nairobiDate();
   const due = await pool.query(

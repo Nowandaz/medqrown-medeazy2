@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KIND_META, OccurrenceRow, useNow, useStudentTimetable } from "@/components/student/timetable-bits";
+import { PauseNotice, useSubscriptionPause } from "@/components/student/pause-notice";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const REPEAT: Record<string, string> = { weekly: "Every", biweekly: "Every other" };
@@ -15,8 +16,11 @@ const to12h = (hhmm: string) => {
 /** My Class → Timetable: coming up next, then the weekly schedule with join links. */
 export function ClassTimetableView({ classId }: { classId: number }) {
   const { data, isLoading } = useStudentTimetable();
+  const { data: pause, isLoading: pauseLoading } = useSubscriptionPause();
   const now = useNow();
-  if (isLoading) return <Skeleton className="h-48 rounded-xl" />;
+  if (isLoading || pauseLoading) return <Skeleton className="h-48 rounded-xl" />;
+  // While paused, the message replaces the schedule so nobody joins a class that isn't running.
+  if (pause?.active) return <PauseNotice pause={pause} />;
 
   const sessions = (data?.sessions || []).filter((s) => s.classId === classId);
   const upcoming = (data?.upcoming || []).filter((o) => sessions.some((s) => s.id === o.sessionId)).slice(0, 4);

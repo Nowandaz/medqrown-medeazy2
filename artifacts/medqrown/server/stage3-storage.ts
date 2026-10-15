@@ -85,9 +85,10 @@ export async function ensureCurrentAndNextCohorts(): Promise<void> {
     }
   }
 
-  // Ensure the cohort after the selected current/future cohort exists.
+  // Ensure a cohort after the selected current/future cohort exists. Admins can resize cohorts
+  // freely, so any later cohort counts (it need not start the day after).
   const nextStart = nextStartDate(current.endDate);
-  if (!rows.some((cohort) => cohort.startDate === nextStart)) {
+  if (!rows.some((cohort) => cohort.startDate > current!.endDate)) {
     await pool.query(
       `INSERT INTO medqrown_cohorts (start_date, end_date) VALUES ($1, $2)
        ON CONFLICT (start_date) DO NOTHING`,
@@ -112,6 +113,45 @@ export async function listCohorts() {
   const currentIndex = current ? ordered.findIndex((item) => item.id === current.id) : -1;
   const next = currentIndex >= 0 ? ordered[currentIndex + 1] || null : null;
   return { current, next, history: rows.filter((item) => current && item.startDate < current.startDate) };
+}
+
+type Queryable = { query: (text: string, params?: unknown[]) => Promise<{ rows: any[] }> };
+
+export type PauseState = { active: boolean; message: string | null; startedOn: string | null };
+
+export async function getPauseState(db: Queryable = pool): Promise<PauseState> {
+  const { rows } = await db.query(
+    `SELECT pause_active AS active, pause_message AS message, pause_started_on::text AS "startedOn"
+       FROM medqrown_settings WHERE id = 1`,
+  );
+  return { active: !!rows[0]?.active, message: rows[0]?.message ?? null, startedOn: rows[0]?.startedOn ?? null };
+}
+
+/**
+ * The date memberships are judged against for expiry. While subscriptions are paused the
+ * clock is frozen at the day the pause began, so nobody slides into grace or expiry.
+ */
+export function membershipAsOf(today: string, pause: PauseState): string {
+  return pause.active && pause.startedOn && pause.startedOn < today ? pause.startedOn : today;
+}
+
+export function addCalendarDays(date: string, days: number): string {
+  const value = new Date(`${date}T00:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+export type MembershipStatus = "invited" | "active" | "grace" | "expired";
+
+/** Starting is judged on the real date; running out is judged on the (possibly frozen) asOf date. */
+export function membershipStatus(
+  membership: { startDate: string; endDate: string }, graceDays: number, today: string, asOf: string,
+): { status: MembershipStatus; graceEndDate: string } {
+  const graceEndDate = addCalendarDays(membership.endDate, graceDays);
+  const status = today < membership.startDate ? "invited"
+    : asOf <= membership.endDate ? "active"
+      : asOf <= graceEndDate ? "grace" : "expired";
+  return { status, graceEndDate };
 }
 
 export function isDate(value: unknown): value is string {
@@ -142,17 +182,8 @@ export async function getMembership(studentId: number) {
   const { rows: settingsRows } = await pool.query(
     "SELECT grace_days AS \"graceDays\" FROM medqrown_settings WHERE id = 1",
   );
-  const graceEnd = new Date(`${membership.endDate}T00:00:00.000Z`);
-  graceEnd.setUTCDate(graceEnd.getUTCDate() + Number(settingsRows[0]?.graceDays ?? 3));
-  const graceEndDate = graceEnd.toISOString().slice(0, 10);
-  const status = today < membership.startDate
-    ? "invited"
-    : today <= membership.endDate
-      ? "active"
-      : today <= graceEndDate
-        ? "grace"
-        : "expired";
-  return { ...membership, status, graceEndDate };
+  const asOf = membershipAsOf(today, await getPauseState());
+  return { ...membership, ...membershipStatus(membership, Number(settingsRows[0]?.graceDays ?? 3), today, asOf) };
 }
 
 export async function listAdminMemberships(statusFilter?: string) {
@@ -178,18 +209,8 @@ export async function listAdminMemberships(statusFilter?: string) {
     "SELECT grace_days AS \"graceDays\" FROM medqrown_settings WHERE id = 1",
   );
   const graceDays = Number(settingsRows[0]?.graceDays ?? 3);
-  const results = (rows as any[]).map((membership: any) => {
-    const graceEnd = new Date(`${membership.endDate}T00:00:00.000Z`);
-    graceEnd.setUTCDate(graceEnd.getUTCDate() + graceDays);
-    const graceEndDate = graceEnd.toISOString().slice(0, 10);
-    const status = today < membership.startDate
-      ? "invited"
-      : today <= membership.endDate
-        ? "active"
-        : today <= graceEndDate
-          ? "grace"
-          : "expired";
-    return { ...membership, status, graceEndDate };
-  });
+  const asOf = membershipAsOf(today, await getPauseState());
+  const results = (rows as any[]).map((membership: any) =>
+    ({ ...membership, ...membershipStatus(membership, graceDays, today, asOf) }));
   return statusFilter ? results.filter((membership: any) => membership.status === statusFilter) : results;
 }

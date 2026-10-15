@@ -1,7 +1,7 @@
 import type { Express, RequestHandler } from "express";
 import { pool } from "./db";
 import { analyzeExamQuestions } from "./ai-orchestrator";
-import { listCohorts, nairobiDate } from "./stage3-storage";
+import { getPauseState, listCohorts, membershipAsOf, membershipStatus, nairobiDate } from "./stage3-storage";
 import { groupedQueue } from "./stage5";
 
 const allowedPublicEvents = new Set(["page_view", "demo_start", "demo_complete", "signup_click"]);
@@ -75,14 +75,12 @@ async function masterMembers(classId?: number) {
     [classId ?? null],
   );
   const today = nairobiDate();
+  const asOf = membershipAsOf(today, await getPauseState());
   return rows.map((row: any) => {
     let status = "unassigned";
     if (row.membershipEndDate) {
-      const graceEnd = new Date(`${row.membershipEndDate}T00:00:00.000Z`);
-      graceEnd.setUTCDate(graceEnd.getUTCDate() + Number(row.graceDays ?? 3));
-      status = today < row.membershipStartDate ? "invited"
-        : today <= row.membershipEndDate ? "active"
-          : today <= graceEnd.toISOString().slice(0, 10) ? "grace" : "expired";
+      status = membershipStatus({ startDate: row.membershipStartDate, endDate: row.membershipEndDate },
+        Number(row.graceDays ?? 3), today, asOf).status;
     }
     // Having a password is what activates an account (login checks the same thing), whether it
     // was set from the invite link, the forgot-password flow or self sign-up.
@@ -252,12 +250,10 @@ export function registerStage10Routes(app: Express, requireAdmin: RequestHandler
          FROM medqrown_memberships m`,
     );
     const today = nairobiDate();
-    const activeMembers = memberships.rows.filter((m: any) => m.startDate <= today && m.endDate >= today).length;
-    const graceMembers = memberships.rows.filter((m: any) => {
-      const end = new Date(`${m.endDate}T00:00:00Z`);
-      end.setUTCDate(end.getUTCDate() + Number(m.graceDays ?? 3));
-      return m.endDate < today && end.toISOString().slice(0, 10) >= today;
-    }).length;
+    const asOf = membershipAsOf(today, await getPauseState());
+    const statuses = memberships.rows.map((m: any) => membershipStatus(m, Number(m.graceDays ?? 3), today, asOf).status);
+    const activeMembers = statuses.filter((status) => status === "active").length;
+    const graceMembers = statuses.filter((status) => status === "grace").length;
     const [queue, exams, feedback, nextPayments] = await Promise.all([
       groupedQueue(),
       pool.query(`SELECT id, title, class_id AS "classId", opens_at AS "opensAt", closes_at AS "closesAt"

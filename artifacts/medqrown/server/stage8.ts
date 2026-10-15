@@ -1,6 +1,6 @@
 import type { Express, RequestHandler } from "express";
 import { pool } from "./db";
-import { getMembership, nairobiDate } from "./stage3-storage";
+import { getMembership, getPauseState, membershipAsOf, nairobiDate } from "./stage3-storage";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -105,6 +105,7 @@ export function registerStage8Routes(app: Express, requireStudent: RequestHandle
       ownReleasedResults(studentId),
     ]);
     const today = nairobiDate();
+    const pause = await getPauseState();
     const endDate = membership?.endDate ?? null;
     const nextExam = examResult.rows[0] || null;
     const pendingPayments = pendingResult.rows;
@@ -115,7 +116,9 @@ export function registerStage8Routes(app: Express, requireStudent: RequestHandle
         startDate: membership.startDate,
         endDate,
         graceEndDate: membership.graceEndDate,
-        daysRemaining: Math.max(0, daysUntil(today, endDate)),
+        // Frozen while subscriptions are paused: the paused days are given back on resume.
+        daysRemaining: Math.max(0, daysUntil(membershipAsOf(today, pause), endDate)),
+        paused: pause.active,
         pendingPayment: membership.pendingPayment,
       } : null,
       pendingPayment: pendingPayments[0] || null,

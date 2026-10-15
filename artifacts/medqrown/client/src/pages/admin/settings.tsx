@@ -21,6 +21,7 @@ import { FEATURES } from "@/lib/feature-flags";
 import { cohortName, formatNairobi } from "@/lib/datetime";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { apiErrorMessage } from "@/lib/api-error";
+import { SubscriptionPauseCard } from "@/components/admin/subscription-pause-card";
 
 export default function AdminSettings() {
   const [, setLocation] = useLocation();
@@ -58,7 +59,7 @@ export default function AdminSettings() {
             <TabsTrigger value="email-log" className="text-xs gap-1"><FileText className="w-3 h-3" />Email Log</TabsTrigger>
             <TabsTrigger value="admins" className="text-xs gap-1"><Users className="w-3 h-3" />Admin Roles</TabsTrigger>
             {FEATURES.universityManagement && <TabsTrigger value="universities" className="text-xs gap-1"><Building2 className="w-3 h-3" />Universities</TabsTrigger>}
-            <TabsTrigger value="cohorts" className="text-xs gap-1"><Calendar className="w-3 h-3" />Cohorts</TabsTrigger>
+            <TabsTrigger value="cohorts" className="text-xs gap-1"><Calendar className="w-3 h-3" />Cohorts & Pause</TabsTrigger>
             <TabsTrigger value="payments" className="text-xs gap-1"><CreditCard className="w-3 h-3" />Payments & Grace</TabsTrigger>
             <TabsTrigger value="password" className="text-xs gap-1"><Shield className="w-3 h-3" />Password</TabsTrigger>
           </TabsList>
@@ -812,17 +813,22 @@ function CohortsSection() {
   const { toast } = useToast();
   const { data: cohortsData, isLoading } = useQuery<any>({ queryKey: ["/api/admin/cohorts"] });
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState({ startDate: "", endDate: "", reason: "" });
+  const [form, setForm] = useState({ startDate: "", endDate: "", reason: "", moveMembers: true });
 
   const updateCohort = useMutation({
     mutationFn: async () => {
-      if (!editingId) return;
-      await apiRequest("PATCH", `/api/admin/cohorts/${editingId}`, form);
+      if (!editingId) return null;
+      const res = await apiRequest("PATCH", `/api/admin/cohorts/${editingId}`, form);
+      return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (result: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/cohorts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/students"] });
       setEditingId(null);
-      toast({ title: "Cohort updated" });
+      toast({
+        title: "Cohort updated",
+        description: result?.membersMoved ? `${result.membersMoved} student${result.membersMoved === 1 ? "" : "s"} moved to the new dates.` : undefined,
+      });
     },
     onError: (e: any) => toast({ title: "Error", description: apiErrorMessage(e), variant: "destructive" }),
   });
@@ -832,8 +838,11 @@ function CohortsSection() {
 
   const openEdit = (c: any) => {
     setEditingId(c.id);
-    setForm({ startDate: c.startDate, endDate: c.endDate, reason: "" });
+    setForm({ startDate: c.startDate, endDate: c.endDate, reason: "", moveMembers: true });
   };
+  const lengthInDays = (startDate: string, endDate: string) =>
+    startDate && endDate ? Math.round((Date.parse(`${endDate}T00:00:00Z`) - Date.parse(`${startDate}T00:00:00Z`)) / 86400000) + 1 : null;
+  const formDays = lengthInDays(form.startDate, form.endDate);
 
   const renderCohort = (c: any, title: string, canEdit: boolean) => {
     if (!c) return null;
@@ -845,6 +854,7 @@ function CohortsSection() {
             <div className="flex gap-4 text-sm text-muted-foreground">
               <span>Start: {c.startDate}</span>
               <span>End: {c.endDate}</span>
+              <span>{lengthInDays(c.startDate, c.endDate)} days</span>
             </div>
           </div>
           {canEdit && (
@@ -854,9 +864,16 @@ function CohortsSection() {
                 <DialogHeader><DialogTitle>Edit {title}</DialogTitle></DialogHeader>
                 <div className="space-y-4 pt-2">
                   <div className="space-y-2"><Label>Start Date (YYYY-MM-DD)</Label><Input type="date" value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} /></div>
-                  <div className="space-y-2"><Label>End Date (YYYY-MM-DD)</Label><Input type="date" value={form.endDate} onChange={e => setForm({...form, endDate: e.target.value})} /></div>
+                  <div className="space-y-2"><Label>End Date (YYYY-MM-DD)</Label><Input type="date" value={form.endDate} min={form.startDate || undefined} onChange={e => setForm({...form, endDate: e.target.value})} /></div>
+                  <p className={`text-xs ${formDays != null && formDays < 1 ? "text-destructive" : "text-muted-foreground"}`}>
+                    {formDays == null ? "Pick both dates." : formDays < 1 ? "The end date must be on or after the start date." : `${formDays} days long. Cohorts can be any length, as long as they don't overlap another cohort.`}
+                  </p>
+                  <label className="flex items-start gap-2 text-sm">
+                    <Checkbox checked={form.moveMembers} onCheckedChange={(v) => setForm({ ...form, moveMembers: v === true })} className="mt-0.5" />
+                    <span>Move students in this cohort to the new dates <span className="block text-xs text-muted-foreground">Only students whose dates match the cohort's current dates. Students you've given custom dates keep them.</span></span>
+                  </label>
                   <div className="space-y-2"><Label>Reason for change (Required)</Label><Input value={form.reason} onChange={e => setForm({...form, reason: e.target.value})} placeholder="e.g. Adjusted to align with exams" /></div>
-                  <Button className="w-full" disabled={!form.reason || updateCohort.isPending} onClick={() => updateCohort.mutate()}>Save Changes</Button>
+                  <Button className="w-full" disabled={!form.reason || (formDays ?? 0) < 1 || updateCohort.isPending} onClick={() => updateCohort.mutate()}>Save Changes</Button>
                 </div>
               </DialogContent>
             </Dialog>
@@ -868,9 +885,10 @@ function CohortsSection() {
 
   return (
     <div className="space-y-6">
+      <SubscriptionPauseCard />
       <div>
         <h3 className="font-medium">Manage Cohorts</h3>
-        <p className="text-sm text-muted-foreground">Update the current and next membership cohorts. Dates must be YYYY-MM-DD.</p>
+        <p className="text-sm text-muted-foreground">Update the current and next membership cohorts. They can be any length; new cohorts default to one month.</p>
       </div>
       <div className="space-y-3">
         {renderCohort(current, `Current: ${cohortName(current)}`, true)}

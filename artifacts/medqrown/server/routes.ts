@@ -21,6 +21,7 @@ import { registerStage9Routes, updateStage9SiteSettings } from "./stage9";
 import { registerStage10Routes } from "./stage10";
 import { registerStage11Routes } from "./stage11";
 import { registerTimetableRoutes } from "./timetable";
+import { registerSubscriptionPauseRoutes } from "./subscription-pause";
 import { registerQuestionJsonUpdateRoutes } from "./question-json-update";
 import { sendLoggedEmail } from "./stage11-email";
 import { broadcastLiveQuiz, issueLiveQuizTicket } from "./live-quiz";
@@ -429,6 +430,7 @@ export async function registerRoutes(
   registerStage10Routes(app, requireAdmin);
   registerStage11Routes(app, requireAdmin);
   registerTimetableRoutes(app, requireAdmin, requireStudent);
+  registerSubscriptionPauseRoutes(app, requireAdmin, requireStudent);
   registerStage4Routes(app, requireAdmin);
 
   // ── Stage 3: global cohorts, membership, classes, pricing and payments ─────
@@ -441,34 +443,90 @@ export async function registerRoutes(
     const startDate = req.body?.startDate;
     const endDate = req.body?.endDate;
     const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+    // Students whose dates matched the cohort's old dates follow it unless the admin opts out.
+    const moveMembers = req.body?.moveMembers !== false;
     if (!Number.isInteger(id) || id < 1 || !isDate(startDate) || !isDate(endDate) || !reason) {
       return res.status(400).json({ message: "id, valid startDate/endDate, and reason are required" });
     }
-    if (endDate !== cohortEndDate(startDate)) {
-      return res.status(400).json({ message: "endDate must equal startDate plus one calendar month minus one day" });
+    // Cohorts can be any length; they just can't run backwards or overlap another cohort.
+    if (endDate < startDate) {
+      return res.status(400).json({ message: "The end date must be on or after the start date" });
     }
     const { current, next } = await listCohorts();
     if (![current?.id, next?.id].includes(id)) {
       return res.status(403).json({ message: "Only current and next cohort dates can be edited" });
     }
+    const client = await pool.connect();
     try {
-      const updated = await pool.query(
+      await client.query("BEGIN");
+      const before = await client.query(
+        `SELECT start_date::text AS "startDate", end_date::text AS "endDate" FROM medqrown_cohorts WHERE id = $1 FOR UPDATE`,
+        [id],
+      );
+      if (!before.rows[0]) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ message: "Cohort not found" });
+      }
+      const overlap = await client.query(
+        `SELECT start_date::text AS "startDate", end_date::text AS "endDate" FROM medqrown_cohorts
+          WHERE id <> $1 AND start_date <= $3 AND end_date >= $2 ORDER BY start_date LIMIT 1`,
+        [id, startDate, endDate],
+      );
+      if (overlap.rows[0]) {
+        await client.query("ROLLBACK");
+        const other = overlap.rows[0];
+        return res.status(409).json({
+          message: `Those dates overlap the cohort running ${other.startDate} to ${other.endDate}. Move that cohort first.`,
+        });
+      }
+      const old = before.rows[0];
+      const updated = await client.query(
         `UPDATE medqrown_cohorts SET start_date = $2, end_date = $3, updated_at = CURRENT_TIMESTAMP
           WHERE id = $1
           RETURNING id, start_date::text AS "startDate", end_date::text AS "endDate",
                     created_at AS "createdAt", updated_at AS "updatedAt"`,
         [id, startDate, endDate],
       );
-      if (!updated.rows[0]) return res.status(404).json({ message: "Cohort not found" });
+      let membersMoved = 0;
+      if (moveMembers && (old.startDate !== startDate || old.endDate !== endDate)) {
+        const members = await client.query(
+          `SELECT student_id AS "studentId", start_date::text AS "startDate", end_date::text AS "endDate"
+             FROM medqrown_memberships
+            WHERE cohort_id = $1 AND (start_date = $2::date OR end_date = $3::date) FOR UPDATE`,
+          [id, old.startDate, old.endDate],
+        );
+        for (const member of members.rows) {
+          const newStart = member.startDate === old.startDate ? startDate : member.startDate;
+          const newEnd = member.endDate === old.endDate ? endDate : member.endDate;
+          if (newEnd < newStart) continue;
+          await client.query(
+            `UPDATE medqrown_memberships SET start_date = $2, end_date = $3, updated_at = CURRENT_TIMESTAMP
+              WHERE student_id = $1`,
+            [member.studentId, newStart, newEnd],
+          );
+          await client.query(
+            `INSERT INTO medqrown_membership_audit (student_id, admin_id, reason, previous_values, new_values)
+             VALUES ($1, $2, $3, $4::jsonb, $5::jsonb)`,
+            [member.studentId, req.admin.id, `Cohort dates changed: ${reason}`,
+              JSON.stringify({ cohortId: id, startDate: member.startDate, endDate: member.endDate }),
+              JSON.stringify({ cohortId: id, startDate: newStart, endDate: newEnd })],
+          );
+          membersMoved++;
+        }
+      }
+      await client.query("COMMIT");
       await storage.createAuditLog({
         adminId: req.admin.id,
         action: "edit_cohort_dates",
-        details: `Cohort ${id}: ${startDate} to ${endDate}; ${reason}`,
+        details: `Cohort ${id}: ${startDate} to ${endDate}; ${membersMoved} student(s) moved; ${reason}`,
       });
-      res.json(updated.rows[0]);
+      res.json({ ...updated.rows[0], membersMoved });
     } catch (error: any) {
+      await client.query("ROLLBACK").catch(() => undefined);
       if (error?.code === "23505") return res.status(409).json({ message: "A cohort already uses that startDate" });
       throw error;
+    } finally {
+      client.release();
     }
   });
 

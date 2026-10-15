@@ -25,6 +25,10 @@ export async function migrateStage3(): Promise<void> {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     INSERT INTO medqrown_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+    -- Subscription pause: while paused nobody's membership runs down (see membershipAsOf).
+    ALTER TABLE medqrown_settings ADD COLUMN IF NOT EXISTS pause_active BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE medqrown_settings ADD COLUMN IF NOT EXISTS pause_message TEXT;
+    ALTER TABLE medqrown_settings ADD COLUMN IF NOT EXISTS pause_started_on DATE;
     CREATE TABLE IF NOT EXISTS medqrown_classes (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
@@ -63,6 +67,17 @@ export async function migrateStage3(): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS medqrown_membership_audit_student_idx
       ON medqrown_membership_audit(student_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS medqrown_pauses (
+      id SERIAL PRIMARY KEY,
+      message TEXT NOT NULL,
+      started_on DATE NOT NULL,
+      ended_on DATE,
+      paused_days INTEGER,
+      memberships_extended INTEGER,
+      started_by INTEGER REFERENCES admins(id) ON DELETE SET NULL,
+      ended_by INTEGER REFERENCES admins(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
     CREATE TABLE IF NOT EXISTS medqrown_payment_entries (
       id SERIAL PRIMARY KEY,
       student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,

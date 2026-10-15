@@ -1,7 +1,7 @@
 import type { Express, RequestHandler } from "express";
 import { createCipheriv, createECDH, createPrivateKey, hkdfSync, randomBytes, sign as cryptoSign } from "crypto";
 import { pool } from "./db";
-import { nairobiDate } from "./stage3-storage";
+import { getPauseState, membershipAsOf, nairobiDate } from "./stage3-storage";
 import { sendLoggedEmail } from "./stage11-email";
 
 type Subscription = { endpoint: string; p256dh: string; auth: string };
@@ -217,8 +217,8 @@ export function registerStage7Routes(app: Express, requireAdmin: RequestHandler,
          JOIN medqrown_memberships m ON m.student_id = s.id
          CROSS JOIN medqrown_settings settings
          WHERE cs.class_id = $1 AND $2::date >= m.start_date
-           AND $2::date <= m.end_date + settings.grace_days`,
-        [classId, nairobiDate()],
+           AND $3::date <= m.end_date + settings.grace_days`,
+        [classId, nairobiDate(), membershipAsOf(nairobiDate(), await getPauseState(client))],
       );
       recipients = memberResult.rows;
       for (const recipient of recipients) {

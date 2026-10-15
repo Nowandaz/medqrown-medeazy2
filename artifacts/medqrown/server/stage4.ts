@@ -3,7 +3,7 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { pool } from "./db";
 import { getStage10ClassMembers } from "./stage10";
-import { cohortEndDate, ensureCurrentAndNextCohorts, isDate, nairobiDate } from "./stage3-storage";
+import { cohortEndDate, ensureCurrentAndNextCohorts, getPauseState, isDate, membershipAsOf, nairobiDate } from "./stage3-storage";
 import { sendLoggedEmail } from "./stage11-email";
 import { publicSiteUrl } from "./site-url";
 
@@ -289,8 +289,9 @@ async function applyMembership(client: Queryable, studentId: number, adminId: nu
   if (previous) {
     const graceEnd = new Date(`${previous.endDate}T00:00:00.000Z`);
     graceEnd.setUTCDate(graceEnd.getUTCDate() + graceDays);
-    const inGrace = today > previous.endDate && today <= graceEnd.toISOString().slice(0, 10);
-    const active = today >= previous.startDate && today <= previous.endDate;
+    const asOf = membershipAsOf(today, await getPauseState(client));
+    const inGrace = asOf > previous.endDate && asOf <= graceEnd.toISOString().slice(0, 10);
+    const active = today >= previous.startDate && asOf <= previous.endDate;
     if (active || inGrace) {
       selected = cohorts.find((cohort: any) => cohort.startDate > previous.endDate);
       let tail = cohorts[cohorts.length - 1];
