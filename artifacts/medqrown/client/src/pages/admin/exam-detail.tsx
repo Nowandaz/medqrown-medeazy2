@@ -1632,7 +1632,7 @@ function SetupTab({ exam, examId }: { exam: any; examId: number }) {
               onChange={(e) => setMaxAttempts(Math.max(1, parseInt(e.target.value) || 1))}
               data-testid="input-max-attempts"
             />
-            <p className="text-xs text-muted-foreground">Students can request an administrator-approved reattempt after this limit is reached.</p>
+            <p className="text-xs text-muted-foreground">Every student gets at least 4 attempts (the first plus 3 free reattempts) without approval; set a higher number to allow more. After that they can request an administrator-approved reattempt.</p>
           </div>
           <div className="space-y-2 pt-2 border-t border-border">
             <Label>Exam Instructions</Label>

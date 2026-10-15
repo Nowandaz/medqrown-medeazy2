@@ -12,7 +12,7 @@ import { ScoreTrend } from "@/components/student/score-trend";
 export default function StudentResults() {
   const { data: summary, isLoading: loadingSummary } = useStage8ResultsSummary();
   const { data: history, isLoading: loadingHistory } = useStage8ResultsHistory();
-  const { data: pending } = useQuery<{ attemptId: number; examId: number; examTitle: string; className: string; submittedAt: string }[]>({
+  const { data: pending } = useQuery<{ attemptId: number; attemptNumber: number; examId: number; examTitle: string; className: string; submittedAt: string }[]>({
     queryKey: ["/api/student/results/pending"], refetchOnMount: "always",
   });
 
@@ -105,10 +105,14 @@ export default function StudentResults() {
           </CardHeader>
           <CardContent className="space-y-2">
             {pending.map((item) => (
-              <Link key={item.attemptId} href={`/student/exam-review?examId=${item.examId}`}>
+              <Link key={item.attemptId} href={`/student/exam-review?examId=${item.examId}&attemptId=${item.attemptId}`}>
                 <div className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors cursor-pointer">
                   <div className="min-w-0">
-                    <p className="font-medium">{item.examTitle}</p>
+                    <p className="font-medium">
+                      {item.examTitle}
+                      {item.attemptNumber > 1 || pending.some((other) => other.examId === item.examId && other.attemptId !== item.attemptId)
+                        ? <span className="ml-2 text-xs font-normal text-muted-foreground">Attempt {item.attemptNumber}</span> : null}
+                    </p>
                     <p className="text-xs text-muted-foreground">{item.className} · submitted {formatNairobi(item.submittedAt)}</p>
                   </div>
                   <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">Results pending</span>
@@ -138,10 +142,14 @@ export default function StudentResults() {
           ) : (
             <div className="space-y-3">
               {history.map((result) => (
-                <Link key={result.attemptId} href={`/student/exam-review?examId=${result.examId}`}>
+                <Link key={result.attemptId} href={`/student/exam-review?examId=${result.examId}&attemptId=${result.attemptId}`}>
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors cursor-pointer gap-3">
                     <div className="space-y-1 min-w-0">
-                      <h4 className="font-semibold">{result.examTitle}</h4>
+                      <h4 className="font-semibold">
+                        {result.examTitle}
+                        {result.attemptNumber > 1 || history.some((other) => other.examId === result.examId && other.attemptId !== result.attemptId)
+                          ? <span className="ml-2 text-xs font-normal text-muted-foreground">Attempt {result.attemptNumber}</span> : null}
+                      </h4>
                       <p className="text-sm text-muted-foreground flex flex-wrap items-center gap-x-2">
                         <span>{result.className}</span>
                         <span aria-hidden="true">·</span>

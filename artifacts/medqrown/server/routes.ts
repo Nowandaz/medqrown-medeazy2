@@ -14,6 +14,7 @@ import { pool } from "./db";
 import { normalizeMpesaCode, registerStage4Routes, validatePaymentCode } from "./stage4";
 import { registerStage5Routes } from "./stage5";
 import { registerStage6Routes, submitDueStage6Attempts } from "./stage6";
+import { freeAttemptsSql } from "./attempt-policy";
 import { registerStage7Routes } from "./stage7";
 import { registerStage8Routes } from "./stage8";
 import { registerStage9Routes, updateStage9SiteSettings } from "./stage9";
@@ -796,7 +797,7 @@ export async function registerRoutes(
 
   const getAttemptEntitlement = async (examId: number, studentId: number) => {
     const { rows } = await pool.query(
-      `SELECT COALESCE(e.max_attempts, 1)::int AS "maxAttempts",
+      `SELECT ${freeAttemptsSql()}::int AS "maxAttempts",
               (SELECT COUNT(*)::int
                  FROM attempts a JOIN exam_students es ON es.id = a.exam_student_id
                 WHERE es.exam_id = e.id AND es.student_id = $2 AND a.status = 'submitted') AS "submittedAttempts",
@@ -1962,7 +1963,7 @@ export async function registerRoutes(
     );
     if (!units[0]) return res.status(404).json({ message: "Unit not found" });
     const { rows: exams } = await pool.query(
-      `SELECT e.id, e.title, e.timer_mode AS "timerMode", COALESCE(e.max_attempts, 1)::int AS "maxAttempts",
+      `SELECT e.id, e.title, e.timer_mode AS "timerMode", ${freeAttemptsSql()}::int AS "maxAttempts",
               COUNT(q.id)::int AS "totalQuestions",
               CASE WHEN es.id IS NOT NULL THEN 'approved'
                    WHEN ear.status IS NOT NULL THEN ear.status ELSE 'not_requested' END AS "accessStatus"
@@ -1971,7 +1972,7 @@ export async function registerRoutes(
                  WHERE counted_es.exam_id = e.id AND counted_es.student_id = $2 AND a.status = 'submitted'), 0) AS "attemptsUsed"
               ,CASE WHEN es.id IS NULL THEN false
                     WHEN EXISTS(SELECT 1 FROM attempts a WHERE a.exam_student_id = es.id AND a.status = 'in_progress') THEN true
-                    WHEN (SELECT COUNT(*) FROM attempts a WHERE a.exam_student_id = es.id AND a.status = 'submitted') < COALESCE(e.max_attempts, 1) THEN true
+                    WHEN (SELECT COUNT(*) FROM attempts a WHERE a.exam_student_id = es.id AND a.status = 'submitted') < ${freeAttemptsSql()} THEN true
                     WHEN EXISTS(SELECT 1 FROM exam_reattempt_requests rr WHERE rr.exam_id = e.id AND rr.student_id = $2 AND rr.status = 'approved' AND rr.consumed_at IS NULL) THEN true
                     ELSE false END AS "canEnter"
               ,COALESCE(
@@ -2043,7 +2044,7 @@ export async function registerRoutes(
         return res.status(403).json({
           message: entitlement.pendingRequestStatus
             ? "Your reattempt request is awaiting an administrator decision"
-            : "You have used all allowed attempts for this exam. Request a reattempt to continue.",
+            : "You have used all your free attempts for this exam. Request a reattempt to continue.",
           code: entitlement.pendingRequestStatus ? "REATEMPT_PENDING" : "ATTEMPT_LIMIT_REACHED",
         });
       }
@@ -3529,7 +3530,7 @@ export async function registerRoutes(
 
       if (attempt?.status !== "in_progress") {
         const { rows: examRows } = await transaction.query(
-          `SELECT COALESCE(max_attempts, 1)::int AS "maxAttempts",
+          `SELECT ${freeAttemptsSql("max_attempts")}::int AS "maxAttempts",
                   duration_minutes AS "durationMinutes", closes_at AS "closesAt"
              FROM exams WHERE id = $1`,
           [es.examId],
@@ -3559,7 +3560,7 @@ export async function registerRoutes(
           if (!approvedRequestId) {
             await transaction.query("ROLLBACK");
             return res.status(403).json({
-              message: "You have used all allowed attempts for this exam. Request a reattempt from your unit page.",
+              message: "You have used all your free attempts for this exam. Request a reattempt to continue.",
               code: "ATTEMPT_LIMIT_REACHED",
             });
           }

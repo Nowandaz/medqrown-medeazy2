@@ -4,6 +4,12 @@ import { getMembership, nairobiDate } from "./stage3-storage";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// 1-based position of attempt `a` among the student's submitted attempts on exam `e`.
+const ATTEMPT_NUMBER_SQL = `(SELECT COUNT(*)::int FROM attempts prior
+     JOIN exam_students prior_es ON prior_es.id = prior.exam_student_id
+    WHERE prior_es.exam_id = e.id AND prior_es.student_id = es.student_id AND prior.status = 'submitted'
+      AND (prior.started_at, prior.id) <= (a.started_at, a.id))`;
+
 function daysUntil(from: string, to: string): number {
   return Math.ceil((Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) / DAY_MS);
 }
@@ -12,7 +18,7 @@ async function ownReleasedResults(studentId: number) {
   const { rows } = await pool.query(
     `SELECT a.id AS "attemptId", e.id AS "examId", e.title AS "examTitle",
             COALESCE(c.name, u.name, 'Exam') AS "className",
-            a.submitted_at AS "submittedAt",
+            a.submitted_at AS "submittedAt", ${ATTEMPT_NUMBER_SQL} AS "attemptNumber",
             scores."earnedMarks", scores."totalMarks",
             CASE WHEN scores."totalMarks" > 0
                  THEN ROUND((scores."earnedMarks" * 100 / scores."totalMarks")::numeric)::int ELSE 0 END AS "scorePercent"
@@ -141,8 +147,9 @@ export function registerStage8Routes(app: Express, requireStudent: RequestHandle
   /** Submitted exams whose results aren't released yet (shown as "Awaiting results"; no scores). */
   app.get("/api/student/results/pending", requireStudent, async (req: any, res) => {
     const { rows } = await pool.query(
-      `SELECT DISTINCT ON (e.id) a.id AS "attemptId", e.id AS "examId", e.title AS "examTitle",
-              COALESCE(c.name, 'Exam') AS "className", a.submitted_at AS "submittedAt"
+      `SELECT a.id AS "attemptId", e.id AS "examId", e.title AS "examTitle",
+              COALESCE(c.name, 'Exam') AS "className", a.submitted_at AS "submittedAt",
+              ${ATTEMPT_NUMBER_SQL} AS "attemptNumber"
          FROM attempts a
          JOIN exam_students es ON es.id = a.exam_student_id
          JOIN exams e ON e.id = es.exam_id
@@ -151,10 +158,10 @@ export function registerStage8Routes(app: Express, requireStudent: RequestHandle
           AND (e.results_released IS NOT TRUE OR EXISTS (
             SELECT 1 FROM responses r JOIN questions q ON q.id = r.question_id
              WHERE r.attempt_id = a.id AND q.type = 'saq' AND r.is_correct IS NULL))
-        ORDER BY e.id, a.submitted_at DESC NULLS LAST`,
+        ORDER BY a.submitted_at DESC NULLS LAST, a.id DESC`,
       [req.student.id],
     );
-    res.json(rows.sort((x: any, y: any) => String(y.submittedAt).localeCompare(String(x.submittedAt))));
+    res.json(rows);
   });
 
   app.get("/api/student/results/history", requireStudent, async (req: any, res) => {

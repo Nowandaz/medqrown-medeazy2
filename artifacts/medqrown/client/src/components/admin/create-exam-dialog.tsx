@@ -96,6 +96,7 @@ export function CreateExamDialog({ classId }: { classId: number }) {
             <Label htmlFor="exam-attempts">Maximum attempts</Label>
             <Input id="exam-attempts" type="number" min={1} max={100} value={maxAttempts}
               onChange={(e) => setMaxAttempts(Math.max(1, parseInt(e.target.value) || 1))} />
+            <p className="text-xs text-muted-foreground">Students always get at least 4 attempts (3 free reattempts); set higher to allow more.</p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="exam-instructions">Instructions (optional)</Label>

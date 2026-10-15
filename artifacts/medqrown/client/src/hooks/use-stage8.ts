@@ -39,6 +39,7 @@ export interface Stage8DashboardData {
   } | null;
   recentResults: Array<{
     attemptId: number;
+    attemptNumber: number;
     examId: number;
     examTitle: string;
     className: string;
@@ -72,6 +73,7 @@ export function useStage8ResultsSummary() {
 export function useStage8ResultsHistory() {
   return useQuery<Array<{
     attemptId: number;
+    attemptNumber: number;
     examId: number;
     examTitle: string;
     className: string;

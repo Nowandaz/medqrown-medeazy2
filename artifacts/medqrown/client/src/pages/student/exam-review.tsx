@@ -25,7 +25,17 @@ export default function StudentResults() {
 
   const searchParams = new URLSearchParams(window.location.search);
   const examId = searchParams.get("examId");
-  const resultsUrl = examId ? `/api/student/exams/${examId}/results` : "/api/student/results";
+  const [attemptId, setAttemptId] = useState<string | null>(searchParams.get("attemptId"));
+  const resultsUrl = examId
+    ? `/api/student/exams/${examId}/results${attemptId ? `?attemptId=${encodeURIComponent(attemptId)}` : ""}`
+    : "/api/student/results";
+
+  const selectAttempt = (id: number) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("attemptId", String(id));
+    window.history.replaceState(null, "", `${window.location.pathname}?${params}`);
+    setAttemptId(String(id));
+  };
 
   // The session is needed for every view (with or without ?examId=) to know who is signed in.
   const { data: session, isLoading: sessionLoading } = useQuery<any>({
@@ -83,6 +93,30 @@ export default function StudentResults() {
     return null;
   }
 
+  const attemptSwitcher = results?.attempts?.length > 1 && (
+    <div className="flex flex-wrap gap-2 print:hidden" role="tablist" aria-label="Attempts" data-testid="attempt-switcher">
+      {results.attempts.map((a: any) => {
+        const selected = a.attemptId === results.attemptId;
+        return (
+          <Button
+            key={a.attemptId}
+            size="sm"
+            variant={selected ? "default" : "outline"}
+            role="tab"
+            aria-selected={selected}
+            onClick={() => selectAttempt(a.attemptId)}
+            data-testid={`button-attempt-${a.attemptNumber}`}
+          >
+            Attempt {a.attemptNumber}
+            <span className={`ml-1.5 text-xs ${selected ? "opacity-90" : "text-muted-foreground"}`}>
+              {a.markingInProgress ? "marking" : `${Math.round(a.percentage)}%`}
+            </span>
+          </Button>
+        );
+      })}
+    </div>
+  );
+
   if (results?.markingInProgress) {
     const progressPercent = results.totalSAQ > 0
       ? (results.markedSAQ / results.totalSAQ) * 100
@@ -104,7 +138,8 @@ export default function StudentResults() {
           </div>
         </header>
 
-        <main className="max-w-3xl mx-auto px-4 py-6">
+        <main className="max-w-3xl mx-auto px-4 py-6 space-y-4">
+          {attemptSwitcher}
           <Card className="border-primary/10 shadow-sm overflow-hidden">
             <div className="bg-gradient-to-r from-primary/5 to-transparent p-1" />
             <CardContent className="py-14 text-center space-y-6">
@@ -197,6 +232,7 @@ export default function StudentResults() {
           </Card>
         ) : (
           <>
+            {attemptSwitcher}
             <Card className="border-primary/10 shadow-sm overflow-hidden">
               <div className="h-1.5 bg-gradient-to-r from-primary to-emerald-400" />
               <CardContent className="pt-6 pb-5">
@@ -205,6 +241,11 @@ export default function StudentResults() {
                     <TrendingUp className="w-8 h-8 text-primary" />
                   </div>
                   <h2 className="text-xl font-bold" data-testid="text-exam-title">{results.examTitle}</h2>
+                  {results.attempts?.length > 1 && (
+                    <p className="text-sm text-muted-foreground mt-1" data-testid="text-attempt-number">
+                      Attempt {results.attemptNumber} of {results.attempts.length}
+                    </p>
+                  )}
                   <p className="text-base font-semibold text-primary mt-2">{band.title}</p>
                   <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">{band.note}</p>
                 </div>

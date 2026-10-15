@@ -3,6 +3,7 @@ import { pool } from "./db";
 import { getMembership } from "./stage3-storage";
 import { enqueueMarking } from "./marking-queue";
 import { dispatchPushToStudents } from "./stage7";
+import { freeAttemptsSql } from "./attempt-policy";
 
 const isOpen = (opensAt: unknown, closesAt: unknown, now = Date.now()) =>
   opensAt != null && closesAt != null && new Date(opensAt as any).getTime() <= now
@@ -60,7 +61,7 @@ export function registerStage6Routes(app: Express, requireAdmin: RequestHandler,
       `SELECT e.id, e.title, e.class_id AS "classId", e.opens_at AS "opensAt",
               e.closes_at AS "closesAt", e.duration_minutes AS "durationMinutes",
               e.timer_mode AS "timerMode", e.per_question_seconds AS "perQuestionSeconds",
-              e.max_attempts AS "maxAttempts", e.instructions, e.results_released AS "resultsReleased",
+              ${freeAttemptsSql()}::int AS "maxAttempts", e.instructions, e.results_released AS "resultsReleased",
               COALESCE(e.auto_mark_enabled, true) AS "autoMarkEnabled",
               COALESCE((SELECT COUNT(*)::int FROM attempts a JOIN exam_students own_es ON own_es.id = a.exam_student_id
                          WHERE own_es.exam_id = e.id AND own_es.student_id = $2 AND a.status = 'submitted'), 0) AS "attemptsUsed",
@@ -204,24 +205,49 @@ export function registerStage6Routes(app: Express, requireAdmin: RequestHandler,
       [examId],
     );
     if (!exams[0]) return res.status(404).json({ message: "Exam not found" });
+    // Every submitted attempt, oldest first, so the student can review Attempt 1, 2, ...
     const { rows: attemptRows } = await pool.query(
-      `SELECT a.id FROM attempts a JOIN exam_students es ON es.id = a.exam_student_id
+      `SELECT a.id AS "attemptId", a.submitted_at AS "submittedAt",
+              ROW_NUMBER() OVER (ORDER BY a.started_at, a.id)::int AS "attemptNumber",
+              COALESCE((SELECT SUM(r.marks_awarded) FROM responses r WHERE r.attempt_id = a.id), 0)::float AS "totalScore",
+              EXISTS (SELECT 1 FROM responses r JOIN questions q ON q.id = r.question_id
+                       WHERE r.attempt_id = a.id AND q.type = 'saq' AND r.is_correct IS NULL) AS "markingInProgress"
+         FROM attempts a JOIN exam_students es ON es.id = a.exam_student_id
         WHERE es.exam_id = $1 AND es.student_id = $2 AND a.status = 'submitted'
-        ORDER BY a.started_at DESC, a.id DESC LIMIT 1`,
+        ORDER BY a.started_at, a.id`,
       [examId, req.student.id],
     );
     if (!attemptRows[0]) return res.status(404).json({ message: "No submitted result found" });
     if (!exams[0].resultsReleased) return res.json({ released: false, message: "Results have not been released yet." });
-    const attemptId = attemptRows[0].id;
-    const { rows: pendingMarks } = await pool.query(
-      `SELECT EXISTS (
-         SELECT 1 FROM responses r JOIN questions q ON q.id = r.question_id
-          WHERE r.attempt_id = $1 AND q.type = 'saq' AND r.is_correct IS NULL
-       ) AS pending`,
-      [attemptId],
+    const requestedAttemptId = req.query.attemptId === undefined ? null : Number(req.query.attemptId);
+    const selectedAttempt = requestedAttemptId === null
+      ? attemptRows[attemptRows.length - 1]
+      : attemptRows.find((row: any) => row.attemptId === requestedAttemptId);
+    if (!selectedAttempt) return res.status(404).json({ message: "Attempt not found" });
+    const attemptId = selectedAttempt.attemptId;
+    const { rows: score } = await pool.query(
+      `SELECT COALESCE(SUM(CASE WHEN q.has_subquestions
+                                THEN COALESCE(subs.total_marks, 0) ELSE q.marks END), 0)::float AS "maxScore"
+         FROM questions q
+         LEFT JOIN (SELECT question_id, SUM(marks) AS total_marks
+                      FROM subquestions GROUP BY question_id) subs ON subs.question_id = q.id
+        WHERE q.exam_id = $1`,
+      [examId],
     );
-    if (pendingMarks[0]?.pending) {
-      return res.json({ released: false, markingInProgress: true, message: "Answers are still being marked." });
+    const maxScore = Number(score[0]?.maxScore || 0);
+    const percentOf = (earned: number) => (maxScore > 0 ? Math.round((earned / maxScore) * 1000) / 10 : 0);
+    const attempts = attemptRows.map((row: any) => ({
+      attemptId: row.attemptId,
+      attemptNumber: row.attemptNumber,
+      submittedAt: row.submittedAt,
+      markingInProgress: row.markingInProgress,
+      percentage: row.markingInProgress ? null : percentOf(Number(row.totalScore)),
+    }));
+    if (selectedAttempt.markingInProgress) {
+      return res.json({
+        released: false, markingInProgress: true, message: "Answers are still being marked.",
+        attemptId, attemptNumber: selectedAttempt.attemptNumber, attempts,
+      });
     }
     const { rows: questions } = await pool.query(
       `SELECT q.id, q.type, q.content, q.marks, q.expected_answer AS "expectedAnswer",
@@ -240,22 +266,11 @@ export function registerStage6Routes(app: Express, requireAdmin: RequestHandler,
          FROM questions q WHERE q.exam_id = $1 ORDER BY q.order_index, q.id`,
       [examId, attemptId],
     );
-    const { rows: score } = await pool.query(
-      `SELECT (SELECT COALESCE(SUM(r.marks_awarded), 0)::float
-                 FROM responses r WHERE r.attempt_id = $1) AS "totalScore",
-              (SELECT COALESCE(SUM(CASE WHEN q.has_subquestions
-                                        THEN COALESCE(subs.total_marks, 0) ELSE q.marks END), 0)::float
-                 FROM questions q
-                 LEFT JOIN (SELECT question_id, SUM(marks) AS total_marks
-                              FROM subquestions GROUP BY question_id) subs ON subs.question_id = q.id
-                WHERE q.exam_id = $2) AS "maxScore"`,
-      [attemptId, examId],
-    );
-    const totalScore = Number(score[0]?.totalScore || 0);
-    const maxScore = Number(score[0]?.maxScore || 0);
+    const totalScore = Number(selectedAttempt.totalScore || 0);
     res.json({
       released: true, examTitle: exams[0].title, totalScore, maxScore,
-      percentage: maxScore > 0 ? Math.round((totalScore / maxScore) * 1000) / 10 : 0,
+      percentage: percentOf(totalScore),
+      attemptId, attemptNumber: selectedAttempt.attemptNumber, attempts,
       questions,
     });
   });

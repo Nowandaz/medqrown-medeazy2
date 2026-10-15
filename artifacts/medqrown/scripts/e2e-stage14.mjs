@@ -164,7 +164,7 @@ check("future exam cannot be entered", enterFuture.status >= 400, `status ${ente
 const enter = await s.call("POST", `/api/student/exams/${examId}/enter`);
 check("enter open exam", enter.status === 200, `status ${enter.status} ${enter.data?.message ?? ""}`);
 const info = await s.call("GET", "/api/student/exam-info");
-check("instructions: Attempt 1 of 1", info.data?.attemptsUsed === 0 && info.data?.maxAttempts === 1, `used ${info.data?.attemptsUsed} max ${info.data?.maxAttempts}`);
+check("instructions: Attempt 1 of 4 (3 free reattempts)", info.data?.attemptsUsed === 0 && info.data?.maxAttempts === 4, `used ${info.data?.attemptsUsed} max ${info.data?.maxAttempts}`);
 const start = await s.call("POST", "/api/student/start-exam");
 check("start exam", start.status === 200, `status ${start.status} ${start.data?.message ?? ""}`);
 const attemptId = start.data?.attempt?.id ?? start.data?.attemptId;
@@ -184,8 +184,8 @@ const q2 = next2.data?.question ?? next2.data?.currentQuestion;
 await s.call("POST", "/api/student/save-answer", { attemptId, questionId: q2?.id, answer: String(pick(q2, 4)) });
 const submit = await s.call("POST", "/api/student/submit-exam", { attemptId });
 check("submit exam", submit.status === 200, `status ${submit.status} ${submit.data?.message ?? ""}`);
-const again = await s.call("POST", `/api/student/exams/${examId}/enter`);
-check("attempt limit enforced after 1 of 1", again.status === 403, `status ${again.status} ${again.data?.code ?? ""}`);
+const again = (await s.call("GET", `/api/student/classes/${classId}/exams`)).data?.find((e) => e.id === examId);
+check("free reattempt available after 1 of 4", again?.canOpen === true && again?.attemptsUsed === 1, JSON.stringify({ used: again?.attemptsUsed, canOpen: again?.canOpen }));
 
 // ---------- 4b. unfinished attempt is auto-submitted when the exam closes ----------
 const g1 = people.g1.session;
