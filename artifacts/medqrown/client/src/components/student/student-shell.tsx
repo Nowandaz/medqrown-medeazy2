@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/sheet";
 import { FEATURES } from "@/lib/feature-flags";
 import { WelcomeTour } from "@/components/student/welcome-tour";
+import { FeatureAnnouncement } from "@/components/student/feature-announcement";
 
 const NAV_ITEMS = [
   { href: "/student/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -167,6 +168,7 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
           <PushSubscriptionPrompt />
           {children}
           <WelcomeTour user={user} />
+          <FeatureAnnouncement user={user} />
         </div>
       </main>
     </div>

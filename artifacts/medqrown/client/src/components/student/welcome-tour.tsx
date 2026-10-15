@@ -35,7 +35,7 @@ const STEPS: Step[] = [
 ];
 const AVATAR_STEP = STEPS.length;
 
-function visibleElement(selectors: string[]): HTMLElement | null {
+export function visibleElement(selectors: string[]): HTMLElement | null {
   for (const selector of selectors) {
     for (const el of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
       const r = el.getBoundingClientRect();
@@ -43,6 +43,20 @@ function visibleElement(selectors: string[]): HTMLElement | null {
     }
   }
   return null;
+}
+
+/** Card position: under/next to the spotlighted element (callers centre it when there is no target). */
+export function spotlightCardStyle(rect: DOMRect): React.CSSProperties {
+  const margin = 12;
+  const cardWidth = Math.min(360, window.innerWidth - 32);
+  const beside = window.innerWidth >= 768 && rect.right + cardWidth + margin * 2 < window.innerWidth;
+  return beside
+    ? { left: rect.right + margin, top: Math.max(16, Math.min(rect.top - 8, window.innerHeight - 280)), width: cardWidth }
+    : {
+      left: Math.max(16, Math.min(rect.left + rect.width / 2 - cardWidth / 2, window.innerWidth - cardWidth - 16)),
+      top: rect.bottom + margin,
+      width: cardWidth,
+    };
 }
 
 /** First-login walkthrough: explains the navigation, then asks the student to choose an avatar. */
@@ -103,20 +117,7 @@ export function WelcomeTour({ user }: { user: { name?: string; avatarKey?: strin
   const total = STEPS.length + 1;
 
   // Card position: under/next to the spotlighted element, or centred.
-  const cardStyle: React.CSSProperties = {};
-  const margin = 12;
-  if (rect && !isAvatarStep) {
-    const cardWidth = Math.min(360, window.innerWidth - 32);
-    const beside = window.innerWidth >= 768 && rect.right + cardWidth + margin * 2 < window.innerWidth;
-    if (beside) {
-      cardStyle.left = rect.right + margin;
-      cardStyle.top = Math.max(16, Math.min(rect.top - 8, window.innerHeight - 280));
-    } else {
-      cardStyle.left = Math.max(16, Math.min(rect.left + rect.width / 2 - cardWidth / 2, window.innerWidth - cardWidth - 16));
-      cardStyle.top = rect.bottom + margin;
-    }
-    cardStyle.width = cardWidth;
-  }
+  const cardStyle: React.CSSProperties = rect && !isAvatarStep ? spotlightCardStyle(rect) : {};
 
   const Icon = current?.icon ?? Sparkles;
 

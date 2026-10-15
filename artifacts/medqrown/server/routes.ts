@@ -1867,7 +1867,9 @@ export async function registerRoutes(
 
   app.get("/api/student/me", requireStudent, async (req: any, res) => {
     const { rows } = await pool.query(
-      `SELECT id, name, email, university, avatar_key AS "avatarKey", onboarded_at AS "onboardedAt"
+      `SELECT id, name, email, university, avatar_key AS "avatarKey", onboarded_at AS "onboardedAt",
+              COALESCE((SELECT array_agg(announcement_key) FROM student_seen_announcements
+                         WHERE student_id = students.id), '{}') AS "seenAnnouncements"
          FROM students WHERE id = $1`,
       [req.student.id],
     );
@@ -1877,6 +1879,18 @@ export async function registerRoutes(
   // First-login walkthrough: shown until the student finishes (or skips) it once.
   app.post("/api/student/onboarding/complete", requireStudent, async (req: any, res) => {
     await pool.query("UPDATE students SET onboarded_at = COALESCE(onboarded_at, CURRENT_TIMESTAMP) WHERE id = $1", [req.student.id]);
+    res.json({ ok: true });
+  });
+
+  // One-time "what's new" walkthroughs: recorded as soon as one is shown, so it never repeats.
+  app.post("/api/student/announcements/:key/seen", requireStudent, async (req: any, res) => {
+    const key = String(req.params.key);
+    if (!/^[a-z0-9-]{1,64}$/.test(key)) return res.status(400).json({ message: "Invalid announcement" });
+    await pool.query(
+      `INSERT INTO student_seen_announcements (student_id, announcement_key) VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [req.student.id, key],
+    );
     res.json({ ok: true });
   });
 

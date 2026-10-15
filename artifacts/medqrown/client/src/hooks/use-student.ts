@@ -8,6 +8,7 @@ export interface StudentProfile {
   university: string;
   avatarKey: string;
   onboardedAt?: string | null;
+  seenAnnouncements?: string[];
 }
 
 export interface Unit {

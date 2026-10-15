@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, integer, boolean, timestamp, jsonb, real, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, integer, boolean, timestamp, jsonb, real, index, uniqueIndex, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -82,6 +82,15 @@ export const studentAccounts = pgTable("student_accounts", {
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
+
+// Created by the startup migrations (timetable.ts); one row per one-time announcement a student has seen.
+export const studentSeenAnnouncements = pgTable("student_seen_announcements", {
+  studentId: integer("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  announcementKey: text("announcement_key").notNull(),
+  seenAt: timestamp("seen_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.studentId, table.announcementKey] }),
+]);
 
 export const allowedEmailDomains = pgTable("allowed_email_domains", {
   id: serial("id").primaryKey(),

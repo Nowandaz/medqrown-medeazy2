@@ -28,6 +28,13 @@ export async function migrateTimetable(): Promise<void> {
     CREATE INDEX IF NOT EXISTS medqrown_timetable_class_idx ON medqrown_timetable_sessions(class_id, active);
     -- First-login walkthrough (see /api/student/onboarding/complete)
     ALTER TABLE students ADD COLUMN IF NOT EXISTS onboarded_at TIMESTAMPTZ;
+    -- One-time "what's new" walkthroughs, one row per student per announcement once shown
+    CREATE TABLE IF NOT EXISTS student_seen_announcements (
+      student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      announcement_key TEXT NOT NULL,
+      seen_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (student_id, announcement_key)
+    );
   `);
 }
 
