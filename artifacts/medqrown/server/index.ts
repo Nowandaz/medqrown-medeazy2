@@ -14,6 +14,7 @@ import { migrateStage9 } from "./stage9-migration";
 import { migrateStage10 } from "./stage10-migration";
 import { migrateStage11 } from "./stage11-migration";
 import { migrateTimetable } from "./timetable";
+import { lockDownDataApi } from "./data-api-lockdown";
 import { submitDueStage6Attempts } from "./stage6";
 import { sendDueRenewalReminders } from "./stage5";
 import { applyRegistrationSchedule } from "./stage9";
@@ -96,6 +97,8 @@ app.use((req, res, next) => {
   const { seed } = await import("./seed");
   await seed().catch(console.error);
   await registerRoutes(httpServer, app);
+  // After every table exists: keep Supabase's public Data API closed (RLS on, no API grants).
+  await lockDownDataApi();
   void submitDueStage6Attempts().catch((error) => console.error("Stage 6 deadline sweep failed", error));
   setInterval(() => {
     void sendDueRenewalReminders().catch((error) => console.error("Stage 5 reminder job failed", error));
