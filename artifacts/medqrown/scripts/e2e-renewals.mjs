@@ -19,8 +19,9 @@ const [ind, a, b, c, d, mixer, typo] = ["Ind", "GA", "GB", "GC", "GD", "Mixer", 
 await onboard(admin, classId, [ind, a, b, c, d, mixer, typo], PASSWORD);
 check("7 renewal test students onboarded", [ind, a, b, c, d, mixer, typo].every((p) => p.id), [ind, a, b, c, d, mixer, typo].map((p) => p.id).join(","));
 
-// Renew is offered only from 7 days before the end.
-const early = await ind.session.call("POST", "/api/student/renewal", { code: mpesaCode("RX"), plan: "Individual" });
+// Renew is offered only from 7 days before the end (give the student 30 days left, whatever today is).
+await admin.call("PUT", `/api/admin/memberships/${ind.id}`, { cohortId: current.id, startDate: today, endDate: addDays(today, 30), reason: "QA: early-renewal check" });
+const early =await ind.session.call("POST", "/api/student/renewal", { code: mpesaCode("RX"), plan: "Individual" });
 check("renewal refused more than 7 days before end", early.status === 403, early.data?.message);
 
 // Move everyone to "membership ends in 5 days" (active, inside the renewal window).
