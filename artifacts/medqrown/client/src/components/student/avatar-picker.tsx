@@ -12,7 +12,7 @@ export function AvatarPicker({
 
   return (
     <div className="w-full">
-      <div className="mb-3 flex gap-1 overflow-x-auto no-scrollbar rounded-lg bg-muted/60 p-1">
+      <div className="mb-3 flex flex-wrap gap-1 rounded-lg bg-muted/60 p-1">
         {[{ value: "all" as const, label: "All" }, ...AVATAR_STYLES].map((style) => (
           <button
             key={style.value}

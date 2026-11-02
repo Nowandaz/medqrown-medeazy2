@@ -344,7 +344,7 @@ function EmailTemplatesSection({ templates }: { templates: any[] }) {
             <div className="p-3 bg-muted rounded-md">
               <h5 className="text-xs font-semibold mb-2">Available Placeholders</h5>
               <div className="flex flex-wrap gap-2 text-xs font-mono text-muted-foreground">
-                {"{student_name}"}, {"{cohort_end}"}, {"{renew_link}"}, {"{paybill}"}, {"{account_number}"}, {"{reason}"}, {"{reset_code}"}, {"{announcement_title}"}, {"{announcement_message}"}, {"{announcement_link}"}
+                {"{student_name}"}, {"{cohort_end}"}, {"{renew_link}"}, {"{paybill}"}, {"{account_number}"}, {"{individual_price}"}, {"{group_price}"}, {"{reason}"}, {"{reset_code}"}, {"{announcement_title}"}, {"{announcement_message}"}, {"{announcement_link}"}
               </div>
             </div>
 

@@ -320,7 +320,7 @@ export default function StudentMyClass() {
           </p>
         </div>
         {classes.length > 1 && (
-          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1" role="tablist" aria-label="Your classes" data-tour="class-switcher">
+          <div className="flex flex-wrap gap-2 pb-1" role="tablist" aria-label="Your classes" data-tour="class-switcher">
             {classes.map((c) => {
               const active = c.id.toString() === selectedClassId;
               return (
@@ -342,11 +342,11 @@ export default function StudentMyClass() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-6">
-        <TabsList className="w-full sm:w-auto overflow-x-auto no-scrollbar justify-start" data-tour="class-tabs">
-          <TabsTrigger value="exams" className="gap-2"><BookOpen className="w-4 h-4" /> Exams</TabsTrigger>
-          <TabsTrigger value="timetable" className="gap-2"><Calendar className="w-4 h-4" /> Timetable</TabsTrigger>
-          <TabsTrigger value="announcements" className="gap-2"><Megaphone className="w-4 h-4" /> Announcements</TabsTrigger>
-          <TabsTrigger value="feedback" className="gap-2"><MessageSquare className="w-4 h-4" /> Feedback</TabsTrigger>
+        <TabsList className="grid h-auto w-full grid-cols-4 gap-1 p-1 sm:inline-flex sm:w-auto" data-tour="class-tabs">
+          <TabsTrigger value="exams" className="flex-col gap-1 px-1 py-2 text-xs sm:flex-row sm:gap-2 sm:px-3 sm:text-sm"><BookOpen className="w-4 h-4" /> Exams</TabsTrigger>
+          <TabsTrigger value="timetable" className="flex-col gap-1 px-1 py-2 text-xs sm:flex-row sm:gap-2 sm:px-3 sm:text-sm"><Calendar className="w-4 h-4" /> Timetable</TabsTrigger>
+          <TabsTrigger value="announcements" className="flex-col gap-1 px-1 py-2 text-xs sm:flex-row sm:gap-2 sm:px-3 sm:text-sm"><Megaphone className="w-4 h-4" /> <span className="sm:hidden">News</span><span className="hidden sm:inline">Announcements</span></TabsTrigger>
+          <TabsTrigger value="feedback" className="flex-col gap-1 px-1 py-2 text-xs sm:flex-row sm:gap-2 sm:px-3 sm:text-sm"><MessageSquare className="w-4 h-4" /> Feedback</TabsTrigger>
         </TabsList>
 
         <TabsContent value="timetable" className="m-0">

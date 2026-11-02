@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, BookOpen, History, Menu, RotateCcw, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, History, RotateCcw, X } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { spotlightCardStyle, visibleElement } from "@/components/student/welcome-tour";
+import { CENTRED_CARD, SpotlightHighlight, isPhoneLayout, spotlightCardStyle, visibleElement } from "@/components/student/welcome-tour";
 
 type Step = {
   /** Elements to spotlight, first visible one wins; empty = centred card. */
@@ -25,12 +25,12 @@ const ANNOUNCEMENT: Announcement = {
   steps: [
     { targets: [], icon: RotateCcw, title: "New: retake your Mock CATs",
       body: "Every Mock CAT now gives you up to 3 free reattempts (4 attempts in total). No request needed: just take it again." },
-    { targets: ['[data-tour="nav-my-class"]', '[data-tour="menu"]'], icon: BookOpen, title: "Retake from My Class",
+    { targets: ['[data-tour="nav-my-class"]'], icon: BookOpen, title: "Retake from My Class",
       body: "Open the exam in My Class and start your next attempt. After your 4th attempt, tap Request Reattempt and your tutors will review it.",
-      mobileHint: "Find My Class in the ☰ menu." },
-    { targets: ['[data-tour="nav-results"]', '[data-tour="menu"]'], icon: History, title: "Every attempt is kept",
+      mobileHint: "Tap My Class in the bottom bar, then Exams." },
+    { targets: ['[data-tour="nav-results"]'], icon: History, title: "Every attempt is kept",
       body: "In Results, open an exam and switch between Attempt 1, Attempt 2 and so on to compare your scores and answers.",
-      mobileHint: "Find Results in the ☰ menu." },
+      mobileHint: "Tap Results in the bottom bar." },
   ],
 };
 
@@ -90,22 +90,18 @@ export function FeatureAnnouncement({ user }: { user: { id: string; onboardedAt?
   const current = steps[step];
   const Icon = current.icon;
   const isLast = step === steps.length - 1;
-  const onMenuButton = target?.dataset.tour === "menu";
   const finish = () => setDismissed(true);
 
   return (
     <div className="fixed inset-0 z-[10000]" role="dialog" aria-modal="true" aria-labelledby="announcement-title">
       {rect ? (
-        <div
-          className="absolute rounded-xl ring-2 ring-primary transition-all duration-200 pointer-events-none"
-          style={{ left: rect.left - 6, top: rect.top - 6, width: rect.width + 12, height: rect.height + 12, boxShadow: "0 0 0 9999px rgba(0,0,0,0.6)" }}
-        />
+        <SpotlightHighlight rect={rect} />
       ) : (
         <div className="absolute inset-0 bg-black/60" />
       )}
 
       <div
-        className={`${rect ? "absolute" : "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)]"} max-w-sm rounded-2xl border bg-card p-5 shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-h-[calc(100dvh-2rem)] overflow-y-auto`}
+        className={`${rect ? "absolute" : CENTRED_CARD} max-w-sm rounded-2xl border bg-card p-5 shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-h-[calc(100dvh-2rem)] overflow-y-auto`}
         style={rect ? spotlightCardStyle(rect) : undefined}
         data-testid="feature-announcement"
       >
@@ -118,8 +114,8 @@ export function FeatureAnnouncement({ user }: { user: { id: string; onboardedAt?
             <h2 id="announcement-title" className="text-lg font-bold">{current.title}</h2>
           </div>
           <p className="text-sm text-muted-foreground">{current.body}</p>
-          {onMenuButton && current.mobileHint && (
-            <p className="text-sm font-medium inline-flex items-center gap-1.5"><Menu className="w-4 h-4" />{current.mobileHint}</p>
+          {target && isPhoneLayout() && current.mobileHint && (
+            <p className="text-sm font-medium text-primary">{current.mobileHint}</p>
           )}
         </div>
         <div className="mt-5 flex items-center justify-between gap-2">

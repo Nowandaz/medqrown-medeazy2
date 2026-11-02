@@ -1,5 +1,6 @@
 import type { Express, RequestHandler } from "express";
 import { pool } from "./db";
+import { publicSiteUrl } from "./site-url";
 import { logEmailFailure, resendLoggedEmail, sendLoggedEmail } from "./stage11-email";
 import { STAGE11_TEMPLATES } from "./stage11-migration";
 
@@ -148,7 +149,8 @@ export function registerStage11Routes(app: Express, requireAdmin: RequestHandler
     const requestedIds = studentIds === undefined ? null : [...new Set<number>(studentIds)];
     const recipientQuery = await pool.query(
       `SELECT s.id, s.name, s.email, m.end_date::text AS "cohortEnd",
-              settings.paybill, settings.account_number AS "accountNumber"
+              settings.paybill, settings.account_number AS "accountNumber",
+              settings.individual_price AS "individualPrice", settings.group_price AS "groupPrice"
          FROM medqrown_class_students cs
          JOIN students s ON s.id = cs.student_id
          LEFT JOIN medqrown_memberships m ON m.student_id = s.id
@@ -187,6 +189,9 @@ export function registerStage11Routes(app: Express, requireAdmin: RequestHandler
           cohort_end: recipient.cohortEnd ?? "",
           paybill: recipient.paybill ?? "",
           account_number: recipient.accountNumber ?? "",
+          individual_price: Number(recipient.individualPrice ?? 0).toLocaleString("en-KE"),
+          group_price: Number(recipient.groupPrice ?? 0).toLocaleString("en-KE"),
+          renew_link: `${publicSiteUrl()}/student/dashboard?renew=1`,
           class_name: "",
         },
       });

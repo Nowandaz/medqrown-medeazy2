@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Bell, BookOpen, History, LayoutDashboard, Menu, Sparkles, User, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, BookOpen, History, LayoutDashboard, Sparkles, User, X } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { AvatarPicker } from "@/components/student/avatar-picker";
@@ -8,30 +8,31 @@ import { useUpdateAvatar } from "@/hooks/use-student";
 import { getStudentAvatarUrl } from "@/lib/avatar";
 
 type Step = {
-  /** Elements to spotlight, first visible one wins (desktop sidebar item, else the phone menu button). */
+  /** Elements to spotlight, first visible one wins (desktop sidebar item, else the phone tab bar). */
   targets: string[];
   icon: typeof Sparkles;
   title: string;
   body: string;
-  /** Extra line shown when the target is the phone menu button. */
+  /** Extra line shown on phones, where the target sits in the bottom tab bar. */
   mobileHint?: string;
 };
 
 const STEPS: Step[] = [
   { targets: [], icon: Sparkles, title: "Welcome to MedEazy!", body: "Here's a 30-second tour so you know where everything lives. You can skip it anytime." },
-  { targets: ['[data-tour="nav-dashboard"]', '[data-tour="menu"]'], icon: LayoutDashboard, title: "Dashboard",
+  { targets: ['[data-tour="nav-dashboard"]'], icon: LayoutDashboard, title: "Dashboard",
     body: "Your home base: your next class, the next Mock CAT countdown, your latest scores and your membership.",
-    mobileHint: "On your phone, tap ☰ (top right) to open the menu." },
-  { targets: ['[data-tour="nav-my-class"]', '[data-tour="menu"]'], icon: BookOpen, title: "My Class",
+    mobileHint: "It's the first button in the bar at the bottom of your screen." },
+  { targets: ['[data-tour="nav-my-class"]'], icon: BookOpen, title: "My Class",
     body: "Take your Mock CATs, see the timetable with Google Meet links, read announcements and send us feedback.",
-    mobileHint: "Find My Class in the ☰ menu." },
-  { targets: ['[data-tour="nav-results"]', '[data-tour="menu"]'], icon: History, title: "Results",
+    mobileHint: "Tap My Class in the bottom bar, then pick Exams, Timetable, News or Feedback at the top." },
+  { targets: ['[data-tour="nav-results"]'], icon: History, title: "Results",
     body: "Every released result with answers and explanations, plus a chart of your progress over time. Only you can see your scores.",
-    mobileHint: "Find Results in the ☰ menu." },
-  { targets: ['[data-tour="nav-profile"]', '[data-tour="menu"]'], icon: User, title: "Profile",
-    body: "Your details, avatar, and membership & payment history.", mobileHint: "Find Profile in the ☰ menu." },
+    mobileHint: "Tap Results in the bottom bar." },
+  { targets: ['[data-tour="nav-profile"]'], icon: User, title: "Profile",
+    body: "Your details, avatar, and membership & payment history.", mobileHint: "Tap Profile in the bottom bar." },
   { targets: ['[data-tour="bell"]'], icon: Bell, title: "Notifications",
-    body: "Announcements, results and renewal reminders show up here. We'll also email you." },
+    body: "Announcements, results and renewal reminders show up here. We'll also email you.",
+    mobileHint: "Tap the bell at the top whenever you see a red dot." },
 ];
 const AVATAR_STEP = STEPS.length;
 
@@ -45,19 +46,54 @@ export function visibleElement(selectors: string[]): HTMLElement | null {
   return null;
 }
 
-/** Card position: under/next to the spotlighted element (callers centre it when there is no target). */
-export function spotlightCardStyle(rect: DOMRect): React.CSSProperties {
-  const margin = 12;
+/** Centred card when a step has no target. (Not translate-centred: the enter animation overrides transforms.) */
+export const CENTRED_CARD = "absolute inset-0 m-auto h-fit w-[calc(100%-2rem)]";
+
+const CARD_GAP = 44; // room for the pointer arrow between the card and its target
+
+/** Where the card goes relative to the spotlighted element. */
+function placement(rect: DOMRect): "beside" | "above" | "below" {
   const cardWidth = Math.min(360, window.innerWidth - 32);
-  const beside = window.innerWidth >= 768 && rect.right + cardWidth + margin * 2 < window.innerWidth;
-  return beside
-    ? { left: rect.right + margin, top: Math.max(16, Math.min(rect.top - 8, window.innerHeight - 280)), width: cardWidth }
-    : {
-      left: Math.max(16, Math.min(rect.left + rect.width / 2 - cardWidth / 2, window.innerWidth - cardWidth - 16)),
-      top: rect.bottom + margin,
-      width: cardWidth,
-    };
+  if (window.innerWidth >= 768 && rect.right + cardWidth + 24 < window.innerWidth) return "beside";
+  // Targets low on the screen (the phone tab bar) get the card above them.
+  return rect.top > window.innerHeight / 2 ? "above" : "below";
 }
+
+/** Card position: next to, above or below the spotlighted element. */
+export function spotlightCardStyle(rect: DOMRect): React.CSSProperties {
+  const cardWidth = Math.min(360, window.innerWidth - 32);
+  const where = placement(rect);
+  if (where === "beside") {
+    return { left: rect.right + 12, top: Math.max(16, Math.min(rect.top - 8, window.innerHeight - 280)), width: cardWidth };
+  }
+  const left = Math.max(16, Math.min(rect.left + rect.width / 2 - cardWidth / 2, window.innerWidth - cardWidth - 16));
+  return where === "above"
+    ? { left, bottom: window.innerHeight - rect.top + CARD_GAP, width: cardWidth }
+    : { left, top: rect.bottom + CARD_GAP, width: cardWidth };
+}
+
+/** Dimmed page with a pulsing outline around the target and a bouncing arrow at it, so it's obvious what to tap. */
+export function SpotlightHighlight({ rect }: { rect: DOMRect }) {
+  const where = placement(rect);
+  const Arrow = where === "above" ? ArrowDown : ArrowUp;
+  const box = { left: rect.left - 6, top: rect.top - 6, width: rect.width + 12, height: rect.height + 12 };
+  return (
+    <>
+      <div className="absolute rounded-xl ring-2 ring-primary transition-all duration-200 pointer-events-none"
+        style={{ ...box, boxShadow: "0 0 0 9999px rgba(0,0,0,0.65)" }} />
+      <div className="absolute rounded-xl ring-4 ring-primary/40 animate-ping pointer-events-none" style={box} />
+      {where !== "beside" && (
+        <div className="absolute pointer-events-none animate-bounce"
+          style={{ left: rect.left + rect.width / 2 - 14, top: where === "above" ? rect.top - 40 : rect.bottom + 10 }}>
+          <Arrow className="w-7 h-7 text-primary drop-shadow" strokeWidth={3} />
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Whether the phone layout (bottom tab bar) is showing. */
+export const isPhoneLayout = () => window.innerWidth < 768;
 
 /** First-login walkthrough: explains the navigation, then asks the student to choose an avatar. */
 export function WelcomeTour({ user }: { user: { name?: string; avatarKey?: string | null; onboardedAt?: string | null } }) {
@@ -112,7 +148,6 @@ export function WelcomeTour({ user }: { user: { name?: string; avatarKey?: strin
 
   const isAvatarStep = step === AVATAR_STEP;
   const current = isAvatarStep ? null : STEPS[step];
-  const onMenuButton = target?.dataset.tour === "menu";
   const firstName = (user.name || "").trim().split(/\s+/)[0];
   const total = STEPS.length + 1;
 
@@ -125,19 +160,13 @@ export function WelcomeTour({ user }: { user: { name?: string; avatarKey?: strin
     <div className="fixed inset-0 z-[10000]" role="dialog" aria-modal="true" aria-labelledby="tour-title">
       {/* Dimmed backdrop with a cut-out around the target */}
       {rect && !isAvatarStep ? (
-        <div
-          className="absolute rounded-xl ring-2 ring-primary transition-all duration-200 pointer-events-none"
-          style={{
-            left: rect.left - 6, top: rect.top - 6, width: rect.width + 12, height: rect.height + 12,
-            boxShadow: "0 0 0 9999px rgba(0,0,0,0.6)",
-          }}
-        />
+        <SpotlightHighlight rect={rect} />
       ) : (
         <div className="absolute inset-0 bg-black/60" />
       )}
 
       <div
-        className={`${rect && !isAvatarStep ? "absolute" : "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)]"} ${isAvatarStep ? "max-w-lg" : "max-w-sm"} rounded-2xl border bg-card p-5 shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-h-[calc(100dvh-2rem)] overflow-y-auto`}
+        className={`${rect && !isAvatarStep ? "absolute" : CENTRED_CARD} ${isAvatarStep ? "max-w-lg" : "max-w-sm"} rounded-2xl border bg-card p-5 shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-h-[calc(100dvh-2rem)] overflow-y-auto`}
         style={cardStyle}
       >
         <button onClick={finish} className="absolute right-3 top-3 p-1 text-muted-foreground hover:text-foreground" aria-label="Skip tour">
@@ -164,8 +193,8 @@ export function WelcomeTour({ user }: { user: { name?: string; avatarKey?: strin
               </h2>
             </div>
             <p className="text-sm text-muted-foreground">{current?.body}</p>
-            {onMenuButton && current?.mobileHint && (
-              <p className="text-sm font-medium inline-flex items-center gap-1.5"><Menu className="w-4 h-4" />{current.mobileHint}</p>
+            {target && isPhoneLayout() && current?.mobileHint && (
+              <p className="text-sm font-medium text-primary">{current.mobileHint}</p>
             )}
           </div>
         )}

@@ -548,7 +548,7 @@ export async function sendDueRenewalReminders(): Promise<void> {
     const savingsMessage = candidate.lastPlan === "Individual"
       ? ` MedEazy is cheaper with friends! Join with 3 friends and save about ${percent}% (KSh ${Math.round(savings)} each per month).`
       : "";
-    const renewUrl = `${publicSiteUrl()}/student/dashboard`;
+    const renewUrl = `${publicSiteUrl()}/student/dashboard?renew=1`;
     const feedbackUrl = `${publicSiteUrl()}/student/my-class`;
     const body = `Your membership ends ${candidate.endDate}. Paybill ${candidate.paybill}, account ${candidate.accountNumber} (${candidate.bankName}). Renew: ${renewUrl}. Leave feedback: ${feedbackUrl}.${savingsMessage}`;
     await saveNotification(pool, Number(candidate.studentId), "membership_renewal_reminder",
@@ -565,6 +565,8 @@ export async function sendDueRenewalReminders(): Promise<void> {
         student_name: candidate.name, cohort_end: candidate.endDate, renew_link: renewUrl,
         paybill: candidate.paybill, account_number: candidate.accountNumber,
         bank_name: candidate.bankName, feedback_link: feedbackUrl, savings_message: savingsMessage.trim(),
+        individual_price: Number(candidate.individualPrice).toLocaleString("en-KE"),
+        group_price: Number(candidate.groupPrice).toLocaleString("en-KE"),
       },
     });
     const emailSent = emailResult.status === "sent";

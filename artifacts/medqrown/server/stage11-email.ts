@@ -51,14 +51,19 @@ async function renderEmail(input: {
     subjectTemplate ??= rows[0].subject;
     bodyTemplate ??= rows[0].body;
   }
-  const subject = interpolate(subjectTemplate ?? "", input.variables);
-  const text = interpolate(bodyTemplate ?? "", input.variables);
+  const variables = { ...input.variables };
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(variables.cohort_end ?? ""))) {
+    variables.cohort_end = new Date(`${variables.cohort_end}T00:00:00Z`).toLocaleDateString("en-GB",
+      { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+  }
+  const subject = interpolate(subjectTemplate ?? "", variables);
+  const text = interpolate(bodyTemplate ?? "", variables);
   return {
     subject,
     text,
     html: input.html === undefined
-      ? renderEmailHtml(input.templateKey, subject, text, input.variables)
-      : interpolate(input.html, input.variables),
+      ? renderEmailHtml(input.templateKey, subject, text, variables)
+      : interpolate(input.html, variables),
     ...(input.replyTo ? { replyTo: input.replyTo } : {}),
   };
 }

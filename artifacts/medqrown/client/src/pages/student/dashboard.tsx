@@ -210,7 +210,7 @@ export default function StudentDashboard() {
                 {pendingPayment && (
                   <p className="text-sm rounded-lg bg-muted p-2">Payment <span className="font-mono">{pendingPayment.code}</span> is being verified.</p>
                 )}
-                {showRenew && !pendingPayment && <RenewMembershipDialog />}
+                {showRenew && !pendingPayment && <RenewMembershipDialog defaultOpen={new URLSearchParams(window.location.search).has("renew")} />}
               </>
             ) : (
               <p className="text-sm text-muted-foreground">No membership yet. Contact us if you've paid.</p>

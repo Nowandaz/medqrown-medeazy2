@@ -59,7 +59,7 @@ export default function StudentProfile() {
     return (
       <div className="space-y-8">
         <Skeleton className="h-10 w-48" />
-        <div className="grid gap-8 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
           <Skeleton className="lg:col-span-1 h-[600px]" />
           <Skeleton className="lg:col-span-2 h-[600px]" />
         </div>
@@ -121,9 +121,9 @@ export default function StudentProfile() {
         </p>
       </div>
 
-      <div className="grid gap-8 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
         {/* Left Column: Avatar & Membership */}
-        <div className="lg:col-span-1 space-y-8">
+        <div className="min-w-0 lg:col-span-1 space-y-6 lg:space-y-8">
           {/* Avatar Selection */}
           <Card className="border-primary/20 shadow-sm overflow-hidden flex flex-col">
             <CardHeader className="pb-4">
@@ -199,7 +199,7 @@ export default function StudentProfile() {
         </div>
 
         {/* Right Column: Identity & Payment History */}
-        <div className="lg:col-span-2 space-y-8 flex flex-col">
+        <div className="min-w-0 lg:col-span-2 space-y-6 lg:space-y-8 flex flex-col">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
               <div>
@@ -303,7 +303,7 @@ export default function StudentProfile() {
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
                           <span className="capitalize">{payment.plan} Plan</span>
                           <span>•</span>
-                          <span>${payment.amount} via {payment.source}</span>
+                          <span>KSh {Number(payment.amount).toLocaleString("en-KE")} via {payment.source === "in_app" ? "the app" : payment.source}</span>
                         </div>
                         <div className="text-xs text-muted-foreground">
                           Submitted on {new Date(payment.submittedAt).toLocaleDateString()}
