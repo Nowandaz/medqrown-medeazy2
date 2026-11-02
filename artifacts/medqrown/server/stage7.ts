@@ -3,6 +3,7 @@ import { createCipheriv, createECDH, createPrivateKey, hkdfSync, randomBytes, si
 import { pool } from "./db";
 import { getPauseState, membershipAsOf, nairobiDate } from "./stage3-storage";
 import { sendLoggedEmail } from "./stage11-email";
+import { inMembershipPeriodSql } from "./membership-periods";
 
 type Subscription = { endpoint: string; p256dh: string; auth: string };
 type PushPayload = { title: string; body: string; url?: string };
@@ -317,9 +318,11 @@ export function registerStage7Routes(app: Express, requireAdmin: RequestHandler,
     );
     if (!membership[0]) return res.status(403).json({ message: "You are not enrolled in this class" });
     const { rows } = await pool.query(
-      `SELECT id, class_id AS "classId", title, message, link, created_at AS "createdAt"
-         FROM medqrown_class_announcements WHERE class_id = $1 ORDER BY created_at DESC, id DESC`,
-      [classId],
+      `SELECT a.id, a.class_id AS "classId", a.title, a.message, a.link, a.created_at AS "createdAt"
+         FROM medqrown_class_announcements a
+        WHERE a.class_id = $1 AND ${inMembershipPeriodSql("a.created_at", "$2")}
+        ORDER BY a.created_at DESC, a.id DESC`,
+      [classId, req.student.id],
     );
     res.json(rows);
   });

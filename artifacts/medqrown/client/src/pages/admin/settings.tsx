@@ -811,97 +811,134 @@ function ChangePasswordSection() {
 
 function CohortsSection() {
   const { toast } = useToast();
-  const { data: cohortsData, isLoading } = useQuery<any>({ queryKey: ["/api/admin/cohorts"] });
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const { data: cohortsData, isLoading } = useQuery<any>({ queryKey: ["/api/admin/cohorts"], refetchOnMount: "always" });
+  const [editing, setEditing] = useState<any | null>(null);
+  const [deleting, setDeleting] = useState<any | null>(null);
   const [form, setForm] = useState({ startDate: "", endDate: "", reason: "", moveMembers: true });
 
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/admin/cohorts"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/admin/students"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/admin/students/not-renewed"] });
+  };
+
   const updateCohort = useMutation({
-    mutationFn: async () => {
-      if (!editingId) return null;
-      const res = await apiRequest("PATCH", `/api/admin/cohorts/${editingId}`, form);
-      return res.json();
-    },
+    mutationFn: async () => (await apiRequest("PATCH", `/api/admin/cohorts/${editing.id}`, form)).json(),
     onSuccess: (result: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/cohorts"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/students"] });
-      setEditingId(null);
+      refresh();
+      setEditing(null);
       toast({
         title: "Cohort updated",
-        description: result?.membersMoved ? `${result.membersMoved} student${result.membersMoved === 1 ? "" : "s"} moved to the new dates.` : undefined,
+        description: result?.membersMoved ? `${result.membersMoved} student${result.membersMoved === 1 ? "" : "s"} moved with it.` : undefined,
       });
     },
-    onError: (e: any) => toast({ title: "Error", description: apiErrorMessage(e), variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Couldn't update the cohort", description: apiErrorMessage(e), variant: "destructive" }),
+  });
+  const deleteCohort = useMutation({
+    mutationFn: async (id: number) => (await apiRequest("DELETE", `/api/admin/cohorts/${id}`)).json(),
+    onSuccess: () => { refresh(); setDeleting(null); toast({ title: "Cohort deleted" }); },
+    onError: (e: any) => toast({ title: "Couldn't delete the cohort", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   if (isLoading) return <div className="h-40 bg-muted/20 animate-pulse rounded-lg" />;
-  const { current, next, history } = cohortsData || {};
-
-  const openEdit = (c: any) => {
-    setEditingId(c.id);
-    setForm({ startDate: c.startDate, endDate: c.endDate, reason: "", moveMembers: true });
-  };
+  const all: any[] = cohortsData?.all || [];
   const lengthInDays = (startDate: string, endDate: string) =>
     startDate && endDate ? Math.round((Date.parse(`${endDate}T00:00:00Z`) - Date.parse(`${startDate}T00:00:00Z`)) / 86400000) + 1 : null;
   const formDays = lengthInDays(form.startDate, form.endDate);
-
-  const renderCohort = (c: any, title: string, canEdit: boolean) => {
-    if (!c) return null;
-    return (
-      <Card key={c.id} className="shadow-sm">
-        <CardContent className="py-4 px-5 flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <h4 className="font-semibold text-sm mb-1">{title}</h4>
-            <div className="flex gap-4 text-sm text-muted-foreground">
-              <span>Start: {c.startDate}</span>
-              <span>End: {c.endDate}</span>
-              <span>{lengthInDays(c.startDate, c.endDate)} days</span>
-            </div>
-          </div>
-          {canEdit && (
-            <Dialog open={editingId === c.id} onOpenChange={(o) => !o && setEditingId(null)}>
-              <DialogTrigger asChild><Button variant="outline" size="sm" onClick={() => openEdit(c)}>Edit</Button></DialogTrigger>
-              <DialogContent>
-                <DialogHeader><DialogTitle>Edit {title}</DialogTitle></DialogHeader>
-                <div className="space-y-4 pt-2">
-                  <div className="space-y-2"><Label>Start Date (YYYY-MM-DD)</Label><Input type="date" value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} /></div>
-                  <div className="space-y-2"><Label>End Date (YYYY-MM-DD)</Label><Input type="date" value={form.endDate} min={form.startDate || undefined} onChange={e => setForm({...form, endDate: e.target.value})} /></div>
-                  <p className={`text-xs ${formDays != null && formDays < 1 ? "text-destructive" : "text-muted-foreground"}`}>
-                    {formDays == null ? "Pick both dates." : formDays < 1 ? "The end date must be on or after the start date." : `${formDays} days long. Cohorts can be any length, as long as they don't overlap another cohort.`}
-                  </p>
-                  <label className="flex items-start gap-2 text-sm">
-                    <Checkbox checked={form.moveMembers} onCheckedChange={(v) => setForm({ ...form, moveMembers: v === true })} className="mt-0.5" />
-                    <span>Move students in this cohort to the new dates <span className="block text-xs text-muted-foreground">Only students whose dates match the cohort's current dates. Students you've given custom dates keep them.</span></span>
-                  </label>
-                  <div className="space-y-2"><Label>Reason for change (Required)</Label><Input value={form.reason} onChange={e => setForm({...form, reason: e.target.value})} placeholder="e.g. Adjusted to align with exams" /></div>
-                  <Button className="w-full" disabled={!form.reason || (formDays ?? 0) < 1 || updateCohort.isPending} onClick={() => updateCohort.mutate()}>Save Changes</Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-          )}
-        </CardContent>
-      </Card>
-    );
-  };
+  const endShift = editing && form.endDate ? Math.round((Date.parse(form.endDate) - Date.parse(editing.endDate)) / 86400000) : 0;
+  const overlapping = all.filter((c) => c.overlapsWith?.length).length;
+  const label = (c: any) => c.isCurrent ? "Current" : c.isNext ? "Next" : c.status === "past" ? "Past" : c.status === "upcoming" ? "Upcoming" : "Running";
 
   return (
     <div className="space-y-6">
       <SubscriptionPauseCard />
       <div>
-        <h3 className="font-medium">Manage Cohorts</h3>
-        <p className="text-sm text-muted-foreground">Update the current and next membership cohorts. They can be any length; new cohorts default to one month.</p>
+        <h3 className="font-medium">Cohorts</h3>
+        <p className="text-sm text-muted-foreground">Every cohort, oldest first. Cohorts can be any length but shouldn&apos;t overlap. A new &quot;next&quot; cohort is created automatically after the current one when none exists.</p>
       </div>
-      <div className="space-y-3">
-        {renderCohort(current, `Current: ${cohortName(current)}`, true)}
-        {renderCohort(next, `Next: ${cohortName(next)}`, true)}
-      </div>
-      {history?.length > 0 && (
-        <div className="mt-8">
-          <h4 className="font-medium text-sm mb-3">History</h4>
-          <div className="space-y-2 opacity-75">
-            {history.map((h: any) => renderCohort(h, cohortName(h), false))}
-          </div>
+      {overlapping > 0 && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          Some cohorts overlap. Delete the extra ones that have no students, or edit their dates, so each date belongs to one cohort.
         </div>
       )}
+      <div className="space-y-2">
+        {all.map((c) => (
+          <Card key={c.id} className={`shadow-sm ${c.status === "past" ? "opacity-75" : ""} ${c.overlapsWith?.length ? "border-destructive/40" : ""}`}>
+            <CardContent className="py-3 px-4 flex items-center justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="font-semibold text-sm">{cohortName(c)}</h4>
+                  <Badge variant={c.isCurrent ? "default" : "outline"} className="text-[10px]">{label(c)}</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {c.startDate} → {c.endDate} · {lengthInDays(c.startDate, c.endDate)} days · {c.memberCount} student{c.memberCount === 1 ? "" : "s"}
+                  {c.pendingPayments ? ` · ${c.pendingPayments} pending payment${c.pendingPayments === 1 ? "" : "s"}` : ""}
+                </p>
+                {c.overlapsWith?.length > 0 && (
+                  <p className="text-xs text-destructive mt-0.5">Overlaps {c.overlapsWith.map((o: any) => cohortName(o)).join(", ")}</p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => { setEditing(c); setForm({ startDate: c.startDate, endDate: c.endDate, reason: "", moveMembers: true }); }}>Edit</Button>
+                <Button variant="ghost" size="sm" className="text-destructive" disabled={c.memberCount > 0}
+                  title={c.memberCount > 0 ? "Students are in this cohort: edit its dates instead" : "Delete this cohort"}
+                  aria-label={`Delete ${cohortName(c)}`}
+                  onClick={() => setDeleting(c)}>
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit {editing ? cohortName(editing) : ""}</DialogTitle>
+            <DialogDescription>{editing?.memberCount ?? 0} student(s) are in this cohort.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2"><Label>Start date</Label><Input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></div>
+              <div className="space-y-2"><Label>End date</Label><Input type="date" value={form.endDate} min={form.startDate || undefined} onChange={(e) => setForm({ ...form, endDate: e.target.value })} /></div>
+            </div>
+            <p className={`text-xs ${formDays != null && formDays < 1 ? "text-destructive" : "text-muted-foreground"}`}>
+              {formDays == null ? "Pick both dates." : formDays < 1 ? "The end date must be on or after the start date." : `${formDays} days long. It mustn't overlap another cohort.`}
+            </p>
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox checked={form.moveMembers} onCheckedChange={(v) => setForm({ ...form, moveMembers: v === true })} className="mt-0.5" />
+              <span>
+                Move this cohort&apos;s students with it
+                <span className="block text-xs text-muted-foreground">
+                  {endShift === 0 ? "Every student in this cohort keeps the same end date." :
+                    `Every student in this cohort gets ${Math.abs(endShift)} day${Math.abs(endShift) === 1 ? "" : "s"} ${endShift > 0 ? "more" : "less"} (custom dates move by the same amount).`}
+                </span>
+              </span>
+            </label>
+            <div className="space-y-2"><Label>Reason (required)</Label><Input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="e.g. Extended for the lecturers' strike" /></div>
+            <Button className="w-full" disabled={!form.reason.trim() || (formDays ?? 0) < 1 || updateCohort.isPending} onClick={() => updateCohort.mutate()}>
+              {updateCohort.isPending ? "Saving..." : "Save changes"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deleting ? cohortName(deleting) : ""}?</AlertDialogTitle>
+            <AlertDialogDescription>No students are in it. Any pending payment aimed at it is re-targeted when approved.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => { e.preventDefault(); if (deleting) deleteCohort.mutate(deleting.id); }}>
+              {deleteCohort.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

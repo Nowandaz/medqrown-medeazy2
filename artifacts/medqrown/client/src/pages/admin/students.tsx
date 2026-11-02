@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Users, Search, Edit2, Check, X } from "lucide-react";
 import { MembersTable } from "@/components/admin/members-table";
+import { NotRenewed } from "@/components/admin/not-renewed";
 
 export default function AdminStudents() {
   const [, setLocation] = useLocation();
@@ -70,6 +71,7 @@ export default function AdminStudents() {
         <Tabs defaultValue="all" className="space-y-6">
           <TabsList>
             <TabsTrigger value="all" className="gap-2">All Students</TabsTrigger>
+            <TabsTrigger value="not-renewed" className="gap-2">Not renewed</TabsTrigger>
             <TabsTrigger value="requests" className="gap-2 relative">
               Change Requests
               {requests?.length ? (
@@ -86,6 +88,10 @@ export default function AdminStudents() {
                 <MembersTable />
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="not-renewed" className="m-0">
+            <NotRenewed />
           </TabsContent>
 
           <TabsContent value="requests" className="m-0">

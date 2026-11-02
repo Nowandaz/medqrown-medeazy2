@@ -1,6 +1,7 @@
 import type { Express, RequestHandler } from "express";
 import { pool } from "./db";
 import { getMembership, getPauseState, membershipAsOf, nairobiDate } from "./stage3-storage";
+import { examVisibleSql, inMembershipPeriodSql } from "./membership-periods";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -73,6 +74,7 @@ export function registerStage8Routes(app: Express, requireStudent: RequestHandle
           WHERE cs.student_id = $1
             AND e.opens_at IS NOT NULL AND e.closes_at IS NOT NULL
             AND e.closes_at > CURRENT_TIMESTAMP
+            AND ${examVisibleSql("e", "$1")}
             -- Skip exams the student has finished: same rule as "Start Exam" on My Class.
             AND (
               (SELECT COUNT(*) FROM attempts a JOIN exam_students es ON es.id = a.exam_student_id
@@ -97,7 +99,7 @@ export function registerStage8Routes(app: Express, requireStudent: RequestHandle
            FROM medqrown_class_students cs
            JOIN medqrown_class_announcements a ON a.class_id = cs.class_id
            JOIN medqrown_classes c ON c.id = cs.class_id
-          WHERE cs.student_id = $1
+          WHERE cs.student_id = $1 AND ${inMembershipPeriodSql("a.created_at", "$1")}
           ORDER BY a.created_at DESC, a.id DESC
           LIMIT 1`,
         [studentId],
