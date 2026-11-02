@@ -4,6 +4,7 @@ import { getMembership } from "./stage3-storage";
 import { enqueueMarking } from "./marking-queue";
 import { dispatchPushToStudents } from "./stage7";
 import { freeAttemptsSql } from "./attempt-policy";
+import { examVisibleSql } from "./membership-periods";
 
 const isOpen = (opensAt: unknown, closesAt: unknown, now = Date.now()) =>
   opensAt != null && closesAt != null && new Date(opensAt as any).getTime() <= now
@@ -71,6 +72,7 @@ export function registerStage6Routes(app: Express, requireAdmin: RequestHandler,
                        WHERE rr.exam_id = e.id AND rr.student_id = $2 AND rr.status = 'approved' AND rr.consumed_at IS NULL) AS "hasApprovedReattempt"
          FROM exams e
         WHERE e.class_id = $1 AND e.status = 'active'
+          AND ${examVisibleSql("e", "$2")}
         ORDER BY e.opens_at NULLS LAST, e.id`,
       [classId, req.student.id],
     );

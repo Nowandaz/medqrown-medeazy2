@@ -26,6 +26,7 @@ import { registerQuestionJsonUpdateRoutes } from "./question-json-update";
 import { sendLoggedEmail } from "./stage11-email";
 import { broadcastLiveQuiz, issueLiveQuizTicket } from "./live-quiz";
 import { featureForPath, isFeatureEnabled } from "./feature-flags";
+import { inMembershipPeriodSql } from "./membership-periods";
 import {
   cohortEndDate,
   ensureCurrentAndNextCohorts,
@@ -452,10 +453,6 @@ export async function registerRoutes(
     if (endDate < startDate) {
       return res.status(400).json({ message: "The end date must be on or after the start date" });
     }
-    const { current, next } = await listCohorts();
-    if (![current?.id, next?.id].includes(id)) {
-      return res.status(403).json({ message: "Only current and next cohort dates can be edited" });
-    }
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -489,15 +486,19 @@ export async function registerRoutes(
       );
       let membersMoved = 0;
       if (moveMembers && (old.startDate !== startDate || old.endDate !== endDate)) {
+        // Everyone in this cohort moves by the same number of days as the cohort's end
+        // (so a student given 3 extra days keeps them); start dates follow the cohort's start.
+        const endShift = Math.round((Date.parse(endDate) - Date.parse(old.endDate)) / 86400000);
         const members = await client.query(
           `SELECT student_id AS "studentId", start_date::text AS "startDate", end_date::text AS "endDate"
-             FROM medqrown_memberships
-            WHERE cohort_id = $1 AND (start_date = $2::date OR end_date = $3::date) FOR UPDATE`,
-          [id, old.startDate, old.endDate],
+             FROM medqrown_memberships WHERE cohort_id = $1 FOR UPDATE`,
+          [id],
         );
         for (const member of members.rows) {
           const newStart = member.startDate === old.startDate ? startDate : member.startDate;
-          const newEnd = member.endDate === old.endDate ? endDate : member.endDate;
+          const shifted = new Date(`${member.endDate}T00:00:00Z`);
+          shifted.setUTCDate(shifted.getUTCDate() + endShift);
+          const newEnd = shifted.toISOString().slice(0, 10);
           if (newEnd < newStart) continue;
           await client.query(
             `UPDATE medqrown_memberships SET start_date = $2, end_date = $3, updated_at = CURRENT_TIMESTAMP
@@ -524,6 +525,71 @@ export async function registerRoutes(
     } catch (error: any) {
       await client.query("ROLLBACK").catch(() => undefined);
       if (error?.code === "23505") return res.status(409).json({ message: "A cohort already uses that startDate" });
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+
+  // Merge a duplicate cohort into another: its students (with their own dates unchanged),
+  // history and pending payments move to the target, then the empty cohort is deleted.
+  app.post("/api/admin/cohorts/:id/merge", requireAdmin, async (req: any, res) => {
+    const id = Number(req.params.id);
+    const intoId = Number(req.body?.intoId);
+    if (!Number.isInteger(id) || !Number.isInteger(intoId) || id < 1 || intoId < 1 || id === intoId) {
+      return res.status(400).json({ message: "Choose a different cohort to merge into" });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows } = await client.query(
+        `SELECT id, start_date::text AS "startDate", end_date::text AS "endDate" FROM medqrown_cohorts
+          WHERE id = ANY($1::int[]) FOR UPDATE`, [[id, intoId]]);
+      const from = rows.find((r: any) => r.id === id);
+      const into = rows.find((r: any) => r.id === intoId);
+      if (!from || !into) { await client.query("ROLLBACK"); return res.status(404).json({ message: "Cohort not found" }); }
+      const moved = await client.query("UPDATE medqrown_memberships SET cohort_id = $2, updated_at = CURRENT_TIMESTAMP WHERE cohort_id = $1", [id, intoId]);
+      await client.query("UPDATE medqrown_membership_periods SET cohort_id = $2 WHERE cohort_id = $1", [id, intoId]);
+      await client.query("UPDATE medqrown_payment_entries SET target_cohort_id = $2 WHERE target_cohort_id = $1", [id, intoId]);
+      await client.query("DELETE FROM medqrown_cohorts WHERE id = $1", [id]);
+      await client.query("COMMIT");
+      await storage.createAuditLog({ adminId: req.admin.id, action: "merge_cohort",
+        details: `Cohort ${id} (${from.startDate} to ${from.endDate}) merged into ${intoId} (${into.startDate} to ${into.endDate}); ${moved.rowCount} student(s) moved` });
+      res.json({ merged: true, studentsMoved: moved.rowCount });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+
+  // Delete a cohort that no student belongs to (e.g. a duplicate or an overlapping one).
+  app.delete("/api/admin/cohorts/:id", requireAdmin, async (req: any, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ message: "Invalid cohort id" });
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const cohort = await client.query(
+        `SELECT start_date::text AS "startDate", end_date::text AS "endDate" FROM medqrown_cohorts WHERE id = $1 FOR UPDATE`, [id]);
+      if (!cohort.rows[0]) { await client.query("ROLLBACK"); return res.status(404).json({ message: "Cohort not found" }); }
+      const members = await client.query("SELECT COUNT(*)::int AS n FROM medqrown_memberships WHERE cohort_id = $1", [id]);
+      if (members.rows[0].n > 0) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          message: `${members.rows[0].n} student(s) are in this cohort. Edit its dates instead, or move those students to another cohort first.`,
+        });
+      }
+      // Pending payments aimed at this cohort are re-targeted when they're approved.
+      await client.query("UPDATE medqrown_payment_entries SET target_cohort_id = NULL WHERE target_cohort_id = $1", [id]);
+      await client.query("DELETE FROM medqrown_cohorts WHERE id = $1", [id]);
+      await client.query("COMMIT");
+      await storage.createAuditLog({ adminId: req.admin.id, action: "delete_cohort",
+        details: `Cohort ${id} (${cohort.rows[0].startDate} to ${cohort.rows[0].endDate}) deleted` });
+      res.json({ deleted: true });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
       throw error;
     } finally {
       client.release();
@@ -917,6 +983,15 @@ export async function registerRoutes(
     }
     if (new Date(exam.closesAt).getTime() <= now) {
       return { allowed: false, status: 403, message: "This exam is closed", code: "EXAM_CLOSED" };
+    }
+    if (exam.opensAt) {
+      const { rows: inPeriod } = await pool.query(
+        `SELECT ${inMembershipPeriodSql("$1::timestamptz", "$2")} AS ok`,
+        [exam.opensAt, studentId],
+      );
+      if (!inPeriod[0]?.ok) {
+        return { allowed: false, status: 403, message: "This exam ran while you weren't a member, so it isn't available on your account" };
+      }
     }
     return { allowed: true, exam, membership };
   };

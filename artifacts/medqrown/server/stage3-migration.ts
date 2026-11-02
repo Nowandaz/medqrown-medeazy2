@@ -97,9 +97,11 @@ export async function migrateStage3(): Promise<void> {
       ON medqrown_payment_entries(code, created_at DESC);
     CREATE INDEX IF NOT EXISTS medqrown_payment_entries_status_idx
       ON medqrown_payment_entries(status, created_at DESC);
+    -- Seed the very first cohort only on an empty table. (Re-inserting it whenever no cohort
+    -- started on exactly this date created duplicates after admins moved cohort 1.)
     INSERT INTO medqrown_cohorts (start_date, end_date)
-    VALUES ('2026-09-28', '2026-10-27')
-    ON CONFLICT (start_date) DO NOTHING;
+    SELECT '2026-09-28', '2026-10-27'
+     WHERE NOT EXISTS (SELECT 1 FROM medqrown_cohorts);
     CREATE TABLE IF NOT EXISTS "session" (
       "sid" varchar NOT NULL COLLATE "default" PRIMARY KEY,
       "sess" json NOT NULL,

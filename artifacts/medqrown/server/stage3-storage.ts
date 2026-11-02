@@ -112,7 +112,29 @@ export async function listCohorts() {
   const ordered = [...rows].sort((a, b) => a.startDate.localeCompare(b.startDate));
   const currentIndex = current ? ordered.findIndex((item) => item.id === current.id) : -1;
   const next = currentIndex >= 0 ? ordered[currentIndex + 1] || null : null;
-  return { current, next, history: rows.filter((item) => current && item.startDate < current.startDate) };
+  // Every cohort with its status, member count and any overlap, for the cohort manager.
+  const counts = await pool.query(
+    `SELECT c.id,
+            (SELECT COUNT(*)::int FROM medqrown_memberships m WHERE m.cohort_id = c.id) AS "memberCount",
+            (SELECT COUNT(*)::int FROM medqrown_payment_entries p WHERE p.target_cohort_id = c.id AND p.status = 'pending') AS "pendingPayments"
+       FROM medqrown_cohorts c`,
+  );
+  const countById = new Map(counts.rows.map((row: any) => [Number(row.id), row]));
+  const all = ordered.map((cohort) => {
+    const overlapsWith = ordered
+      .filter((other) => other.id !== cohort.id && other.startDate <= cohort.endDate && other.endDate >= cohort.startDate)
+      .map((other) => ({ id: other.id, startDate: other.startDate, endDate: other.endDate }));
+    return {
+      ...cohort,
+      status: cohort.endDate < today ? "past" : cohort.startDate > today ? "upcoming" : "current",
+      isCurrent: cohort.id === current?.id,
+      isNext: cohort.id === next?.id,
+      memberCount: Number(countById.get(cohort.id)?.memberCount ?? 0),
+      pendingPayments: Number(countById.get(cohort.id)?.pendingPayments ?? 0),
+      overlapsWith,
+    };
+  });
+  return { current, next, history: rows.filter((item) => current && item.startDate < current.startDate), all };
 }
 
 type Queryable = { query: (text: string, params?: unknown[]) => Promise<{ rows: any[] }> };

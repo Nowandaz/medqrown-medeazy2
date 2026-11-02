@@ -328,6 +328,36 @@ export function registerStage10Routes(app: Express, requireAdmin: RequestHandler
     res.json(filterMembers(await masterMembers(), req));
   });
 
+  /**
+   * Students who haven't moved on with the cohorts:
+   *  - lapsed: membership ended (grace or expired) and nothing pending;
+   *  - due: still active, but their membership ends with the current cohort and they haven't
+   *    submitted a payment for the next one yet.
+   */
+  app.get("/api/admin/students/not-renewed", requireAdmin, async (_req, res) => {
+    const [members, cohorts, pending] = await Promise.all([
+      masterMembers(),
+      listCohorts(),
+      pool.query(`SELECT DISTINCT student_id AS "studentId" FROM medqrown_payment_entries WHERE status = 'pending'`),
+    ]);
+    const pendingIds = new Set(pending.rows.map((row: any) => Number(row.studentId)));
+    const cohortById = new Map((cohorts.all || []).map((c: any) => [c.id, c]));
+    const currentEnd = cohorts.current?.endDate ?? null;
+    const shape = (m: any) => ({
+      id: m.id, name: m.name, email: m.email, phone: m.phone, status: m.status,
+      membershipEndDate: m.membershipEndDate, latestPlan: m.latestPlan,
+      cohort: cohortById.get(Number(m.cohortId)) ?? null,
+      classes: m.classes, pendingPayment: pendingIds.has(Number(m.id)),
+    });
+    const lapsed = members.filter((m: any) => ["grace", "expired"].includes(m.status)).map(shape)
+      .sort((a: any, b: any) => String(b.membershipEndDate).localeCompare(String(a.membershipEndDate)));
+    const due = members
+      .filter((m: any) => m.status === "active" && currentEnd && m.membershipEndDate && m.membershipEndDate <= currentEnd)
+      .map(shape)
+      .sort((a: any, b: any) => String(a.membershipEndDate).localeCompare(String(b.membershipEndDate)));
+    res.json({ current: cohorts.current, next: cohorts.next, lapsed, due });
+  });
+
   app.get("/api/admin/students/change-requests", requireAdmin, async (req: any, res) => {
     const status = typeof req.query.status === "string" ? req.query.status : "pending";
     if (!["pending", "approved", "declined"].includes(status)) return res.status(400).json({ message: "Invalid request status" });
