@@ -17,6 +17,13 @@ export const pool = new pg.Pool({
     : undefined,
 });
 
+// Supabase's pooler closes idle connections now and then. Without a listener that
+// 'error' event is unhandled and takes the whole server down; the pool just drops
+// the dead client and opens a new one on the next query.
+pool.on("error", (err) => {
+  console.warn(`[db] idle connection closed: ${err.message}`);
+});
+
 // The workspace currently resolves two compatible pg type versions; the runtime
 // client is still the node-postgres Pool expected by Drizzle.
 export const db = drizzle(pool as any, { schema });

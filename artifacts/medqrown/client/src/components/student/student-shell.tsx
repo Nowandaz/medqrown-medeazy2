@@ -14,7 +14,6 @@ import {
   BarChart3,
   User, 
   LogOut, 
-  Menu, 
   Loader2 
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -40,6 +39,12 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
   const logout = useLogout();
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
+  // Lets page-wide styles (the floating theme button) make room for the phone tab bar.
+  useEffect(() => {
+    document.body.dataset.tabbar = "";
+    return () => { delete document.body.dataset.tabbar; };
+  }, []);
+
   useEffect(() => {
     if (!isLoading && (isError || !user)) {
       setLocation(`/portal?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
@@ -63,10 +68,12 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
   };
   const avatarUrl = getStudentAvatarUrl(user.avatarKey, 96);
 
+  const isActive = (href: string) => location === href || location.startsWith(href + "/");
+
   const NavLinks = ({ onClick }: { onClick?: () => void }) => (
     <nav className="flex-1 space-y-1.5 px-3 py-4">
       {NAV_ITEMS.map((item) => {
-        const isActive = location === item.href || location.startsWith(item.href + "/");
+        const active = isActive(item.href);
         return (
           <Link 
             key={item.href} 
@@ -74,7 +81,7 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
             onClick={onClick}
             data-tour={`nav-${item.href.split("/").pop()}`}
             className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-              isActive 
+              active 
                 ? "bg-primary/10 text-primary" 
                 : "text-muted-foreground hover:bg-muted hover:text-foreground"
             }`}
@@ -98,12 +105,11 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
           <span data-tour="bell"><StudentNotifications /></span>
           <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="md:hidden" data-tour="menu">
-                <Menu className="h-5 w-5" />
-                <span className="sr-only">Toggle menu</span>
-              </Button>
+              <button className="ml-1 h-9 w-9 overflow-hidden rounded-full border-2 border-primary/30 bg-primary/10" data-tour="menu" aria-label="Account menu">
+                <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+              </button>
             </SheetTrigger>
-          <SheetContent side="left" className="w-[280px] p-0 flex flex-col">
+          <SheetContent side="right" className="w-[280px] p-0 flex flex-col">
             <div className="p-4 border-b">
               <MedQrownBrand size="md" />
             </div>
@@ -162,8 +168,8 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-y-auto">
+      {/* Main Content (extra bottom space on phones for the tab bar) */}
+      <main className="flex-1 overflow-y-auto pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">
         <div className="mx-auto max-w-5xl p-4 md:p-8">
           <PushSubscriptionPrompt />
           {children}
@@ -171,6 +177,25 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
           <FeatureAnnouncement user={user} />
         </div>
       </main>
+
+      {/* Phone tab bar */}
+      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 backdrop-blur pb-[env(safe-area-inset-bottom)] md:hidden">
+        <div className="mx-auto grid max-w-md grid-cols-4">
+          {NAV_ITEMS.map((item) => {
+            const active = isActive(item.href);
+            return (
+              <Link key={item.href} href={item.href} data-tour={`nav-${item.href.split("/").pop()}`}
+                aria-current={active ? "page" : undefined}
+                className={`flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition-colors ${active ? "text-primary" : "text-muted-foreground"}`}>
+                <span className={`rounded-full px-4 py-1 transition-colors ${active ? "bg-primary/15" : ""}`}>
+                  <item.icon className="h-5 w-5" />
+                </span>
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 }

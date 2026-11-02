@@ -334,3 +334,8 @@
     padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
   }
 }
+
+/* Student pages on phones: keep the floating light/dark button above the bottom tab bar. */
+@media (max-width: 767px) {
+  body[data-tabbar] .theme-toggle { bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
+}

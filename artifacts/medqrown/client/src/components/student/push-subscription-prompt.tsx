@@ -16,9 +16,18 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
+const SNOOZE_KEY = "medqrown-push-prompt-snoozed-until";
+const WEEK_MS = 7 * 24 * 3600 * 1000;
+const snoozed = () => { try { return Number(localStorage.getItem(SNOOZE_KEY) || 0) > Date.now(); } catch { return false; } };
+
 export function PushSubscriptionPrompt() {
   const [showPrompt, setShowPrompt] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissedState] = useState(snoozed);
+  // "Not now" (or a refused permission) hides the card for a week instead of until the next page.
+  const setDismissed = (value: boolean) => {
+    if (value) { try { localStorage.setItem(SNOOZE_KEY, String(Date.now() + WEEK_MS)); } catch { /* storage blocked */ } }
+    setDismissedState(value);
+  };
   const [isIOS, setIsIOS] = useState(false);
   const [isStandalone, setIsStandalone] = useState(true);
 

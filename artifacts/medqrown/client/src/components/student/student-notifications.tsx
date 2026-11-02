@@ -52,7 +52,7 @@ export function StudentNotifications() {
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-80 p-0" align="end">
+      <PopoverContent className="w-[calc(100vw-1.5rem)] max-w-sm p-0" align="end" collisionPadding={12}>
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="flex items-center gap-2">
             <h4 className="font-semibold text-sm">Notifications</h4>
@@ -70,7 +70,7 @@ export function StudentNotifications() {
             </Button>
           )}
         </div>
-        <ScrollArea className="h-[300px]">
+        <ScrollArea className="h-[min(65dvh,480px)]">
           {isLoading ? (
             <div className="p-4 space-y-4">
               {[1,2,3].map(i => (
@@ -112,7 +112,7 @@ export function StudentNotifications() {
                     </div>
                     <p className="text-xs text-muted-foreground leading-snug">{notif.body}</p>
                     <p className="text-[10px] text-muted-foreground/70 pt-1">
-                      {new Date(notif.createdAt).toLocaleDateString()}
+                      {new Date(notif.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Nairobi" })}
                     </p>
                   </div>
                 </div>
