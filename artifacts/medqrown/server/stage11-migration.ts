@@ -17,19 +17,19 @@ export const STAGE11_TEMPLATES = [
     key: "renewal_7_days",
     name: "Renewal reminder — 7 days",
     subject: "Your MedQrown membership ends in 7 days",
-    body: "Hello {student_name},\n\nYour membership ends {cohort_end}. Renew here: {renew_link}\nPaybill: {paybill}\nAccount number: {account_number}\n\nMedQrown MedEazy",
+    body: "Hello {student_name},\n\nYour MedQrown MedEazy membership ends on {cohort_end}. Renew now so your exams, class and timetable carry on without a break.\n\nHow to renew (about 2 minutes):\n1. On your phone open M-Pesa → Lipa na M-Pesa → Pay Bill.\n2. Business number: {paybill}\n3. Account number: {account_number}\n4. Amount: KSh {individual_price} (Individual), or KSh {group_price} for a group of 4.\n5. Enter your M-Pesa PIN. You'll get an SMS: copy the 10-character code at the start of it (e.g. SJK4ABC123).\n6. Tap the button below, sign in, choose your plan and paste the code.\n\n{renew_link}\n\nWe'll check the payment and email you as soon as it's approved.\n\nMedQrown MedEazy",
   },
   {
     key: "renewal_3_days",
     name: "Renewal reminder — 3 days",
     subject: "Your MedQrown membership ends in 3 days",
-    body: "Hello {student_name},\n\nYour membership ends {cohort_end}. Renew here: {renew_link}\nPaybill: {paybill}\nAccount number: {account_number}\n\nMedQrown MedEazy",
+    body: "Hello {student_name},\n\nYour MedQrown MedEazy membership ends on {cohort_end}. Renew now so your exams, class and timetable carry on without a break.\n\nHow to renew (about 2 minutes):\n1. On your phone open M-Pesa → Lipa na M-Pesa → Pay Bill.\n2. Business number: {paybill}\n3. Account number: {account_number}\n4. Amount: KSh {individual_price} (Individual), or KSh {group_price} for a group of 4.\n5. Enter your M-Pesa PIN. You'll get an SMS: copy the 10-character code at the start of it (e.g. SJK4ABC123).\n6. Tap the button below, sign in, choose your plan and paste the code.\n\n{renew_link}\n\nWe'll check the payment and email you as soon as it's approved.\n\nMedQrown MedEazy",
   },
   {
     key: "renewal_last_day",
     name: "Renewal reminder — last day",
     subject: "Your MedQrown membership ends today",
-    body: "Hello {student_name},\n\nYour membership ends today ({cohort_end}). Renew here: {renew_link}\nPaybill: {paybill}\nAccount number: {account_number}\n\nMedQrown MedEazy",
+    body: "Hello {student_name},\n\nYour MedQrown MedEazy membership ends today ({cohort_end}). Renew now so your exams, class and timetable carry on without a break.\n\nHow to renew (about 2 minutes):\n1. On your phone open M-Pesa → Lipa na M-Pesa → Pay Bill.\n2. Business number: {paybill}\n3. Account number: {account_number}\n4. Amount: KSh {individual_price} (Individual), or KSh {group_price} for a group of 4.\n5. Enter your M-Pesa PIN. You'll get an SMS: copy the 10-character code at the start of it (e.g. SJK4ABC123).\n6. Tap the button below, sign in, choose your plan and paste the code.\n\n{renew_link}\n\nWe'll check the payment and email you as soon as it's approved.\n\nMedQrown MedEazy",
   },
   {
     key: "payment_approved",
@@ -62,6 +62,13 @@ export const STAGE11_TEMPLATES = [
     body: "Hello {student_name},\n\nWe received a request to reset your password. Use this code: {reset_code}\n\nThis code expires in 15 minutes. If you didn't request a password reset, you can safely ignore this email.\n\nMedQrown MedEazy",
   },
 ] as const;
+
+/** Earlier default wording: rows still exactly like this were never edited, so they get the new default. */
+const PREVIOUS_DEFAULT_BODIES: Record<string, string> = {
+  renewal_7_days: "Hello {student_name},\n\nYour membership ends {cohort_end}. Renew here: {renew_link}\nPaybill: {paybill}\nAccount number: {account_number}\n\nMedQrown MedEazy",
+  renewal_3_days: "Hello {student_name},\n\nYour membership ends {cohort_end}. Renew here: {renew_link}\nPaybill: {paybill}\nAccount number: {account_number}\n\nMedQrown MedEazy",
+  renewal_last_day: "Hello {student_name},\n\nYour membership ends today ({cohort_end}). Renew here: {renew_link}\nPaybill: {paybill}\nAccount number: {account_number}\n\nMedQrown MedEazy",
+};
 
 export async function migrateStage11(): Promise<void> {
   await pool.query(`
@@ -97,5 +104,12 @@ export async function migrateStage11(): Promise<void> {
        VALUES ($1, $2, $3, $4) ON CONFLICT (template_key) DO NOTHING`,
       [template.key, template.name, template.subject, template.body],
     );
+    const previous = PREVIOUS_DEFAULT_BODIES[template.key];
+    if (previous) {
+      await pool.query(
+        "UPDATE medqrown_email_templates SET body = $2, updated_at = CURRENT_TIMESTAMP WHERE template_key = $1 AND body = $3",
+        [template.key, template.body, previous],
+      );
+    }
   }
 }

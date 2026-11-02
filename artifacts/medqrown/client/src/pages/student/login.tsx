@@ -28,7 +28,7 @@ export default function StudentLogin() {
     setLoginError("");
     try {
       await apiRequest("POST", "/api/student/login", { email: email.trim(), password });
-      const next = new URLSearchParams(location.split("?")[1] || "").get("next");
+      const next = new URLSearchParams(window.location.search).get("next");
       setLocation(next && next.startsWith("/") && !next.startsWith("//") ? next : "/student/dashboard");
     } catch (error: any) {
       const message = apiErrorMessage(error, "We couldn't sign you in. Please try again.");

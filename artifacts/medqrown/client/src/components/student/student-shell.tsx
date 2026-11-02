@@ -42,7 +42,7 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!isLoading && (isError || !user)) {
-      setLocation("/portal");
+      setLocation(`/portal?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
     }
   }, [isLoading, isError, user, setLocation]);
 

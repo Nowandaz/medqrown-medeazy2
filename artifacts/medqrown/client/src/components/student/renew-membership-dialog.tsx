@@ -27,8 +27,8 @@ function CopyField({ label, value, id, copied, onCopy }: { label: string; value:
 }
 
 /** Renew membership (master prompt §5.2): payment details, plan choice and the M-Pesa code. */
-export function RenewMembershipDialog({ trigger }: { trigger?: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
+export function RenewMembershipDialog({ trigger, defaultOpen = false }: { trigger?: React.ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [plan, setPlan] = useState<"Individual" | "Group">("Individual");
