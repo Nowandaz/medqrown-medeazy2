@@ -531,6 +531,39 @@ export async function registerRoutes(
     }
   });
 
+  // Merge a duplicate cohort into another: its students (with their own dates unchanged),
+  // history and pending payments move to the target, then the empty cohort is deleted.
+  app.post("/api/admin/cohorts/:id/merge", requireAdmin, async (req: any, res) => {
+    const id = Number(req.params.id);
+    const intoId = Number(req.body?.intoId);
+    if (!Number.isInteger(id) || !Number.isInteger(intoId) || id < 1 || intoId < 1 || id === intoId) {
+      return res.status(400).json({ message: "Choose a different cohort to merge into" });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows } = await client.query(
+        `SELECT id, start_date::text AS "startDate", end_date::text AS "endDate" FROM medqrown_cohorts
+          WHERE id = ANY($1::int[]) FOR UPDATE`, [[id, intoId]]);
+      const from = rows.find((r: any) => r.id === id);
+      const into = rows.find((r: any) => r.id === intoId);
+      if (!from || !into) { await client.query("ROLLBACK"); return res.status(404).json({ message: "Cohort not found" }); }
+      const moved = await client.query("UPDATE medqrown_memberships SET cohort_id = $2, updated_at = CURRENT_TIMESTAMP WHERE cohort_id = $1", [id, intoId]);
+      await client.query("UPDATE medqrown_membership_periods SET cohort_id = $2 WHERE cohort_id = $1", [id, intoId]);
+      await client.query("UPDATE medqrown_payment_entries SET target_cohort_id = $2 WHERE target_cohort_id = $1", [id, intoId]);
+      await client.query("DELETE FROM medqrown_cohorts WHERE id = $1", [id]);
+      await client.query("COMMIT");
+      await storage.createAuditLog({ adminId: req.admin.id, action: "merge_cohort",
+        details: `Cohort ${id} (${from.startDate} to ${from.endDate}) merged into ${intoId} (${into.startDate} to ${into.endDate}); ${moved.rowCount} student(s) moved` });
+      res.json({ merged: true, studentsMoved: moved.rowCount });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+
   // Delete a cohort that no student belongs to (e.g. a duplicate or an overlapping one).
   app.delete("/api/admin/cohorts/:id", requireAdmin, async (req: any, res) => {
     const id = Number(req.params.id);

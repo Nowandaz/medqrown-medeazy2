@@ -814,6 +814,8 @@ function CohortsSection() {
   const { data: cohortsData, isLoading } = useQuery<any>({ queryKey: ["/api/admin/cohorts"], refetchOnMount: "always" });
   const [editing, setEditing] = useState<any | null>(null);
   const [deleting, setDeleting] = useState<any | null>(null);
+  const [merging, setMerging] = useState<any | null>(null);
+  const [mergeInto, setMergeInto] = useState("");
   const [form, setForm] = useState({ startDate: "", endDate: "", reason: "", moveMembers: true });
 
   const refresh = () => {
@@ -838,6 +840,12 @@ function CohortsSection() {
     mutationFn: async (id: number) => (await apiRequest("DELETE", `/api/admin/cohorts/${id}`)).json(),
     onSuccess: () => { refresh(); setDeleting(null); toast({ title: "Cohort deleted" }); },
     onError: (e: any) => toast({ title: "Couldn't delete the cohort", description: apiErrorMessage(e), variant: "destructive" }),
+  });
+
+  const mergeCohort = useMutation({
+    mutationFn: async () => (await apiRequest("POST", `/api/admin/cohorts/${merging.id}/merge`, { intoId: Number(mergeInto) })).json(),
+    onSuccess: (r: any) => { refresh(); setMerging(null); toast({ title: "Cohorts merged", description: `${r.studentsMoved} student(s) moved; their dates are unchanged.` }); },
+    onError: (e: any) => toast({ title: "Couldn't merge", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   if (isLoading) return <div className="h-40 bg-muted/20 animate-pulse rounded-lg" />;
@@ -880,6 +888,9 @@ function CohortsSection() {
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={() => { setEditing(c); setForm({ startDate: c.startDate, endDate: c.endDate, reason: "", moveMembers: true }); }}>Edit</Button>
+                {c.memberCount > 0 && all.length > 1 && (
+                  <Button variant="outline" size="sm" onClick={() => { setMerging(c); setMergeInto(""); }}>Merge…</Button>
+                )}
                 <Button variant="ghost" size="sm" className="text-destructive" disabled={c.memberCount > 0}
                   title={c.memberCount > 0 ? "Students are in this cohort: edit its dates instead" : "Delete this cohort"}
                   aria-label={`Delete ${cohortName(c)}`}
@@ -919,6 +930,30 @@ function CohortsSection() {
             <div className="space-y-2"><Label>Reason (required)</Label><Input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="e.g. Extended for the lecturers' strike" /></div>
             <Button className="w-full" disabled={!form.reason.trim() || (formDays ?? 0) < 1 || updateCohort.isPending} onClick={() => updateCohort.mutate()}>
               {updateCohort.isPending ? "Saving..." : "Save changes"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!merging} onOpenChange={(o) => !o && setMerging(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Merge {merging ? cohortName(merging) : ""}</DialogTitle>
+            <DialogDescription>
+              Its {merging?.memberCount ?? 0} student(s) move to the cohort you choose and keep their own start and end dates. This cohort is then deleted.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Select value={mergeInto} onValueChange={setMergeInto}>
+              <SelectTrigger><SelectValue placeholder="Merge into…" /></SelectTrigger>
+              <SelectContent>
+                {all.filter((c) => c.id !== merging?.id).map((c) => (
+                  <SelectItem key={c.id} value={String(c.id)}>{cohortName(c)} ({c.memberCount} students)</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button className="w-full" disabled={!mergeInto || mergeCohort.isPending} onClick={() => mergeCohort.mutate()}>
+              {mergeCohort.isPending ? "Merging..." : "Merge"}
             </Button>
           </div>
         </DialogContent>

@@ -70,9 +70,9 @@ check("cohort with students can't be deleted", del.status === 409, del.data?.mes
 // "Move students" shifts everyone in the cohort by the same number of days.
 await setMembership(addDays(today, -5), addDays(current.endDate, 2), "QA: custom end in current cohort");
 const before = (await admin.call("GET", `/api/admin/classes/${classId}/members`)).data.find((m) => m.id === student.id)?.membershipEndDate;
-const plus = await admin.call("PATCH", `/api/admin/cohorts/${current.id}`, { startDate: current.startDate, endDate: addDays(current.endDate, 1), reason: "QA shift +1", moveMembers: true });
+const plus = await admin.call("PATCH", `/api/admin/cohorts/${current.id}`, { startDate: current.startDate, endDate: addDays(current.endDate, -1), reason: "QA shift -1", moveMembers: true });
 const moved = (await admin.call("GET", `/api/admin/classes/${classId}/members`)).data.find((m) => m.id === student.id)?.membershipEndDate;
-check("moving the cohort end by +1 day moves a custom end by +1 too", plus.status === 200 && moved === addDays(before, 1),
+check("moving the cohort end by -1 day moves a custom end by -1 too", plus.status === 200 && moved === addDays(before, -1),
   `${plus.status} ${plus.data?.message ?? ""} ${before} -> ${moved}`);
 const back = await admin.call("PATCH", `/api/admin/cohorts/${current.id}`, { startDate: current.startDate, endDate: current.endDate, reason: "QA shift back", moveMembers: true });
 check("cohort restored", back.status === 200, back.data?.message);
