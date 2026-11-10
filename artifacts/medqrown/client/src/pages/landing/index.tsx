@@ -415,7 +415,7 @@ function DemoSection() {
             </div>
 
             {/* A static preview of what the challenge looks like. */}
-            <div aria-hidden="true" className="rounded-xl bg-white text-slate-900 p-5 hidden sm:block">
+            <div aria-hidden="true" className="rounded-xl bg-white text-slate-900 p-5 hidden sm:block rotate-[1.5deg]">
               <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
                 <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Question 1 of {count}</span>
                 <span className="flex items-center gap-1 font-mono text-sm font-bold text-teal-700">

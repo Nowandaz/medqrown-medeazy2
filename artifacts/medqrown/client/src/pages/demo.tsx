@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft, ArrowRight, CalendarCheck, Check, CheckCircle2, Clock, Crown, FlaskConical, ListChecks,
+  ArrowRight, CalendarCheck, Check, CheckCircle2, Clock, Crown, FlaskConical, ListChecks,
   Loader2, Lock, Maximize2, MessageCircle, RotateCcw, ShieldCheck, Sparkles, Timer, X, XCircle, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -184,10 +184,10 @@ function Intro({ info, loading, starting, error, onStart }: {
   const minutes = info?.durationMinutes || 5;
   const rules = [
     { icon: Timer, text: `${minutes} minutes for all ${n} questions. The clock starts when you tap Start and doesn't pause.` },
-    { icon: ListChecks, text: "One question per screen. Use Next and Back, and change answers until you submit." },
+    { icon: ListChecks, text: "One question per screen, like the real CAT: once you tap Next, you can't go back." },
     { icon: Zap, text: "When time runs out, whatever you've answered is submitted automatically." },
     { icon: CheckCircle2, text: "Marked the moment you finish, with feedback on every answer." },
-    { icon: ShieldCheck, text: "No sign-up needed. Your answers are thrown away when you leave." },
+    { icon: ShieldCheck, text: "No sign-up needed, and nothing you answer is saved." },
   ];
   return (
     <motion.section initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }} className="space-y-8">
@@ -280,8 +280,8 @@ function Exam({ attempt, answers, setAnswers, index, setIndex, submitting, onSub
         <p className="text-sm font-semibold text-muted-foreground">Question {index + 1} of {questions.length}</p>
         <div className="flex gap-1.5" aria-hidden="true">
           {questions.map((x, i) => (
-            <button key={x.id} type="button" onClick={() => setIndex(i)} tabIndex={-1}
-              className={`h-2.5 rounded-full transition-all ${i === index ? "w-8 bg-primary" : isAnswered(x, answers[x.id]) ? "w-2.5 bg-primary/60" : "w-2.5 bg-muted-foreground/25"}`} />
+            <span key={x.id}
+              className={`h-2.5 rounded-full transition-all ${i === index ? "w-8 bg-primary" : i < index ? "w-2.5 bg-primary/60" : "w-2.5 bg-muted-foreground/25"}`} />
           ))}
         </div>
       </div>
@@ -334,16 +334,13 @@ function Exam({ attempt, answers, setAnswers, index, setIndex, submitting, onSub
 
       <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
-          <Button variant="outline" size="lg" className="h-12 rounded-xl" disabled={index === 0 || submitting} onClick={() => setIndex(index - 1)}>
-            <ArrowLeft className="h-4 w-4" /><span className="sr-only sm:not-sr-only sm:ml-1">Back</span>
-          </Button>
           {last ? (
-            <Button size="lg" className="h-12 flex-1 gap-2 rounded-xl font-bold" disabled={submitting}
+            <Button size="lg" className="h-12 flex-1 gap-2 rounded-lg font-bold" disabled={submitting}
               onClick={() => (unanswered ? setConfirm(true) : onSubmit())}>
               {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Marking your answers…</> : <>Submit &amp; see my score <Check className="h-4 w-4" /></>}
             </Button>
           ) : (
-            <Button size="lg" className="h-12 flex-1 gap-2 rounded-xl font-bold" onClick={() => setIndex(index + 1)}>
+            <Button size="lg" className="h-12 flex-1 gap-2 rounded-lg font-bold" onClick={() => setIndex(index + 1)}>
               Next question <ArrowRight className="h-4 w-4" />
             </Button>
           )}
@@ -354,10 +351,10 @@ function Exam({ attempt, answers, setAnswers, index, setIndex, submitting, onSub
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Submit with {unanswered} unanswered?</AlertDialogTitle>
-            <AlertDialogDescription>Unanswered questions score zero. You still have time to go back.</AlertDialogDescription>
+            <AlertDialogDescription>Unanswered questions score zero.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Keep going</AlertDialogCancel>
+            <AlertDialogCancel>Not yet</AlertDialogCancel>
             <AlertDialogAction onClick={onSubmit}>Submit now</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
