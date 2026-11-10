@@ -58,12 +58,14 @@ const start = await v.call("POST", "/api/demo/start", { src: "e2e" });
 check("visitor starts the demo", start.status === 200 && start.data.questions?.length === 3, start.data?.message);
 const leaked = JSON.stringify(start.data);
 check("questions arrive without answers", !/isCorrect|expectedAnswer|Aorta|C5-T1|explanation/.test(leaked));
-check("multiple choice comes first", start.data.questions[0].type === "mcq");
+const shownMcq = start.data.questions.find((q) => q.id === mcq.id);
+const rightPos = shownMcq.options.indexOf("Musculocutaneous");
+check("MCQ options arrive (in a shuffled order)", shownMcq.options.length === 5 && rightPos >= 0);
 const pq = start.data.questions.find((q) => q.id === parts.id);
-check("image and sub-question parts are included", start.data.questions[0].imageUrl && pq?.parts?.length === 2);
+check("image and sub-question parts are included", shownMcq.imageUrl && pq?.parts?.length === 2);
 
 const answers = {
-  [mcq.id]: { option: 1 },
+  [mcq.id]: { option: rightPos },
   [saq.id]: { text: "The aorta" },
   [parts.id]: { parts: { [pq.parts[0].id]: "C5 to T1", [pq.parts[1].id]: "x".repeat(1500) } },
 };
@@ -71,6 +73,7 @@ const res = await v.call("POST", "/api/demo/submit", { attemptId: start.data.att
 check("submit marks the attempt", res.status === 200 && typeof res.data.score === "number", res.data?.message);
 const mcqResult = res.data.questions.find((q) => q.id === mcq.id);
 check("MCQ marked correct with explanation", mcqResult.correct === true && mcqResult.awarded === 1 && mcqResult.explanation);
+check("correct option reported at the position the visitor saw", mcqResult.correctOptions[0] === rightPos && mcqResult.chosen === rightPos);
 const partsResult = res.data.questions.find((q) => q.id === parts.id);
 check("overlong answer is cut to 1000 characters", partsResult.parts[1].answer.length === 1000);
 if (res.data.shortAnswersLocked) {

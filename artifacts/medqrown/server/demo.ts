@@ -6,8 +6,9 @@
  * when none can mark, the visitor is told to sign up to see those marks.
  */
 import type { Express, RequestHandler } from "express";
-import { createHash, randomBytes } from "crypto";
+import { createHash, randomBytes, randomInt } from "crypto";
 import { pool } from "./db";
+import { listCohorts } from "./stage3-storage";
 import { markDemoItems } from "./ai-orchestrator";
 
 export const DEMO_QUESTION_COUNT = 3;
@@ -56,6 +57,8 @@ export async function migrateDemo(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_demo_attempts_device ON medqrown_demo_attempts (device_id, started_at);
     CREATE INDEX IF NOT EXISTS idx_demo_attempts_ip ON medqrown_demo_attempts (ip_hash, started_at);
     CREATE INDEX IF NOT EXISTS idx_demo_attempts_started ON medqrown_demo_attempts (started_at);
+    ALTER TABLE medqrown_demo_attempts ADD COLUMN IF NOT EXISTS option_orders JSONB;
+    ALTER TABLE medqrown_demo_attempts ADD COLUMN IF NOT EXISTS ranked_percent NUMERIC;
   `);
 }
 
@@ -125,11 +128,25 @@ function notReadyReason(q: QuestionRow): string | null {
 
 const totalMarks = (q: QuestionRow) => (usesParts(q) ? q.subquestions.reduce((sum, s) => sum + s.marks, 0) : q.marks);
 
-/** What the visitor sees while answering: no correct options, expected answers or explanations. */
-function publicQuestion(q: QuestionRow) {
+/** Fair (Fisher-Yates) shuffle using a cryptographic random source. */
+function shuffle<T>(items: T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+/**
+ * What the visitor sees while answering: no correct options, expected answers or explanations.
+ * `order` is this attempt's shuffled option order (display position -> original option index).
+ */
+function publicQuestion(q: QuestionRow, order?: number[]) {
+  const shown = order ?? q.options.map((_, i) => i);
   return {
     id: q.id, type: q.type, content: q.content, imageUrl: q.imageUrl, marks: totalMarks(q),
-    options: q.type === "mcq" ? q.options.map((o) => o.content) : [],
+    options: q.type === "mcq" ? shown.map((i) => q.options[i].content) : [],
     parts: usesParts(q) ? q.subquestions.map((s) => ({ id: s.id, content: s.content, marks: s.marks })) : [],
   };
 }
@@ -184,6 +201,7 @@ export function registerDemoRoutes(app: Express, requireAdmin: RequestHandler): 
       durationMinutes: settings.durationMinutes,
       subject: settings.subject,
       perks: settings.perks,
+      nextCohortStart: (await listCohorts()).next?.startDate ?? null,
     });
   });
 
@@ -202,18 +220,27 @@ export function registerDemoRoutes(app: Express, requireAdmin: RequestHandler): 
     const { rows } = await pool.query("SELECT question_id FROM medqrown_demo_questions");
     const ready = (await loadQuestions(rows.map((r: any) => r.question_id))).filter((q) => !notReadyReason(q));
     if (!ready.length) return res.status(503).json({ message: "The demo isn't available right now. Please check back soon." });
-    // A fresh random pick each attempt, shown MCQs first then short answers.
-    const picked = ready.sort(() => Math.random() - 0.5).slice(0, DEMO_QUESTION_COUNT)
-      .sort((a, b) => (a.type === b.type ? 0 : a.type === "mcq" ? -1 : 1));
+    // A fresh random pick each attempt, preferring questions this browser hasn't had in its last few goes.
+    const { rows: recent } = await pool.query(
+      `SELECT DISTINCT unnest(question_ids) AS id FROM (
+         SELECT question_ids FROM medqrown_demo_attempts WHERE device_id = $1 ORDER BY started_at DESC LIMIT 5) recent`,
+      [deviceId],
+    );
+    const seen = new Set(recent.map((r: any) => r.id));
+    const fresh = shuffle(ready.filter((q) => !seen.has(q.id)));
+    const picked = shuffle([...fresh, ...shuffle(ready.filter((q) => seen.has(q.id)))].slice(0, DEMO_QUESTION_COUNT));
+    // Options are shuffled per attempt too, so answers can't be passed around as "it's B".
+    const optionOrders: Record<string, number[]> = {};
+    for (const q of picked) if (q.type === "mcq") optionOrders[q.id] = shuffle(q.options.map((_, i) => i));
 
     const settings = await getDemoSettings();
     const id = randomBytes(24).toString("base64url");
     const durationSeconds = settings.durationMinutes * 60;
     const src = typeof req.body?.src === "string" ? req.body.src.replace(/[^a-z0-9_-]/gi, "").slice(0, 40) || null : null;
     const { rows: [attempt] } = await pool.query(
-      `INSERT INTO medqrown_demo_attempts (id, device_id, ip_hash, question_ids, duration_seconds, src)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING started_at AS "startedAt"`,
-      [id, deviceId, ipHash, picked.map((q) => q.id), durationSeconds, src],
+      `INSERT INTO medqrown_demo_attempts (id, device_id, ip_hash, question_ids, duration_seconds, src, option_orders)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING started_at AS "startedAt"`,
+      [id, deviceId, ipHash, picked.map((q) => q.id), durationSeconds, src, JSON.stringify(optionOrders)],
     );
     // Housekeeping: attempts only matter for limits and the funnel.
     if (Math.random() < 0.02) void pool.query("DELETE FROM medqrown_demo_attempts WHERE started_at < now() - interval '90 days'").catch(() => undefined);
@@ -223,7 +250,7 @@ export function registerDemoRoutes(app: Express, requireAdmin: RequestHandler): 
       durationSeconds,
       endsAt: new Date(new Date(attempt.startedAt).getTime() + durationSeconds * 1000).toISOString(),
       subject: settings.subject,
-      questions: picked.map(publicQuestion),
+      questions: picked.map((q) => publicQuestion(q, optionOrders[q.id])),
     });
   });
 
@@ -240,7 +267,7 @@ export function registerDemoRoutes(app: Express, requireAdmin: RequestHandler): 
       `UPDATE medqrown_demo_attempts SET submitted_at = now()
         WHERE id = $1 AND submitted_at IS NULL AND device_id = $2
           AND now() <= started_at + make_interval(secs => duration_seconds + $3)
-        RETURNING question_ids AS "questionIds"`,
+        RETURNING question_ids AS "questionIds", option_orders AS "optionOrders"`,
       [attemptId, deviceId ?? "", LATE_GRACE_SECONDS],
     );
     if (!attempt) {
@@ -292,13 +319,15 @@ export function registerDemoRoutes(app: Express, requireAdmin: RequestHandler): 
       const marksAvailable = totalMarks(q);
       maxScore += marksAvailable;
       if (q.type === "mcq") {
-        const chosen = Number.isInteger(a.option) && a.option! >= 0 && a.option! < q.options.length ? a.option! : null;
-        const correct = chosen !== null && q.options[chosen].isCorrect;
+        // Positions are as displayed; map them back through this attempt's shuffled order.
+        const order: number[] = attempt.optionOrders?.[q.id] ?? q.options.map((_, i) => i);
+        const chosen = Number.isInteger(a.option) && a.option! >= 0 && a.option! < order.length ? a.option! : null;
+        const correct = chosen !== null && q.options[order[chosen]].isCorrect;
         const awarded = correct ? q.marks : 0;
         score += awarded;
         return {
-          ...publicQuestion(q), awarded, correct, chosen, explanation: q.explanation,
-          correctOptions: q.options.map((o, i) => (o.isCorrect ? i : -1)).filter((i) => i >= 0),
+          ...publicQuestion(q, order), awarded, correct, chosen, explanation: q.explanation,
+          correctOptions: order.map((orig, pos) => (q.options[orig].isCorrect ? pos : -1)).filter((i) => i >= 0),
         };
       }
       const own = items.filter((i) => i.questionId === q.id);
@@ -316,10 +345,23 @@ export function registerDemoRoutes(app: Express, requireAdmin: RequestHandler): 
       return { ...publicQuestion(q), awarded, correct: shortAnswersLocked ? null : awarded === marksAvailable, parts, explanation: null };
     });
 
+    // Only fully marked attempts are ranked, so a locked short answer never counts as zero.
+    const percent = !shortAnswersLocked && maxScore > 0 ? Math.round((score / maxScore) * 1000) / 10 : null;
     await pool.query(
-      "UPDATE medqrown_demo_attempts SET score = $2, max_score = $3, ai_marked = $4 WHERE id = $1",
-      [attemptId, score, maxScore, toMark.length > 0 && !shortAnswersLocked],
+      "UPDATE medqrown_demo_attempts SET score = $2, max_score = $3, ai_marked = $4, ranked_percent = $5 WHERE id = $1",
+      [attemptId, score, maxScore, toMark.length > 0 && !shortAnswersLocked, percent],
     );
+    let beatPercent: number | null = null;
+    if (percent !== null) {
+      const { rows: [rank] } = await pool.query(
+        `SELECT COUNT(*)::int AS others, COUNT(*) FILTER (WHERE ranked_percent < $2)::int AS below
+           FROM medqrown_demo_attempts
+          WHERE id <> $1 AND ranked_percent IS NOT NULL AND submitted_at > now() - interval '90 days'`,
+        [attemptId, percent],
+      );
+      // Too few attempts to compare against makes the number meaningless.
+      if (rank.others >= 10) beatPercent = Math.round((rank.below / rank.others) * 100);
+    }
     for (const r of results) {
       if (r.correct === null) continue;
       await pool.query(
@@ -327,7 +369,7 @@ export function registerDemoRoutes(app: Express, requireAdmin: RequestHandler): 
         [r.id, r.correct ? 1 : 0],
       );
     }
-    res.json({ score, maxScore, shortAnswersLocked, questions: results });
+    res.json({ score, maxScore, shortAnswersLocked, beatPercent, questions: results });
   });
 
   // ── Admin ────────────────────────────────────────────────────────────────

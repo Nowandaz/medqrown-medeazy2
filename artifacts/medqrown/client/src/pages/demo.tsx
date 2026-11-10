@@ -13,10 +13,10 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
-import { RegistrationCta } from "@/components/RegistrationCta";
+import { RegistrationCountdown, RegistrationCta } from "@/components/RegistrationCta";
 import { engagementSource, trackEngagement } from "@/lib/engagement";
 
-type DemoInfo = { available: boolean; questionCount: number; durationMinutes: number; subject: string; perks: string[] };
+type DemoInfo = { available: boolean; questionCount: number; durationMinutes: number; subject: string; perks: string[]; nextCohortStart: string | null };
 type DemoQuestion = {
   id: number; type: string; content: string; imageUrl: string | null; marks: number;
   options: string[]; parts: { id: number; content: string; marks: number }[];
@@ -28,7 +28,7 @@ type ResultQuestion = DemoQuestion & {
   awarded: number | null; correct: boolean | null; chosen?: number | null; correctOptions?: number[];
   explanation: string | null; parts: any[];
 };
-type Results = { score: number; maxScore: number; shortAnswersLocked: boolean; questions: ResultQuestion[] };
+type Results = { score: number; maxScore: number; shortAnswersLocked: boolean; beatPercent: number | null; questions: ResultQuestion[] };
 
 const MAX_CHARS = 1000;
 const STORE_KEY = "medqrown-demo-attempt";
@@ -150,6 +150,7 @@ export default function DemoPage() {
           )}
           {phase === "results" && results && (
             <ResultsView key="results" results={results} perks={info?.perks ?? []} subject={info?.subject ?? "Anatomy"}
+              nextCohortStart={info?.nextCohortStart ?? null}
               onRetry={() => { setPhase("intro"); setResults(null); }} />
           )}
         </AnimatePresence>
@@ -379,12 +380,15 @@ function verdictLine(percent: number) {
   return "Tough set! Our sessions are built to close exactly these gaps.";
 }
 
-function ResultsView({ results, perks, subject, onRetry }: { results: Results; perks: string[]; subject: string; onRetry: () => void }) {
+function ResultsView({ results, perks, subject, nextCohortStart, onRetry }: {
+  results: Results; perks: string[]; subject: string; nextCohortStart: string | null; onRetry: () => void;
+}) {
   const percent = results.maxScore ? Math.round((results.score / results.maxScore) * 100) : 0;
   const mcqMax = results.questions.filter((q) => q.type === "mcq").reduce((s, q) => s + q.marks, 0);
   const shownMax = results.shortAnswersLocked ? mcqMax : results.maxScore;
   const shownPercent = shownMax ? Math.round((results.score / shownMax) * 100) : 0;
-  const share = `https://wa.me/?text=${encodeURIComponent(`I just tried MedQrown's free ${subject} challenge. Think you can beat my score? ${window.location.origin}/demo?src=share`)}`;
+  const brag = results.beatPercent !== null && results.beatPercent >= 50 ? ` I beat ${results.beatPercent}% of people who tried it.` : "";
+  const share = `https://wa.me/?text=${encodeURIComponent(`I just scored ${percent}% on MedQrown's free ${subject} challenge.${brag} Think you can beat me? ${window.location.origin}/demo?src=share`)}`;
   const perkIcons = [CalendarCheck, Timer, FlaskConical, Sparkles, Crown, Check];
 
   return (
@@ -404,6 +408,13 @@ function ResultsView({ results, perks, subject, onRetry }: { results: Results; p
           </div>
         </div>
         <p className="text-lg font-bold">{results.shortAnswersLocked ? "Here's your multiple-choice score." : verdictLine(percent)}</p>
+        {results.beatPercent !== null && (
+          <motion.p initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.9 }}
+            className="mx-auto mt-4 inline-flex items-center gap-2 rounded-full bg-primary/10 px-4 py-2 text-sm font-bold text-primary">
+            <Crown className="h-4 w-4" />
+            {results.beatPercent >= 1 ? `You beat ${results.beatPercent}% of people who took this challenge` : "Everyone starts somewhere. Members improve fast."}
+          </motion.p>
+        )}
         {results.shortAnswersLocked && (
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">Short answers are marked by our examiners' AI, and today's free marking is used up. Sign up to get every answer marked and explained.</p>
         )}
@@ -429,7 +440,9 @@ function ResultsView({ results, perks, subject, onRetry }: { results: Results; p
             );
           })}
         </ul>
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+        <RegistrationCountdown nextCohortStart={nextCohortStart}
+          className="mt-6 rounded-xl bg-white/15 px-3 py-2 text-primary-foreground" />
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
           <RegistrationCta size="lg" className="h-12 w-full rounded-xl bg-white text-primary hover:bg-white/90 sm:w-auto" />
           <a href={share} target="_blank" rel="noopener noreferrer" className="sm:w-auto">
             <Button size="lg" variant="outline" className="h-12 w-full gap-2 rounded-xl border-white/40 bg-transparent text-primary-foreground hover:bg-white/10 hover:text-primary-foreground">

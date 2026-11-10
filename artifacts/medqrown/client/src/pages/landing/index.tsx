@@ -84,7 +84,7 @@ import medqrownIcon from "@/assets/medqrown-icon.png";
 import demoStudents from "@/assets/demo-students.jpg";
 import { FEATURES } from "@/lib/feature-flags";
 import { FormattedDemoText } from "@/components/formatted-demo-text";
-import { RegistrationCta, useRegistrationStatus } from "@/components/RegistrationCta";
+import { RegistrationCountdown, RegistrationCta, useRegistrationStatus } from "@/components/RegistrationCta";
 import { trackEngagement } from "@/lib/engagement";
 import { formatNairobi } from "@/lib/datetime";
 
@@ -364,7 +364,7 @@ function HeroSection() {
 
 // ─── Demo section ─────────────────────────────────────────────────────────────
 
-type DemoInfo = { available: boolean; questionCount: number; durationMinutes: number; subject: string };
+type DemoInfo = { available: boolean; questionCount: number; durationMinutes: number; subject: string; nextCohortStart: string | null };
 
 /** Big promo panel: the demo itself lives on its own page at /demo (the link on the posters). */
 function DemoSection() {
@@ -408,6 +408,7 @@ function DemoSection() {
                   </Button>
                 </Link>
               </div>
+              <RegistrationCountdown nextCohortStart={demo?.nextCohortStart} className="mt-5 text-white/90" />
             </div>
 
             {/* A static preview of what the challenge looks like. */}
