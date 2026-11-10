@@ -88,116 +88,7 @@ import { RegistrationCta, useRegistrationStatus } from "@/components/Registratio
 import { trackEngagement } from "@/lib/engagement";
 import { formatNairobi } from "@/lib/datetime";
 
-type DemoExamData = { id: number; title: string; timerSeconds: number };
-type DemoQuestionData = {
-  id: number; type: string; content: string; imageUrl?: string | null;
-  options?: { content: string; isCorrect: boolean }[] | null;
-  explanation?: string | null;
-};
-type DemoPhase = "select" | "mcq" | "mcq_result" | "saq" | "saq_result" | "done";
 type SiteContentData = { settings: Record<string, any>; faq: { id: number; question: string; answer: string }[] };
-
-function createDemoSessionId() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function trackDemoEngagement(event: {
-  examId: number;
-  sessionId: string;
-  eventType: "started" | "mcq_answered" | "saq_started" | "saq_submitted" | "completed";
-  questionId?: number;
-  optionIndex?: number;
-  responseLength?: number;
-}) {
-  void fetch("/api/demo/engagement", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify(event),
-  }).catch(() => undefined);
-}
-
-// ─── Custom subject dropdown (styled listbox) ────────────────────────────────
-
-function SubjectDropdown({
-  exams, value, onChange,
-}: {
-  exams: DemoExamData[];
-  value: number | "";
-  onChange: (id: number) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const selected = exams.find((e) => e.id === value);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent | TouchEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("touchstart", handler);
-    return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("touchstart", handler);
-    };
-  }, []);
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={`w-full flex items-center justify-between gap-3 bg-background border rounded-xl px-4 py-3.5 text-sm transition-all ${
-          open ? "border-primary ring-2 ring-primary/20" : "border-input hover:border-primary/40"
-        }`}
-      >
-        <span className="flex items-center gap-2.5 min-w-0">
-          <span className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${selected ? "bg-primary/15" : "bg-muted"}`}>
-            <FlaskConical className={`w-3.5 h-3.5 ${selected ? "text-primary" : "text-muted-foreground/50"}`} />
-          </span>
-          <span className={`truncate font-medium ${selected ? "text-foreground" : "text-muted-foreground"}`}>
-            {selected ? selected.title : "Choose a subject…"}
-          </span>
-        </span>
-        <ChevronDown className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform duration-200 ${open ? "rotate-180 text-primary" : ""}`} />
-      </button>
-      <AnimatePresence>
-        {open && (
-          <motion.ul
-            initial={{ opacity: 0, y: 6, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 6, scale: 0.98 }}
-            transition={{ duration: 0.15 }}
-            className="absolute z-30 mt-2 w-full bg-card border border-border rounded-2xl shadow-xl overflow-hidden py-1.5 max-h-64 overflow-y-auto"
-            role="listbox"
-          >
-            {exams.map((exam) => {
-              const isSelected = exam.id === value;
-              return (
-                <li key={exam.id}>
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={isSelected}
-                    onClick={() => { onChange(exam.id); setOpen(false); }}
-                    className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-left transition-colors ${
-                      isSelected ? "bg-primary/10 text-primary font-semibold" : "text-foreground hover:bg-muted"
-                    }`}
-                  >
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isSelected ? "bg-primary" : "bg-muted-foreground/25"}`} />
-                    <span className="flex-1 truncate">{exam.title}</span>
-                    {isSelected && <span className="text-primary text-xs font-bold">✓</span>}
-                  </button>
-                </li>
-              );
-            })}
-          </motion.ul>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -349,7 +240,7 @@ function Navbar() {
               <div className="flex flex-col gap-2">
                 {[
                   { id: "features", label: "What's included", icon: Sparkles, desc: "What we offer" },
-                  { id: "demo-section", label: "Demo", icon: Zap, desc: "A real timed question" },
+                  { id: "demo-section", label: "Free challenge", icon: Zap, desc: "3 timed Anatomy questions" },
                   { id: "faq-section", label: "FAQ", icon: HelpCircle, desc: "Frequently asked questions" },
                   { id: "contact", label: "Contact", icon: Mail, desc: "Get in touch" },
                 ].map(({ id, label, icon: Icon, desc }) => (
@@ -473,414 +364,71 @@ function HeroSection() {
 
 // ─── Demo section ─────────────────────────────────────────────────────────────
 
-// ── Interactive Demo Section ──────────────────────────────────────────────────
+type DemoInfo = { available: boolean; questionCount: number; durationMinutes: number; subject: string };
 
-function InteractiveDemoCard() {
-  const [selectedExamId, setSelectedExamId] = useState<number | "">("");
-  const [phase, setPhase] = useState<DemoPhase>("select");
-  const [selectedOption, setSelectedOption] = useState<number | null>(null);
-  const [saqText, setSaqText] = useState("");
-  const [saqResultData, setSaqResultData] = useState<{ modelAnswer?: string; markingPoints?: string } | null>(null);
-  const [timeLeft, setTimeLeft] = useState(60);
-  const [timerActive, setTimerActive] = useState(false);
-  const [demoSessionId, setDemoSessionId] = useState("");
-  const [mcqNudgeDismissed, setMcqNudgeDismissed] = useState(false);
-
-  const { data: demoExams = [] } = useQuery<DemoExamData[]>({
-    queryKey: ["/api/demo/exams"],
-  });
-
-  // Shared demo links: /demo?subject=Anatomy preselects that subject.
-  useEffect(() => {
-    if (selectedExamId || !demoExams.length) return;
-    const wanted = new URLSearchParams(window.location.search).get("subject")?.trim().toLowerCase();
-    const match = wanted && demoExams.find((e) => e.title.toLowerCase() === wanted);
-    if (match) setSelectedExamId(match.id);
-  }, [demoExams, selectedExamId]);
-
-  const selectedExam = demoExams.find((e) => e.id === selectedExamId);
-
-  const { data: questions = [] } = useQuery<DemoQuestionData[]>({
-    queryKey: [`/api/demo/exams/${selectedExamId}/questions`],
-    enabled: !!selectedExamId && phase !== "select",
-  });
-
-  const mcqQ = questions.find((q) => q.type === "mcq");
-  const saqQ = questions.find((q) => q.type === "saq");
-
-  useEffect(() => {
-    if (!timerActive) return;
-    if (timeLeft <= 0) {
-      setTimerActive(false);
-      if (phase === "mcq") setPhase("mcq_result");
-      if (phase === "saq") setPhase("saq_result");
-      return;
-    }
-    const t = setInterval(() => setTimeLeft((p) => p - 1), 1000);
-    return () => clearInterval(t);
-  }, [timerActive, timeLeft, phase]);
-
-  const handleStart = () => {
-    if (!selectedExamId) return;
-    const sessionId = createDemoSessionId();
-    setDemoSessionId(sessionId);
-    trackDemoEngagement({ examId: selectedExamId, sessionId, eventType: "started" });
-    trackEngagement("demo_start", "demo");
-    // Refetch so a fresh random MCQ + SAQ is pulled from the bank each attempt
-    queryClient.invalidateQueries({ queryKey: [`/api/demo/exams/${selectedExamId}/questions`] });
-    setPhase("mcq");
-    setTimeLeft(selectedExam?.timerSeconds ?? 60);
-    setTimerActive(true);
-    setSelectedOption(null);
-    setSaqText("");
-  };
-
-  const handleMcqSubmit = () => {
-    if (selectedOption === null) return;
-    if (selectedExamId && demoSessionId && mcqQ) {
-      trackDemoEngagement({
-        examId: selectedExamId,
-        sessionId: demoSessionId,
-        eventType: "mcq_answered",
-        questionId: mcqQ.id,
-        optionIndex: selectedOption,
-      });
-    }
-    setTimerActive(false);
-    setPhase("mcq_result");
-  };
-
-  const handleNextToSaq = () => {
-    if (!saqQ) {
-      if (selectedExamId && demoSessionId) {
-        trackDemoEngagement({ examId: selectedExamId, sessionId: demoSessionId, eventType: "completed" });
-        trackEngagement("demo_complete", "demo");
-      }
-      setPhase("done");
-      return;
-    }
-    if (selectedExamId && demoSessionId) {
-      trackDemoEngagement({
-        examId: selectedExamId,
-        sessionId: demoSessionId,
-        eventType: "saq_started",
-        questionId: saqQ.id,
-      });
-    }
-    setPhase("saq");
-    setTimeLeft(selectedExam?.timerSeconds ?? 60);
-    setTimerActive(true);
-    setSaqText("");
-  };
-
-  const saqSubmit = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/demo/saq-submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          examId: selectedExamId,
-          questionId: saqQ?.id,
-          sessionId: demoSessionId,
-          response: saqText,
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    },
-    onSuccess: (data) => {
-      setSaqResultData(data);
-      setTimerActive(false);
-      setPhase("saq_result");
-      if (selectedExamId && demoSessionId && saqQ) {
-        trackDemoEngagement({
-          examId: selectedExamId,
-          sessionId: demoSessionId,
-          eventType: "saq_submitted",
-          questionId: saqQ.id,
-          responseLength: saqText.trim().length,
-        });
-        trackDemoEngagement({ examId: selectedExamId, sessionId: demoSessionId, eventType: "completed" });
-        trackEngagement("demo_complete", "demo");
-      }
-    },
-  });
-
-  const handleSaqSubmit = () => {
-    if (!saqText.trim()) return;
-    saqSubmit.mutate();
-  };
-
-  const handleReset = () => {
-    setMcqNudgeDismissed(false);
-    setPhase("select");
-    setSelectedExamId("");
-    setSelectedOption(null);
-    setSaqText("");
-    setTimerActive(false);
-  };
-
-  const mins = Math.floor(timeLeft / 60).toString().padStart(2, "0");
-  const secs = (timeLeft % 60).toString().padStart(2, "0");
-  const timerUrgent = timeLeft <= 10;
-
-  const isCorrect =
-    phase === "mcq_result" &&
-    selectedOption !== null &&
-    !!(mcqQ?.options?.[selectedOption]?.isCorrect);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 30, scale: 0.96 }}
-      whileInView={{ opacity: 1, y: 0, scale: 1 }}
-      viewport={{ once: true }}
-      transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-      className="w-full max-w-xl mx-auto rounded-3xl bg-card/95 backdrop-blur-xl border border-border/60 shadow-[0_24px_80px_-16px_rgba(0,0,0,0.25)] overflow-hidden"
-    >
-      {/* Popup-style top bar */}
-      <div className="px-6 pt-5 pb-4 flex items-center justify-between gap-3 border-b border-border/50">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="flex gap-1.5 shrink-0">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-400/70" />
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400/70" />
-            <span className="w-2.5 h-2.5 rounded-full bg-green-400/70" />
-          </div>
-          <span className="text-muted-foreground text-xs font-medium truncate">
-            {phase === "select" ? "demo · medqrown.com" : selectedExam?.title ?? "Challenge"}
-          </span>
-        </div>
-        {(phase === "mcq" || phase === "saq") ? (
-          <motion.div
-            animate={timerUrgent ? { scale: [1, 1.08, 1] } : {}}
-            transition={{ repeat: Infinity, duration: 0.8 }}
-            className={`flex items-center gap-1.5 rounded-full px-3 py-1 font-mono font-bold text-xs shrink-0 border ${
-              timerUrgent
-                ? "bg-red-500/10 text-red-500 border-red-500/30"
-                : "bg-primary/10 text-primary border-primary/20"
-            }`}
-          >
-            <Clock className="w-3.5 h-3.5" /> {mins}:{secs}
-          </motion.div>
-        ) : (
-          <MedQrownBrand size="sm" className="opacity-80" />
-        )}
-      </div>
-
-      {/* Content */}
-      <div className="p-6 sm:p-8 min-h-[380px] flex flex-col justify-center">
-        <AnimatePresence mode="wait">
-        {phase === "select" && (
-          <motion.div key="select" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} className="text-center">
-            <h3 className="text-2xl sm:text-3xl font-black text-foreground mb-3 leading-tight">
-              Think you can answer these<br className="hidden sm:block" /> in record time?
-            </h3>
-            <p className="text-muted-foreground text-sm mb-8 max-w-sm mx-auto">
-              One timed MCQ. One short answer. Same pressure as the real thing.
-            </p>
-            {demoExams.length === 0 ? (
-              <div className="bg-muted/40 rounded-2xl p-8">
-                <FlaskConical className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
-                <p className="text-muted-foreground text-sm">Demo questions coming soon — check back later!</p>
-              </div>
-            ) : (
-              <div className="space-y-3 max-w-xs mx-auto">
-                <SubjectDropdown
-                  exams={demoExams}
-                  value={selectedExamId}
-                  onChange={(id) => setSelectedExamId(id)}
-                />
-                <Button onClick={handleStart} disabled={!selectedExamId} size="lg" className="w-full gap-2 font-bold rounded-xl h-12">
-                  Start Challenge <Zap className="w-4 h-4" />
-                </Button>
-              </div>
-            )}
-          </motion.div>
-        )}
-
-        {(phase === "mcq" || phase === "mcq_result") && (
-          mcqQ ? (
-            <motion.div key="mcq" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] text-muted-foreground font-semibold uppercase tracking-widest">Question 1 of 2</span>
-                <span className="bg-primary/10 text-primary text-[10px] font-bold px-2.5 py-1 rounded-full">MCQ</span>
-              </div>
-              {mcqQ.imageUrl && (
-                <img src={mcqQ.imageUrl} alt="Question" className="w-full rounded-xl object-cover max-h-40" />
-              )}
-              <p className="text-foreground font-semibold leading-relaxed">{mcqQ.content}</p>
-              <div className="space-y-2">
-                {mcqQ.options?.map((opt, idx) => {
-                  let cls = "border-border/70 bg-background hover:border-primary/50 hover:bg-primary/[0.03]";
-                  if (phase === "mcq_result") {
-                    if (opt.isCorrect) cls = "border-green-500 bg-green-50 dark:bg-green-950/30";
-                    else if (selectedOption === idx) cls = "border-red-400 bg-red-50 dark:bg-red-950/30";
-                    else cls = "border-border/40 bg-background opacity-60";
-                  } else if (selectedOption === idx) {
-                    cls = "border-primary bg-primary/10 ring-1 ring-primary/30";
-                  }
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => phase === "mcq" && setSelectedOption(idx)}
-                      disabled={phase === "mcq_result"}
-                      className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all duration-150 ${cls}`}
-                    >
-                      <span className="font-bold text-primary mr-2.5">{String.fromCharCode(65 + idx)}</span>
-                      {opt.content}
-                      {phase === "mcq_result" && opt.isCorrect && <span className="ml-2 text-green-600 font-bold">✓</span>}
-                      {phase === "mcq_result" && selectedOption === idx && !opt.isCorrect && <span className="ml-2 text-red-500 font-bold">✗</span>}
-                    </button>
-                  );
-                })}
-              </div>
-              {phase === "mcq" && (
-                <Button onClick={handleMcqSubmit} disabled={selectedOption === null} className="w-full rounded-xl h-11 font-bold">
-                  Submit Answer
-                </Button>
-              )}
-              {phase === "mcq_result" && (
-                <div className="space-y-3">
-                  <div className={`rounded-xl py-2.5 px-4 text-center text-sm font-bold ${
-                    isCorrect
-                      ? "bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400"
-                      : "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400"
-                  }`}>
-                    {isCorrect ? "✓ Correct! Well done." : "✗ Not quite — see explanation below."}
-                  </div>
-                  {mcqQ.explanation && (
-                    <div className="bg-primary/5 border border-primary/15 rounded-xl p-4">
-                      <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1">Explanation</p>
-                      <p className="text-sm text-foreground leading-relaxed">{mcqQ.explanation}</p>
-                    </div>
-                  )}
-                  {!mcqNudgeDismissed && (
-                    <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
-                      <p className="text-xs text-foreground leading-snug">
-                        <span className="font-bold">Enjoying this?</span>{" "}
-                        <span className="text-muted-foreground">Members take a Mock CAT like this every Saturday.</span>
-                      </p>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => setMcqNudgeDismissed(true)}
-                          aria-label="Dismiss"
-                          className="text-muted-foreground hover:text-foreground transition-colors"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex justify-end">
-                    <Button onClick={handleNextToSaq} className="gap-1.5 rounded-xl font-bold">
-                      {saqQ ? "Next Question" : "Finish"} <ArrowRight className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </motion.div>
-          ) : (
-            <div key="mcq-loading" className="text-center py-10 text-muted-foreground text-sm">Loading question…</div>
-          )
-        )}
-
-        {(phase === "saq" || phase === "saq_result") && (
-          saqQ ? (
-            <motion.div key="saq" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] text-muted-foreground font-semibold uppercase tracking-widest">Question 2 of 2</span>
-                <span className="bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-bold px-2.5 py-1 rounded-full">SAQ</span>
-              </div>
-              {saqQ.imageUrl && (
-                <img src={saqQ.imageUrl} alt="Question" className="w-full rounded-xl object-cover max-h-40" />
-              )}
-              <p className="text-foreground font-semibold leading-relaxed">{saqQ.content}</p>
-              <textarea
-                value={saqText}
-                onChange={(e) => setSaqText(e.target.value)}
-                placeholder="Type your answer here…"
-                rows={4}
-                maxLength={4000}
-                disabled={phase === "saq_result"}
-                className="w-full bg-background border border-input rounded-xl px-4 py-3 text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
-              />
-              {phase === "saq" && (
-                <Button onClick={handleSaqSubmit} disabled={!saqText.trim() || saqSubmit.isPending} className="w-full rounded-xl h-11 font-bold">
-                  {saqSubmit.isPending ? "Submitting..." : "Submit Answer"}
-                </Button>
-              )}
-              {phase === "saq_result" && (
-                <div className="space-y-4">
-                  {/* The answer is shown blurred: members get the full answer, marking and explanations every week. */}
-                  <div className="relative overflow-hidden rounded-2xl border border-primary/20">
-                    <div aria-hidden="true" className="p-5 bg-primary/[0.03] blur-[5px] select-none pointer-events-none">
-                      <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2">Model Answer</p>
-                      <FormattedDemoText text={saqResultData?.modelAnswer || ""} className="text-sm text-foreground mb-4 leading-relaxed whitespace-pre-wrap" />
-                      <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2 border-t border-primary/10 pt-4">Marking Points</p>
-                      <FormattedDemoText text={saqResultData?.markingPoints || ""} className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap" />
-                    </div>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/60 backdrop-blur-[1px] px-5 text-center">
-                      <Crown className="w-8 h-8 text-primary" />
-                      <p className="font-bold text-foreground text-lg leading-tight">Unlock the model answer &amp; marking</p>
-                      <p className="text-sm text-muted-foreground max-w-xs">
-                        Members see exactly how every answer is marked, get it explained, and take a Mock CAT like this every Saturday.
-                      </p>
-                      <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
-                        <RegistrationCta size="default" className="rounded-xl" />
-                        <Button variant="outline" onClick={handleReset} className="rounded-xl">Try again</Button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </motion.div>
-          ) : (
-            <div key="saq-loading" className="text-center py-10 text-muted-foreground text-sm">Loading question…</div>
-          )
-        )}
-
-        {phase === "done" && (
-          <motion.div key="done" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="text-center">
-            <div className="flex justify-center mb-3">
-              <Target className="w-12 h-12 text-primary" />
-            </div>
-            <h3 className="font-black text-foreground text-xl mb-2">Challenge complete!</h3>
-            <p className="text-muted-foreground text-sm mb-6">Sign in to access your official exams and results.</p>
-            <div className="flex gap-3 justify-center">
-              <Link href="/portal"><Button className="font-bold rounded-xl">Student Sign In</Button></Link>
-              <Button variant="outline" onClick={handleReset} className="rounded-xl">Try Again</Button>
-            </div>
-          </motion.div>
-        )}
-        </AnimatePresence>
-      </div>
-    </motion.div>
-  );
-}
-
-
-
+/** Big promo panel: the demo itself lives on its own page at /demo (the link on the posters). */
 function DemoSection() {
   const { data: siteContent } = useQuery<SiteContentData>({ queryKey: ["/api/site-content"] });
+  const { data: demo } = useQuery<DemoInfo>({ queryKey: ["/api/demo/info"] });
   const settings = siteContent?.settings || {};
   const photoUrl: string = settings.demoPhotoUrl || demoStudents;
   const photoHeadline: string = settings.demoPhotoHeadline || "Stay ahead all semester.";
   const photoSubtext: string =
     settings.demoPhotoSubtext ||
     "Weekly sessions before lectures, a Saturday Mock CAT structured like the real exams, and revision on the concepts you found hardest.";
+  const subject = demo?.subject ?? "Anatomy";
+  const count = demo?.questionCount || 3;
+  const minutes = demo?.durationMinutes || 5;
 
   return (
     <section id="demo-section" className="relative bg-background pt-24 pb-10 overflow-hidden scroll-mt-16">
       <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
       <div className="max-w-6xl mx-auto px-4 lg:px-8">
-        <div className="text-center mb-10">
-          <h2 className="text-3xl sm:text-4xl font-black text-foreground">See for yourself</h2>
-        </div>
+        <motion.div
+          initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-primary via-teal-700 to-teal-900 p-6 sm:p-12 text-white shadow-[0_30px_90px_-20px_rgba(13,148,136,0.55)] mb-16"
+        >
+          <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl" aria-hidden="true" />
+          <div className="relative grid gap-10 lg:grid-cols-[1.1fr_1fr] items-center">
+            <div>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-bold uppercase tracking-wider">
+                <FlaskConical className="w-3.5 h-3.5" /> Free {subject} challenge
+              </span>
+              <h2 className="mt-5 text-4xl sm:text-5xl lg:text-6xl font-black leading-[1.05] tracking-tight">
+                Feeling confident?<br /><span className="text-teal-200">Put it to the test.</span>
+              </h2>
+              <p className="mt-4 text-lg text-white/85 max-w-lg">
+                {count} real {subject} questions from our CATs. {minutes} minutes on the clock. Marked the moment you finish. No sign-up.
+              </p>
+              <div className="mt-8 flex flex-col sm:flex-row gap-3">
+                <Link href="/demo">
+                  <Button size="lg" className="h-14 w-full sm:w-auto rounded-2xl bg-white px-8 text-base font-bold text-primary hover:bg-white/90 gap-2">
+                    <Zap className="w-5 h-5" /> Take the free challenge
+                  </Button>
+                </Link>
+              </div>
+            </div>
 
-        <div className="flex justify-center mb-16">
-          <div className="w-full">
-            <InteractiveDemoCard />
+            {/* A static preview of what the challenge looks like. */}
+            <div aria-hidden="true" className="rounded-3xl bg-white text-slate-900 p-5 shadow-2xl rotate-1 hidden sm:block">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-xs font-semibold text-slate-500">Question 1 of {count}</span>
+                <span className="flex items-center gap-1 rounded-full bg-teal-50 px-2.5 py-1 font-mono text-xs font-bold text-teal-700">
+                  <Clock className="w-3.5 h-3.5" /> {String(minutes).padStart(2, "0")}:00
+                </span>
+              </div>
+              <p className="font-semibold leading-snug mb-4">Which nerve supplies the muscles of the anterior compartment of the arm?</p>
+              {["Radial nerve", "Musculocutaneous nerve", "Median nerve", "Ulnar nerve"].map((o, i) => (
+                <div key={o} className={`mb-2 flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm ${i === 1 ? "border-teal-500 bg-teal-50 ring-2 ring-teal-500/20" : "border-slate-200"}`}>
+                  <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${i === 1 ? "bg-teal-600 text-white" : "bg-slate-100"}`}>{String.fromCharCode(65 + i)}</span>
+                  {o}
+                </div>
+              ))}
+              <div className="mt-4 h-10 rounded-xl bg-teal-600 text-white text-sm font-bold flex items-center justify-center gap-1">Next question <ArrowRight className="w-4 h-4" /></div>
+            </div>
           </div>
-        </div>
+        </motion.div>
 
         <div className="max-w-5xl mx-auto">
           <div className="grid md:grid-cols-2 gap-10 items-center">
@@ -1142,9 +690,9 @@ function Footer() {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LandingPage() {
-  // Shareable link straight to the demo: /demo, /demo?subject=Anatomy&src=whatsapp or /#demo.
+  // /#demo scrolls to the demo promo; /demo itself is the challenge page.
   useEffect(() => {
-    if (window.location.pathname !== "/demo" && window.location.hash !== "#demo") return;
+    if (window.location.hash !== "#demo") return;
     const timer = setTimeout(() => document.getElementById("demo-section")?.scrollIntoView({ behavior: "smooth", block: "start" }), 400);
     return () => clearTimeout(timer);
   }, []);

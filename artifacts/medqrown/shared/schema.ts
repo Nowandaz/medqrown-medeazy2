@@ -243,6 +243,8 @@ export const aiProviders = pgTable("ai_providers", {
   model: text("model"),
   isActive: boolean("is_active").notNull().default(true),
   weight: integer("weight").notNull().default(1),
+  /** "exams" for normal marking, "demo" for keys reserved for the public demo. */
+  purpose: text("purpose").notNull().default("exams"),
 });
 
 export const emailTemplates = pgTable("email_templates", {

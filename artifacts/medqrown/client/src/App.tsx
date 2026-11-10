@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Moon, Sun } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import LandingPage from "@/pages/landing";
+import DemoPage from "@/pages/demo";
 import AdminLogin from "@/pages/admin/login";
 import AdminDashboard from "@/pages/admin/dashboard";
 import AdminExamDetail from "@/pages/admin/exam-detail";
@@ -88,8 +89,8 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={LandingPage} />
-      {/* Share this to send people straight to the free demo. */}
-      <Route path="/demo" component={LandingPage} />
+      {/* The free challenge: the link on posters, WhatsApp and QR codes. */}
+      <Route path="/demo" component={DemoPage} />
       <Route path="/portal" component={StudentLogin} />
       {/* Admin sign-in is deliberately not linked from public pages. */}
       <Route path="/medmin" component={AdminLogin} />

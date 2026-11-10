@@ -83,7 +83,7 @@ function AiProvidersSection({ providers }: { providers: any[] }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState({
-    name: "", type: "openai", apiKeyValue: "", endpoint: "", model: "", weight: 1
+    name: "", type: "openai", apiKeyValue: "", endpoint: "", model: "", weight: 1, purpose: "exams"
   });
   const [testing, setTesting] = useState(false);
   const [testResults, setTestResults] = useState<any[] | null>(null);
@@ -105,7 +105,7 @@ function AiProvidersSection({ providers }: { providers: any[] }) {
   };
 
   const resetForm = () => {
-    setForm({ name: "", type: "openai", apiKeyValue: "", endpoint: "", model: "", weight: 1 });
+    setForm({ name: "", type: "openai", apiKeyValue: "", endpoint: "", model: "", weight: 1, purpose: "exams" });
     setEditingId(null);
   };
 
@@ -153,7 +153,7 @@ function AiProvidersSection({ providers }: { providers: any[] }) {
   const startEdit = (p: any) => {
     setForm({
       name: p.name, type: p.type, apiKeyValue: "",
-      endpoint: p.endpoint || "", model: p.model || "", weight: p.weight
+      endpoint: p.endpoint || "", model: p.model || "", weight: p.weight, purpose: p.purpose || "exams"
     });
     setEditingId(p.id);
     setShowAdd(true);
@@ -189,6 +189,15 @@ function AiProvidersSection({ providers }: { providers: any[] }) {
         <Label>Weight</Label>
         <Input type="number" value={form.weight} onChange={(e) => setForm({ ...form, weight: parseInt(e.target.value) || 1 })} />
         <p className="text-xs text-muted-foreground">When multiple providers are active, higher weight = more marking tasks assigned</p>
+      </div>
+      <div className="space-y-2">
+        <Label>Used for</Label>
+        <div className="grid grid-cols-2 gap-2">
+          {[["exams", "Exams & classes"], ["demo", "Public demo only"]].map(([value, label]) => (
+            <Button key={value} type="button" variant={form.purpose === value ? "default" : "outline"} onClick={() => setForm({ ...form, purpose: value })}>{label}</Button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">Demo-only keys mark the free challenge at /demo and are never used for real exams. Real exam keys are never used by the demo.</p>
       </div>
       <Button className="w-full" onClick={() => editingId ? updateProvider.mutate() : addProvider.mutate()} disabled={!form.name || addProvider.isPending || updateProvider.isPending}>
         {editingId ? (updateProvider.isPending ? "Updating..." : "Update Provider") : (addProvider.isPending ? "Adding..." : "Add Provider")}
@@ -231,6 +240,7 @@ function AiProvidersSection({ providers }: { providers: any[] }) {
               <p className="text-sm font-medium">{p.name}</p>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <Badge variant="outline">{p.type}</Badge>
+                {p.purpose === "demo" && <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30" variant="outline">Demo only</Badge>}
                 <span className="text-xs text-muted-foreground">Weight: {p.weight}</span>
                 {p.model && <span className="text-xs text-muted-foreground">Model: {p.model}</span>}
                 {p.endpoint && <span className="text-xs text-muted-foreground truncate max-w-[200px]">Endpoint: {p.endpoint}</span>}
