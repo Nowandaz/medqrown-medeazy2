@@ -19,10 +19,17 @@ const [ind, a, b, c, d, mixer, typo] = ["Ind", "GA", "GB", "GC", "GD", "Mixer", 
 await onboard(admin, classId, [ind, a, b, c, d, mixer, typo], PASSWORD);
 check("7 renewal test students onboarded", [ind, a, b, c, d, mixer, typo].every((p) => p.id), [ind, a, b, c, d, mixer, typo].map((p) => p.id).join(","));
 
-// Renew is offered only from 7 days before the end (give the student 30 days left, whatever today is).
+// With registration closed, renew is offered only from 7 days before the end (give the student 30 days left).
+const siteBefore = (await admin.call("GET", "/api/admin/site-settings")).data;
 await admin.call("PUT", `/api/admin/memberships/${ind.id}`, { cohortId: current.id, startDate: today, endDate: addDays(today, 30), reason: "QA: early-renewal check" });
-const early =await ind.session.call("POST", "/api/student/renewal", { code: mpesaCode("RX"), plan: "Individual" });
-check("renewal refused more than 7 days before end", early.status === 403, early.data?.message);
+await admin.call("PUT", "/api/admin/site-settings", { registrationOpen: false });
+const early = await ind.session.call("POST", "/api/student/renewal", { code: mpesaCode("RX"), plan: "Individual" });
+check("registration closed: renewal refused more than 7 days before end", early.status === 403, early.data?.message);
+// While registration is open, everyone can renew.
+const reopened = await admin.call("PUT", "/api/admin/site-settings", { registrationOpen: true });
+const offered = (await ind.session.call("GET", "/api/student/renewal")).data;
+check("registration open: renewal offered even with 30 days left", reopened.status === 200 && offered?.available === true, offered?.message);
+await admin.call("PUT", "/api/admin/site-settings", { registrationOpen: siteBefore?.registrationOpen === true });
 
 // Move everyone to "membership ends in 5 days" (active, inside the renewal window).
 const endSoon = addDays(today, 5);
@@ -104,6 +111,9 @@ check("approve mixed group", approveMix.status === 200, `${approveMix.status} ${
 const memberships = (await admin.call("GET", `/api/admin/classes/${classId}/members`)).data;
 const endOf = (p) => memberships.find((m) => m.id === p.id)?.membershipEndDate;
 check("active member renewal -> end of next cohort", endOf(a) === next.endDate, `GA end ${endOf(a)} (current cohort ends ${current.endDate}, next ${next.endDate})`);
+const aNow = (await a.session.call("GET", "/api/student/membership")).data;
+check("renewing early keeps the student active now (not 'not started')", aNow?.status === "active" && aNow?.startDate === today,
+  `${aNow?.status} from ${aNow?.startDate}`);
 const newFriend = memberships.find((m) => String(m.email).toLowerCase() === friends[0].email);
 check("new CSV friend -> current cohort", newFriend?.membershipEndDate === current.endDate, `friend end ${newFriend?.membershipEndDate}`);
 check("approval email + in-app notification", !!lastEmailTo(a.email)?.includes("payment_approved")

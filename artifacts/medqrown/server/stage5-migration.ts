@@ -29,4 +29,24 @@ export async function migrateStage5(): Promise<void> {
       UNIQUE (student_id, membership_end_date, days_before_end)
     );
   `);
+
+  // Repair for early renewals approved before the fix in chooseMembership: the approval moved the
+  // start date to the next cohort, so the student showed "not started" and lost access until then.
+  // Restore the start date they had, only where they were still active or in grace when it was approved.
+  const repaired = await pool.query(`
+    UPDATE medqrown_memberships m
+       SET start_date = (a.previous_values->>'startDate')::date, updated_at = CURRENT_TIMESTAMP
+      FROM (SELECT DISTINCT ON (student_id) student_id, previous_values, new_values, created_at
+              FROM medqrown_membership_audit ORDER BY student_id, created_at DESC, id DESC) a
+     WHERE a.student_id = m.student_id
+       AND m.start_date > (now() AT TIME ZONE 'Africa/Nairobi')::date
+       AND a.new_values->>'startDate' = m.start_date::text
+       AND a.previous_values->>'startDate' ~ '^\\d{4}-\\d{2}-\\d{2}$'
+       AND a.previous_values->>'endDate' ~ '^\\d{4}-\\d{2}-\\d{2}$'
+       AND (a.previous_values->>'startDate')::date <= (now() AT TIME ZONE 'Africa/Nairobi')::date
+       AND (a.previous_values->>'endDate')::date
+           + COALESCE((SELECT grace_days FROM medqrown_settings WHERE id = 1), 3)
+           >= (a.created_at AT TIME ZONE 'Africa/Nairobi')::date
+    RETURNING m.student_id`);
+  if (repaired.rowCount) console.log(`[renewals] restored the start date for ${repaired.rowCount} early renewal(s)`);
 }
