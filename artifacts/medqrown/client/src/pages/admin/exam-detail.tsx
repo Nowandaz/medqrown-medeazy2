@@ -21,7 +21,7 @@ import {
   ArrowLeft, Users, FileText, Trophy, BarChart3, MessageSquare, Brain,
   Settings, Plus, Trash2, Send, RotateCcw, UserPlus, Eye, BookOpen,
   CheckCircle, Clock, AlertCircle, Mail, Upload, Image as ImageIcon,
-  Loader2, XCircle, Star, Pencil, AlertTriangle, Reply, Sparkles
+  Loader2, XCircle, Star, Pencil, AlertTriangle, Reply, Sparkles, FlaskConical
 } from "lucide-react";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
 import { AnalyticsTab } from "@/components/admin/analytics-tab";
@@ -274,6 +274,17 @@ function OverviewTab({ stats, examId, exam }: any) {
 
 function QuestionsTab({ examId, questions }: { examId: number; questions: any[] }) {
   const { toast } = useToast();
+  const { data: demo } = useQuery<{ questions: { id: number }[] }>({ queryKey: ["/api/admin/demo"] });
+  const inDemo = new Set((demo?.questions ?? []).map((q) => q.id));
+  const toggleDemo = useMutation({
+    mutationFn: async ({ id, add }: { id: number; add: boolean }) => apiRequest(add ? "PUT" : "DELETE", `/api/admin/demo/questions/${id}`),
+    onSuccess: (_d, { add }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/demo"] });
+      toast({ title: add ? "Added to the public demo" : "Removed from the demo",
+        description: add ? "Visitors get 3 random questions from the demo pool on each attempt." : undefined });
+    },
+    onError: (e: any) => toast({ title: "Couldn't update the demo", description: apiErrorMessage(e), variant: "destructive" }),
+  });
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [pendingDeletes, setPendingDeletes] = useState<Set<number>>(new Set());
   const deleteTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
@@ -889,6 +900,16 @@ function QuestionsTab({ examId, questions }: { examId: number; questions: any[] 
                     {q.imageUrl && <Badge variant="outline" className="text-xs bg-background gap-0.5"><ImageIcon className="w-3 h-3" />Image</Badge>}
                     {q.hasSubquestions && <Badge variant="outline" className="text-xs bg-background">{q.subquestions?.length || 0} sub-q</Badge>}
                   </div>
+                  <Button
+                    variant={inDemo.has(q.id) ? "default" : "outline"} size="sm"
+                    className="ml-auto h-7 gap-1 px-2 text-xs"
+                    disabled={toggleDemo.isPending}
+                    onClick={() => toggleDemo.mutate({ id: q.id, add: !inDemo.has(q.id) })}
+                    title={inDemo.has(q.id) ? "In the public demo: tap to remove" : "Use this question in the public demo"}
+                    data-testid={`button-demo-q-${q.id}`}
+                  >
+                    <FlaskConical className="w-3 h-3" />{inDemo.has(q.id) ? "In demo" : "Add to demo"}
+                  </Button>
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(q)} data-testid={`button-edit-q-${q.id}`}>
                     <Pencil className="w-3 h-3" />
                   </Button>

@@ -1,17 +1,19 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { X, Zap } from "lucide-react";
 
-const STORAGE_KEY = "banner-dismissed-record-time";
+const STORAGE_KEY = "banner-dismissed-anatomy-challenge";
 
 export function AnnouncementBanner() {
   const [dismissed, setDismissed] = useState(true); // start hidden to avoid flash
+  const [, setLocation] = useLocation();
 
   useEffect(() => {
     setDismissed(localStorage.getItem(STORAGE_KEY) === "1");
   }, []);
 
-  function scrollToDemo() {
-    document.getElementById("demo-section")?.scrollIntoView({ behavior: "smooth" });
+  function openDemo() {
+    setLocation("/demo?src=banner");
   }
 
   function dismiss(e: React.MouseEvent) {
@@ -31,20 +33,20 @@ export function AnnouncementBanner() {
         >
           {/* Click-to-scroll area */}
           <button
-            onClick={scrollToDemo}
-            aria-label="Try the free demo question"
+            onClick={openDemo}
+            aria-label="Take the free Anatomy challenge"
             className="flex-1 flex items-center justify-center gap-2 h-full px-4 text-white text-sm font-semibold
                        hover:brightness-110 active:brightness-90 transition-[filter] duration-150 focus:outline-none
                        focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-inset truncate"
           >
             <Zap className="w-3.5 h-3.5 shrink-0 fill-white text-white" />
             <span className="truncate">
-              One free question, no signup — think you can beat the clock?
+              Free: 3 timed Anatomy questions. Think you can ace them?
             </span>
             <span className="shrink-0 ml-1 font-bold opacity-90">Try it →</span>
           </button>
 
-          {/* Dismiss — stopPropagation keeps it from triggering scroll */}
+          {/* Dismiss: stopPropagation keeps it from opening the demo */}
           <button
             onClick={dismiss}
             aria-label="Dismiss announcement"

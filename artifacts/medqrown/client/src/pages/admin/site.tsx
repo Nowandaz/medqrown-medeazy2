@@ -12,7 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { AdminNav } from "@/components/admin/admin-nav";
-import { DemoExamsTab } from "@/pages/admin/demo-exams";
+import { DemoManager } from "@/components/admin/demo-manager";
 import { useUpload } from "@/hooks/use-upload";
 import {
   ArrowLeft, Plus, Trash2, Save, Image as ImageIcon, Film, FileText,
@@ -55,151 +55,6 @@ function formatActivityDate(iso: string | null): string | null {
   if (isNaN(d.getTime())) return null;
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) +
     " " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-}
-
-function EngagementTab() {
-  const [, setLocation] = useLocation();
-  const { toast } = useToast();
-  const { data, isLoading, error } = useQuery<EngagementSummary | null>({
-    queryKey: ["/api/admin/demo-engagement"],
-    refetchOnMount: "always",
-    queryFn: async () => {
-      const res = await fetch("/api/admin/demo-engagement", { credentials: "include" });
-      if (res.status === 401) return null;
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    },
-  });
-
-  const clearMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/admin/demo-engagement", { method: "DELETE", credentials: "include" });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/demo-engagement"] });
-      toast({ title: "Engagement data cleared", description: "All demo engagement counts have been reset to zero." });
-    },
-    onError: () => {
-      toast({ title: "Could not clear engagement data", description: "Please try again.", variant: "destructive" });
-    },
-  });
-
-  if (isLoading) return <p className="text-muted-foreground text-sm py-8">Loading engagement…</p>;
-  if (data === null) return null;
-  if (error || !data) return <p className="text-destructive text-sm py-8">Could not load engagement data. Please refresh.</p>;
-
-  const totals = data.exams.reduce(
-    (acc, exam) => ({
-      starts: acc.starts + exam.starts,
-      mcqAnswered: acc.mcqAnswered + exam.mcqAnswered,
-      mcqCorrect: acc.mcqCorrect + exam.mcqCorrect,
-      saqSubmitted: acc.saqSubmitted + exam.saqSubmitted,
-      completions: acc.completions + exam.completions,
-    }),
-    { starts: 0, mcqAnswered: 0, mcqCorrect: 0, saqSubmitted: 0, completions: 0 },
-  );
-  const completionRate = totals.starts ? Math.round((totals.completions / totals.starts) * 100) : 0;
-  const mcqAccuracy = totals.mcqAnswered ? Math.round((totals.mcqCorrect / totals.mcqAnswered) * 100) : 0;
-
-  const byDate = new Map((data.daily ?? []).map((d) => [d.date, d]));
-  const dailyChart: { label: string; date: string; starts: number; completions: number; total: number }[] = [];
-  for (let i = 29; i >= 0; i--) {
-    const day = new Date();
-    day.setDate(day.getDate() - i);
-    const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
-    const row = byDate.get(key);
-    dailyChart.push({
-      date: key,
-      label: day.toLocaleDateString(undefined, { day: "numeric", month: "short" }),
-      starts: row?.starts ?? 0,
-      completions: row?.completions ?? 0,
-      total: row?.total ?? 0,
-    });
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h2 className="text-lg font-black text-foreground">Demo Engagement</h2>
-          <p className="text-muted-foreground text-sm mt-1">
-            Anonymous activity from the public demo — starts, answers, drop-off, and question performance.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive shrink-0"
-          disabled={clearMutation.isPending || totals.starts === 0}
-          onClick={() => {
-            if (window.confirm("Clear all demo engagement data? This resets every count to zero and cannot be undone.")) {
-              clearMutation.mutate();
-            }
-          }}
-        >
-          {clearMutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5 mr-1.5" />}
-          Clear data
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <Metric label="Demo starts" value={totals.starts} />
-        <Metric label="Completions" value={totals.completions} hint={`${completionRate}% of starts`} />
-        <Metric label="MCQ answers" value={totals.mcqAnswered} />
-        <Metric label="MCQ accuracy" value={`${mcqAccuracy}%`} />
-        <Metric label="SAQ submissions" value={totals.saqSubmitted} />
-      </div>
-
-      <div className="space-y-3">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Daily activity (last 30 days)</h3>
-        <Card>
-          <CardContent className="p-4 sm:p-5">
-            {dailyChart.some((d) => d.total > 0) ? (
-              <div className="h-56 sm:h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dailyChart} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis
-                      dataKey="label"
-                      tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                      tickLine={false}
-                      axisLine={false}
-                      interval="preserveStartEnd"
-                    />
-                    <YAxis
-                      allowDecimals={false}
-                      tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <Tooltip
-                      cursor={{ fill: "hsl(var(--muted) / 0.4)" }}
-                      contentStyle={{
-                        backgroundColor: "hsl(var(--card))",
-                        border: "1px solid hsl(var(--border))",
-                        borderRadius: 8,
-                        fontSize: 12,
-                      }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Bar dataKey="total" name="All events" fill="#0d9488" radius={[3, 3, 0, 0]} />
-                    <Bar dataKey="starts" name="Starts" fill="#0d948880" radius={[3, 3, 0, 0]} />
-                    <Bar dataKey="completions" name="Completions" fill="#f59e0b" radius={[3, 3, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <p className="text-muted-foreground text-sm py-8 text-center">
-                No activity in the last 30 days yet.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
 }
 
 function PageEditor({ slug, defaultTitle }: { slug: string; defaultTitle: string }) {
@@ -524,9 +379,8 @@ export default function AdminSite() {
         <Tabs defaultValue="registration" className="space-y-6">
           <TabsList className="flex-wrap h-auto gap-1">
             <TabsTrigger value="registration" className="gap-2"><Settings className="w-4 h-4" /> Registration</TabsTrigger>
-            <TabsTrigger value="demo" className="gap-2"><Film className="w-4 h-4" /> Demo Questions</TabsTrigger>
+            <TabsTrigger value="demo" className="gap-2"><Film className="w-4 h-4" /> Free challenge</TabsTrigger>
             <TabsTrigger value="faq" className="gap-2"><HelpCircle className="w-4 h-4" /> FAQ & Legal</TabsTrigger>
-            <TabsTrigger value="engagement" className="gap-2"><BarChart3 className="w-4 h-4" /> Engagement</TabsTrigger>
           </TabsList>
 
           <TabsContent value="registration" className="m-0 space-y-6">
@@ -534,7 +388,7 @@ export default function AdminSite() {
           </TabsContent>
 
           <TabsContent value="demo" className="m-0">
-            <DemoExamsTab />
+            <DemoManager />
           </TabsContent>
 
           <TabsContent value="faq" className="m-0 space-y-6">
@@ -542,9 +396,6 @@ export default function AdminSite() {
             <PagesTab />
           </TabsContent>
 
-          <TabsContent value="engagement" className="m-0">
-            <EngagementTab />
-          </TabsContent>
         </Tabs>
       </main>
     </div>

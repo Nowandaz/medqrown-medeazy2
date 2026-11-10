@@ -5,7 +5,7 @@ import connectPgSimple from "connect-pg-simple";
 import { storage } from "./storage";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { generateSelfTestQuestions, generateLiveQuizQuestions, markSAQResponses, markSingleResponse, markStudentSAQResponses } from "./ai-orchestrator";
+import { generateSelfTestQuestions, generateLiveQuizQuestions, isExamProvider, markSAQResponses, markSingleResponse, markStudentSAQResponses } from "./ai-orchestrator";
 import { enqueueMarking } from "./marking-queue";
 import { getExamStructure, invalidateExamCache } from "./exam-cache";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
@@ -19,6 +19,7 @@ import { registerStage7Routes } from "./stage7";
 import { registerStage8Routes } from "./stage8";
 import { registerStage9Routes, updateStage9SiteSettings } from "./stage9";
 import { registerStage10Routes } from "./stage10";
+import { registerDemoRoutes } from "./demo";
 import { registerStage11Routes } from "./stage11";
 import { registerTimetableRoutes } from "./timetable";
 import { registerSubscriptionPauseRoutes } from "./subscription-pause";
@@ -429,6 +430,7 @@ export async function registerRoutes(
   registerStage8Routes(app, requireStudent);
   registerStage9Routes(app, requireAdmin);
   registerStage10Routes(app, requireAdmin);
+  registerDemoRoutes(app, requireAdmin);
   registerStage11Routes(app, requireAdmin);
   registerTimetableRoutes(app, requireAdmin, requireStudent);
   registerSubscriptionPauseRoutes(app, requireAdmin, requireStudent);
@@ -1591,7 +1593,7 @@ export async function registerRoutes(
     const fb = feedbacks.find(f => f.id === feedbackId);
     if (!fb) return res.status(404).json({ message: "Feedback not found" });
     const exam = await storage.getExam(examId);
-    const providers = (await storage.getAiProviders()).filter(p => p.isActive);
+    const providers = (await storage.getAiProviders()).filter(isExamProvider);
     if (providers.length === 0) return res.status(400).json({ message: "No active AI provider configured. Set one up in Settings → AI Providers." });
     const provider = providers[0];
     const apiKey = provider.apiKeyDirect || (provider.apiKeyEnv ? process.env[provider.apiKeyEnv] || "" : "");
@@ -1817,6 +1819,7 @@ export async function registerRoutes(
 
   app.post("/api/ai-providers", requireAdmin, async (req, res) => {
     const { apiKeyValue, ...providerData } = req.body;
+    if (providerData.purpose !== "demo") providerData.purpose = "exams";
     if (apiKeyValue) {
       providerData.apiKeyDirect = apiKeyValue;
     }
@@ -1826,6 +1829,7 @@ export async function registerRoutes(
 
   app.patch("/api/ai-providers/:id", requireAdmin, async (req, res) => {
     const { apiKeyValue, ...updateData } = req.body;
+    if (updateData.purpose !== undefined && updateData.purpose !== "demo") updateData.purpose = "exams";
     if (apiKeyValue) {
       updateData.apiKeyDirect = apiKeyValue;
     }
@@ -4158,7 +4162,7 @@ export async function registerRoutes(
       const exam = await storage.getExam(es.examId);
       if (exam?.autoMarkEnabled) {
         try {
-          const providers = (await storage.getAiProviders()).filter(p => p.isActive);
+          const providers = (await storage.getAiProviders()).filter(isExamProvider);
           if (providers.length > 0) {
             // Mark ONLY the submitting student — not the whole exam.
             // Marking the whole exam caused other in-progress students' unanswered

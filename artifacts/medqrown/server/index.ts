@@ -20,6 +20,7 @@ import { sendDueRenewalReminders } from "./stage5";
 import { applyRegistrationSchedule } from "./stage9";
 import { ensureCurrentAndNextCohorts } from "./stage3-storage";
 import { migrateMembershipPeriods } from "./membership-periods";
+import { migrateDemo } from "./demo";
 
 const app = express();
 const httpServer = createServer(app);
@@ -95,6 +96,7 @@ app.use((req, res, next) => {
   await migrateStage11();
   await migrateTimetable();
   await migrateMembershipPeriods();
+  await migrateDemo();
   await ensureCurrentAndNextCohorts();
   const { seed } = await import("./seed");
   await seed().catch(console.error);
