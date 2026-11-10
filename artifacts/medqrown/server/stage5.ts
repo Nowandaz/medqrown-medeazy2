@@ -93,7 +93,13 @@ async function chooseMembership(db: Queryable, studentId: number, adminId: numbe
     ? (await db.query("SELECT id FROM medqrown_cohorts WHERE end_date >= $1 ORDER BY start_date LIMIT 1", [endDate])).rows[0]
     : selected;
   if (!cohort?.id) throw new Error("No cohort is configured for the approved end date");
-  const startDate = selected.startDate;
+  // Renewing while still active (or in grace) keeps the current start date, so the student keeps
+  // access now instead of showing "not started" until the next cohort begins.
+  const previous = prior.rows[0];
+  const today = nairobiDate();
+  const graceDays = Number((await db.query("SELECT grace_days AS days FROM medqrown_settings WHERE id = 1")).rows[0]?.days ?? 3);
+  const continues = previous && previous.startDate <= today && today <= addDays(previous.endDate, graceDays);
+  const startDate = continues ? previous.startDate : selected.startDate;
   await db.query(
     `INSERT INTO medqrown_memberships (student_id, cohort_id, start_date, end_date)
      VALUES ($1, $2, $3, $4) ON CONFLICT (student_id) DO UPDATE
@@ -120,7 +126,17 @@ async function memberCanRenew(studentId: number): Promise<{ allowed: boolean; me
   if (!membership) return { allowed: false, message: "A membership is required before it can be renewed" };
   const today = nairobiDate();
   if (today < addDays(membership.endDate, -7)) {
-    return { allowed: false, message: "Renewal becomes available 7 days before your membership ends" };
+    const { rows: [setting] } = await pool.query("SELECT value FROM site_settings WHERE key = 'registrationOpen'");
+    if (setting?.value !== true) {
+      return { allowed: false, message: "Renewal opens when registration for the next cohort opens, or 7 days before your membership ends" };
+    }
+    const { rows: [upcoming] } = await pool.query(
+      "SELECT MIN(end_date)::text AS \"endDate\" FROM medqrown_cohorts WHERE start_date > $1",
+      [today],
+    );
+    if (upcoming?.endDate && membership.endDate >= upcoming.endDate) {
+      return { allowed: false, message: `You're already renewed through ${membership.endDate}` };
+    }
   }
   const classMember = await pool.query(
     "SELECT 1 FROM medqrown_class_students WHERE student_id = $1 LIMIT 1",

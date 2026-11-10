@@ -66,7 +66,8 @@ export default function StudentDashboard() {
   const results = [...(history || [])].reverse(); // oldest → newest for the trend
   const average = results.length ? Math.round(results.reduce((sum, r) => sum + Number(r.scorePercent), 0) / results.length) : null;
   const latest = history?.[0];
-  const showRenew = membership && (membership.status !== "active" || (membership.daysRemaining ?? 0) <= 7);
+  // RenewMembershipDialog renders nothing unless the server allows renewal (last 7 days, lapsed, or registration open).
+  const showRenew = !!membership;
   const examOpen = nextExam && Date.parse(nextExam.opensAt) <= now;
 
   const paused = !!pause?.active;
