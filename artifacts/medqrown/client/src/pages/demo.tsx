@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { MedQrownBrand } from "@/components/MedQrownBrand";
 import { RegistrationCountdown, RegistrationCta } from "@/components/RegistrationCta";
+import { Eyebrow, FactRow } from "@/components/eyebrow";
 import { engagementSource, trackEngagement } from "@/lib/engagement";
 
 type DemoInfo = { available: boolean; questionCount: number; durationMinutes: number; subject: string; perks: string[]; nextCohortStart: string | null };
@@ -129,12 +130,12 @@ export default function DemoPage() {
   }, [attempt, answers, submitting]);
 
   return (
-    <div className="min-h-[100dvh] bg-gradient-to-b from-primary/[0.07] via-background to-background">
+    <div className="min-h-[100dvh] bg-background">
       <header className="sticky top-0 z-30 border-b bg-background/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-3xl items-center justify-between gap-3 px-4">
           <Link href="/"><MedQrownBrand size="sm" /></Link>
           {phase === "exam" && attempt ? <TimerPill endsAt={attempt.endsAt} onExpire={submit} /> : (
-            <span className="whitespace-nowrap rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">Free demo</span>
+            <span className="whitespace-nowrap text-xs font-semibold uppercase tracking-[0.18em] text-primary">Free challenge</span>
           )}
         </div>
       </header>
@@ -167,8 +168,8 @@ function TimerPill({ endsAt, onExpire }: { endsAt: string; onExpire: () => void 
   }, [left, onExpire]);
   const urgent = left <= 30;
   return (
-    <div className={`flex items-center gap-1.5 rounded-full border px-3 py-1 font-mono text-sm font-bold tabular-nums ${
-      urgent ? "animate-pulse border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400" : "border-primary/25 bg-primary/10 text-primary"}`}
+    <div className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 font-mono text-sm font-bold tabular-nums ${
+      urgent ? "animate-pulse border-red-500/50 text-red-600 dark:text-red-400" : "border-border text-foreground"}`}
       role="timer" aria-label="Time left">
       <Clock className="h-4 w-4" />
       {String(Math.floor(left / 60)).padStart(2, "0")}:{String(left % 60).padStart(2, "0")}
@@ -190,35 +191,38 @@ function Intro({ info, loading, starting, error, onStart }: {
   ];
   return (
     <motion.section initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }} className="space-y-8">
-      <div className="text-center">
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-bold uppercase tracking-wider text-primary">
-          <FlaskConical className="h-3.5 w-3.5" /> {info?.subject ?? "Anatomy"} · Free
-        </span>
+      <div>
+        <Eyebrow className="text-primary">Free {info?.subject ?? "Anatomy"} challenge</Eyebrow>
         <h1 className="mt-5 text-4xl font-black leading-[1.05] tracking-tight sm:text-6xl">
           Feeling confident?<br /><span className="text-primary">Put it to the test.</span>
         </h1>
-        <p className="mx-auto mt-4 max-w-xl text-base text-muted-foreground sm:text-lg">
-          {n} real {info?.subject ?? "Anatomy"} questions from our CATs, under the same time pressure as the real thing.
+        <p className="mt-4 max-w-xl text-base text-muted-foreground sm:text-lg">
+          Real {info?.subject ?? "Anatomy"} questions from our CATs, under the same time pressure as the real thing.
         </p>
+        <FactRow className="mt-8 max-w-md" facts={[
+          { value: String(n), label: "questions" },
+          { value: `${minutes} min`, label: "on the clock" },
+          { value: "KSh 0", label: "no sign-up" },
+        ]} />
       </div>
 
-      <div className="rounded-3xl border bg-card/90 p-5 shadow-[0_24px_80px_-24px_rgba(13,148,136,0.35)] sm:p-8">
-        <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Before you start</h2>
-        <ul className="space-y-3.5">
-          {rules.map(({ icon: Icon, text }) => (
-            <li key={text} className="flex gap-3 text-sm sm:text-base">
-              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Icon className="h-4 w-4" /></span>
+      <div className="rounded-xl border bg-card p-5 sm:p-8">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Before you start</h2>
+        <ol className="divide-y">
+          {rules.map(({ text }, i) => (
+            <li key={text} className="flex gap-4 py-3 text-sm sm:text-base">
+              <span className="w-5 shrink-0 font-mono text-sm font-bold text-primary">{String(i + 1).padStart(2, "0")}</span>
               <span>{text}</span>
             </li>
           ))}
-        </ul>
+        </ol>
 
         {error && <p className="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-300" role="alert">{error}</p>}
 
         {loading ? (
           <div className="mt-8 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
         ) : info?.available ? (
-          <Button size="lg" onClick={onStart} disabled={starting} className="mt-8 h-14 w-full gap-2 rounded-2xl text-base font-bold shadow-lg shadow-primary/25">
+          <Button size="lg" onClick={onStart} disabled={starting} className="mt-6 h-12 w-full gap-2 rounded-lg text-base font-bold">
             {starting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Zap className="h-5 w-5" />}
             {starting ? "Getting your questions…" : `Start the ${minutes}-minute challenge`}
           </Button>
@@ -235,9 +239,9 @@ function QuestionImage({ src }: { src: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="group relative block w-full overflow-hidden rounded-2xl border bg-muted/30 p-2">
+      <button type="button" onClick={() => setOpen(true)} className="group relative block w-full overflow-hidden rounded-lg border bg-muted/30 p-2">
         <img src={src} alt="Question image" className="mx-auto max-h-[45vh] w-auto rounded-xl object-contain" loading="eager" />
-        <span className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-background/90 px-2.5 py-1 text-xs font-medium shadow">
+        <span className="absolute bottom-3 right-3 flex items-center gap-1 rounded-md bg-background/90 px-2 py-1 text-xs font-medium">
           <Maximize2 className="h-3 w-3" /> Enlarge
         </span>
       </button>
@@ -284,9 +288,9 @@ function Exam({ attempt, answers, setAnswers, index, setIndex, submitting, onSub
 
       <AnimatePresence mode="wait">
         <motion.div key={q.id} initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} transition={{ duration: 0.2 }}
-          className="space-y-5 rounded-3xl border bg-card p-5 shadow-sm sm:p-8">
+          className="space-y-5 rounded-xl border bg-card p-5 sm:p-8">
           <div className="flex flex-wrap items-center gap-2">
-            <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider ${q.type === "mcq" ? "bg-primary/10 text-primary" : "bg-amber-500/15 text-amber-700 dark:text-amber-400"}`}>
+            <span className={`text-[11px] font-semibold uppercase tracking-[0.15em] ${q.type === "mcq" ? "text-primary" : "text-amber-700 dark:text-amber-400"}`}>
               {q.type === "mcq" ? "Multiple choice" : "Short answer"}
             </span>
             <span className="text-xs text-muted-foreground">{q.marks} mark{q.marks === 1 ? "" : "s"}</span>
@@ -300,9 +304,9 @@ function Exam({ attempt, answers, setAnswers, index, setIndex, submitting, onSub
                 const chosen = a.option === i;
                 return (
                   <button key={i} type="button" role="radio" aria-checked={chosen} onClick={() => update({ option: i })}
-                    className={`flex w-full items-start gap-3 rounded-2xl border p-4 text-left text-base transition-all ${
-                      chosen ? "border-primary bg-primary/10 ring-2 ring-primary/30" : "border-border bg-background hover:border-primary/50"}`}>
-                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold ${chosen ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                    className={`flex w-full items-start gap-3 rounded-lg border p-4 text-left text-base transition-colors ${
+                      chosen ? "border-primary bg-primary/10" : "border-border bg-background hover:border-primary/50"}`}>
+                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm font-bold ${chosen ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
                       {String.fromCharCode(65 + i)}
                     </span>
                     <span className="pt-0.5">{opt}</span>
@@ -367,7 +371,7 @@ function AnswerBox({ value, onChange, rows = 5 }: { value: string; onChange: (v:
     <div>
       <textarea value={value} onChange={(e) => onChange(e.target.value.slice(0, MAX_CHARS))} rows={rows} maxLength={MAX_CHARS}
         placeholder="Type your answer…" autoComplete="off" spellCheck
-        className="w-full resize-y rounded-2xl border border-input bg-background px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-primary/40" />
+        className="w-full resize-y rounded-lg border border-input bg-background px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-primary/40" />
       <p className={`mt-1 text-right text-xs ${value.length > MAX_CHARS - 100 ? "text-amber-600" : "text-muted-foreground"}`}>{value.length}/{MAX_CHARS}</p>
     </div>
   );
@@ -389,11 +393,10 @@ function ResultsView({ results, perks, subject, nextCohortStart, onRetry }: {
   const shownPercent = shownMax ? Math.round((results.score / shownMax) * 100) : 0;
   const brag = results.beatPercent !== null && results.beatPercent >= 50 ? ` I beat ${results.beatPercent}% of people who tried it.` : "";
   const share = `https://wa.me/?text=${encodeURIComponent(`I just scored ${percent}% on MedQrown's free ${subject} challenge.${brag} Think you can beat me? ${window.location.origin}/demo?src=share`)}`;
-  const perkIcons = [CalendarCheck, Timer, FlaskConical, Sparkles, Crown, Check];
 
   return (
     <motion.section initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
-      <div className="rounded-3xl border bg-card p-6 text-center shadow-sm sm:p-10">
+      <div className="rounded-xl border bg-card p-6 text-center sm:p-10">
         <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Your score</p>
         <div className="relative mx-auto my-5 h-36 w-36">
           <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
@@ -409,11 +412,15 @@ function ResultsView({ results, perks, subject, nextCohortStart, onRetry }: {
         </div>
         <p className="text-lg font-bold">{results.shortAnswersLocked ? "Here's your multiple-choice score." : verdictLine(percent)}</p>
         {results.beatPercent !== null && (
-          <motion.p initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.9 }}
-            className="mx-auto mt-4 inline-flex items-center gap-2 rounded-full bg-primary/10 px-4 py-2 text-sm font-bold text-primary">
-            <Crown className="h-4 w-4" />
-            {results.beatPercent >= 1 ? `You beat ${results.beatPercent}% of people who took this challenge` : "Everyone starts somewhere. Members improve fast."}
-          </motion.p>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.9 }}
+            className="mx-auto mt-6 max-w-sm border-t pt-5">
+            {results.beatPercent >= 1 ? (
+              <>
+                <p className="text-4xl font-black text-primary">{results.beatPercent}%</p>
+                <p className="mt-1 text-sm text-muted-foreground">of people who took this challenge scored lower than you</p>
+              </>
+            ) : <p className="text-sm text-muted-foreground">Everyone starts somewhere. Members improve fast.</p>}
+          </motion.div>
         )}
         {results.shortAnswersLocked && (
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">Short answers are marked by our examiners' AI, and today's free marking is used up. Sign up to get every answer marked and explained.</p>
@@ -425,27 +432,24 @@ function ResultsView({ results, perks, subject, nextCohortStart, onRetry }: {
         {results.questions.map((q, i) => <ReviewCard key={q.id} q={q} n={i + 1} locked={results.shortAnswersLocked} />)}
       </div>
 
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-teal-800 p-6 text-primary-foreground shadow-xl sm:p-10">
-        <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-white/10 blur-2xl" aria-hidden="true" />
-        <h2 className="text-3xl font-black leading-tight sm:text-4xl">Want more of this?</h2>
-        <p className="mt-2 text-primary-foreground/85">Here's what MedEazy members get every month:</p>
-        <ul className="mt-6 space-y-3">
-          {perks.map((perk, i) => {
-            const Icon = perkIcons[i % perkIcons.length];
-            return (
-              <li key={perk} className="flex items-start gap-3 text-base font-medium">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/15"><Icon className="h-4 w-4" /></span>
-                <span className="pt-1">{perk}</span>
-              </li>
-            );
-          })}
+      <div className="rounded-xl bg-[#0e3b37] p-6 text-white sm:p-10">
+        <Eyebrow className="text-teal-300">MedEazy membership</Eyebrow>
+        <h2 className="mt-4 text-3xl font-black leading-tight sm:text-4xl">Want more of this?</h2>
+        <p className="mt-2 text-white/75">Here's what members get every month:</p>
+        <ul className="mt-6 divide-y divide-white/15 border-y border-white/15">
+          {perks.map((perk) => (
+            <li key={perk} className="flex items-start gap-3 py-3.5 text-base font-medium">
+              <Check className="mt-0.5 h-5 w-5 shrink-0 text-teal-300" />
+              <span>{perk}</span>
+            </li>
+          ))}
         </ul>
         <RegistrationCountdown nextCohortStart={nextCohortStart}
-          className="mt-6 rounded-xl bg-white/15 px-3 py-2 text-primary-foreground" />
+          className="mt-6 text-white/80" />
         <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-          <RegistrationCta size="lg" className="h-12 w-full rounded-xl bg-white text-primary hover:bg-white/90 sm:w-auto" />
+          <RegistrationCta size="lg" className="h-12 w-full rounded-lg bg-white text-[#0e3b37] hover:bg-teal-50 sm:w-auto" />
           <a href={share} target="_blank" rel="noopener noreferrer" className="sm:w-auto">
-            <Button size="lg" variant="outline" className="h-12 w-full gap-2 rounded-xl border-white/40 bg-transparent text-primary-foreground hover:bg-white/10 hover:text-primary-foreground">
+            <Button size="lg" variant="outline" className="h-12 w-full gap-2 rounded-lg border-white/40 bg-transparent text-white hover:bg-white/10 hover:text-white">
               <MessageCircle className="h-4 w-4" /> Challenge a classmate
             </Button>
           </a>
@@ -467,7 +471,7 @@ function ReviewCard({ q, n, locked }: { q: ResultQuestion; n: number; locked: bo
   const isSaq = q.type === "saq";
   const lockedHere = isSaq && locked;
   return (
-    <div className="space-y-4 rounded-2xl border bg-card p-5">
+    <div className="space-y-4 rounded-xl border bg-card p-5">
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm font-semibold text-muted-foreground">Question {n} · {isSaq ? "Short answer" : "Multiple choice"}</p>
         {lockedHere ? <span className="flex items-center gap-1 text-xs font-semibold text-muted-foreground"><Lock className="h-3.5 w-3.5" /> Members only</span>

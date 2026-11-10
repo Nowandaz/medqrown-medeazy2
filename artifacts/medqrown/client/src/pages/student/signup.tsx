@@ -47,11 +47,11 @@ export default function StudentSignup() {
   });
 
   if (isLoading) {
-    return <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex items-center justify-center">Loading...</div>;
+    return <div className="min-h-screen bg-background flex items-center justify-center">Loading...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex flex-col">
+    <div className="min-h-screen bg-background flex flex-col">
       <AppHeader />
 
       <div className="flex-1 flex items-center justify-center px-4 pb-8">

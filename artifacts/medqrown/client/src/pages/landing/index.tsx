@@ -85,6 +85,7 @@ import demoStudents from "@/assets/demo-students.jpg";
 import { FEATURES } from "@/lib/feature-flags";
 import { FormattedDemoText } from "@/components/formatted-demo-text";
 import { RegistrationCountdown, RegistrationCta, useRegistrationStatus } from "@/components/RegistrationCta";
+import { Eyebrow, FactRow } from "@/components/eyebrow";
 import { trackEngagement } from "@/lib/engagement";
 import { formatNairobi } from "@/lib/datetime";
 
@@ -297,7 +298,7 @@ function HeroSection() {
   useEffect(() => { trackEngagement("page_view", "home"); }, []);
 
   return (
-    <section className="min-h-[90vh] bg-gradient-to-br from-background via-background to-primary/5 flex items-center justify-center pt-16">
+    <section className="min-h-[90vh] bg-background flex items-center justify-center pt-16">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 text-center py-16 sm:py-20">
         {/* Logo */}
         <motion.div
@@ -387,53 +388,55 @@ function DemoSection() {
         <motion.div
           initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
           transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-          className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-primary via-teal-700 to-teal-900 p-6 sm:p-12 text-white shadow-[0_30px_90px_-20px_rgba(13,148,136,0.55)] mb-16"
+          className="rounded-2xl bg-[#0e3b37] p-6 sm:p-12 text-white mb-16"
         >
-          <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl" aria-hidden="true" />
-          <div className="relative grid gap-10 lg:grid-cols-[1.1fr_1fr] items-center">
+          <div className="grid gap-10 lg:grid-cols-[1.15fr_1fr] items-center">
             <div>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-bold uppercase tracking-wider">
-                <FlaskConical className="w-3.5 h-3.5" /> Free {subject} challenge
-              </span>
+              <Eyebrow className="text-teal-300">Free {subject} challenge</Eyebrow>
               <h2 className="mt-5 text-4xl sm:text-5xl lg:text-6xl font-black leading-[1.05] tracking-tight">
-                Feeling confident?<br /><span className="text-teal-200">Put it to the test.</span>
+                Feeling confident?<br /><span className="text-teal-300">Put it to the test.</span>
               </h2>
-              <p className="mt-4 text-lg text-white/85 max-w-lg">
-                {count} real {subject} questions from our CATs. {minutes} minutes on the clock. Marked the moment you finish. No sign-up.
+              <p className="mt-4 text-lg text-white/80 max-w-lg">
+                Real {subject} questions from our CATs, on the clock, marked the moment you finish.
               </p>
-              <div className="mt-8 flex flex-col sm:flex-row gap-3">
+              <FactRow className="mt-8 max-w-md" facts={[
+                { value: String(count), label: "questions" },
+                { value: `${minutes} min`, label: "on the clock" },
+                { value: "KSh 0", label: "no sign-up" },
+              ]} />
+              <div className="mt-8">
                 <Link href="/demo">
-                  <Button size="lg" className="h-14 w-full sm:w-auto rounded-2xl bg-white px-8 text-base font-bold text-primary hover:bg-white/90 gap-2">
-                    <Zap className="w-5 h-5" /> Take the free challenge
+                  <Button size="lg" className="h-12 w-full sm:w-auto rounded-lg bg-white px-7 text-base font-bold text-[#0e3b37] hover:bg-teal-50 gap-2">
+                    Take the free challenge <ArrowRight className="w-4 h-4" />
                   </Button>
                 </Link>
               </div>
-              <RegistrationCountdown nextCohortStart={demo?.nextCohortStart} className="mt-5 text-white/90" />
+              <RegistrationCountdown nextCohortStart={demo?.nextCohortStart} className="mt-5 text-white/75" />
             </div>
 
             {/* A static preview of what the challenge looks like. */}
-            <div aria-hidden="true" className="rounded-3xl bg-white text-slate-900 p-5 shadow-2xl rotate-1 hidden sm:block">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-xs font-semibold text-slate-500">Question 1 of {count}</span>
-                <span className="flex items-center gap-1 rounded-full bg-teal-50 px-2.5 py-1 font-mono text-xs font-bold text-teal-700">
+            <div aria-hidden="true" className="rounded-xl bg-white text-slate-900 p-5 hidden sm:block">
+              <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Question 1 of {count}</span>
+                <span className="flex items-center gap-1 font-mono text-sm font-bold text-teal-700">
                   <Clock className="w-3.5 h-3.5" /> {String(minutes).padStart(2, "0")}:00
                 </span>
               </div>
               <p className="font-semibold leading-snug mb-4">Which nerve supplies the muscles of the anterior compartment of the arm?</p>
               {["Radial nerve", "Musculocutaneous nerve", "Median nerve", "Ulnar nerve"].map((o, i) => (
-                <div key={o} className={`mb-2 flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm ${i === 1 ? "border-teal-500 bg-teal-50 ring-2 ring-teal-500/20" : "border-slate-200"}`}>
-                  <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${i === 1 ? "bg-teal-600 text-white" : "bg-slate-100"}`}>{String.fromCharCode(65 + i)}</span>
+                <div key={o} className={`mb-2 flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm ${i === 1 ? "border-teal-600 bg-teal-50" : "border-slate-200"}`}>
+                  <span className={`flex h-6 w-6 items-center justify-center rounded-md text-xs font-bold ${i === 1 ? "bg-teal-700 text-white" : "bg-slate-100"}`}>{String.fromCharCode(65 + i)}</span>
                   {o}
                 </div>
               ))}
-              <div className="mt-4 h-10 rounded-xl bg-teal-600 text-white text-sm font-bold flex items-center justify-center gap-1">Next question <ArrowRight className="w-4 h-4" /></div>
+              <div className="mt-4 h-10 rounded-lg bg-teal-700 text-white text-sm font-bold flex items-center justify-center gap-1">Next question <ArrowRight className="w-4 h-4" /></div>
             </div>
           </div>
         </motion.div>
 
         <div className="max-w-5xl mx-auto">
           <div className="grid md:grid-cols-2 gap-10 items-center">
-            <div className="relative aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl bg-muted border border-border/50">
+            <div className="relative aspect-[4/3] rounded-2xl overflow-hidden bg-muted border border-border/50">
               <img src={photoUrl} alt="Students studying" className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
               <div className="absolute bottom-6 left-6 right-6 text-left">
@@ -470,7 +473,7 @@ function FeaturesSection() {
           viewport={{ once: true }}
           className="text-center mb-14"
         >
-          <p className="text-primary text-xs font-semibold uppercase tracking-widest mb-2">What We Offer</p>
+          <Eyebrow className="text-primary justify-center mb-3">What we offer</Eyebrow>
           <h2 className="text-3xl sm:text-4xl font-black text-foreground">Core Features</h2>
         </motion.div>
 
@@ -492,13 +495,9 @@ function FeaturesSection() {
                       <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
                         <Icon className="w-5 h-5 text-primary" />
                       </div>
-                      <span
-                        className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                          isLive
-                            ? "bg-primary/10 text-primary border-primary/20"
-                            : "bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400"
-                        }`}
-                      >
+                      <span className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider ${
+                          isLive ? "text-primary" : "text-amber-700 dark:text-amber-400"}`}>
+                        <span aria-hidden="true" className="h-1.5 w-1.5 bg-current" />
                         {feat.badge}
                       </span>
                     </div>

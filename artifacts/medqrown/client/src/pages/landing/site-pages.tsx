@@ -25,7 +25,7 @@ function SitePageShell({ children, title, subtitle }: { children: React.ReactNod
         </Link>
       </header>
 
-      <div className="relative overflow-hidden border-b border-border/40 bg-gradient-to-b from-primary/[0.07] to-transparent">
+      <div className="relative overflow-hidden border-b border-border/40 bg-muted/30">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-14 text-center">
           <motion.h1
             initial={{ opacity: 0, y: 14 }}
