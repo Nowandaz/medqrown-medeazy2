@@ -4,7 +4,7 @@ import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowRight, CalendarCheck, Check, CheckCircle2, Clock, Crown, FlaskConical, ListChecks,
-  Loader2, Lock, Maximize2, MessageCircle, RotateCcw, ShieldCheck, Sparkles, Timer, X, XCircle, Zap,
+  Loader2, Lock, Maximize2, MessageCircle, RotateCcw, Share2, ShieldCheck, Sparkles, Timer, X, XCircle, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -24,7 +24,7 @@ type DemoQuestion = {
 };
 type Attempt = { attemptId: string; endsAt: string; durationSeconds: number; subject: string; questions: DemoQuestion[] };
 type Answer = { option?: number; text?: string; parts?: Record<string, string> };
-type ResultPart = { id: number | null; content: string | null; answer: string; marks: number; awarded: number | null; correct: boolean | null; feedback: string | null };
+type ResultPart = { id: number | null; content: string | null; answer: string; expectedAnswer?: string | null; marks: number; awarded: number | null; correct: boolean | null; feedback: string | null };
 type ResultQuestion = DemoQuestion & {
   awarded: number | null; correct: boolean | null; chosen?: number | null; correctOptions?: number[];
   explanation: string | null; parts: any[];
@@ -32,6 +32,8 @@ type ResultQuestion = DemoQuestion & {
 type Results = { score: number; maxScore: number; shortAnswersLocked: boolean; beatPercent: number | null; questions: ResultQuestion[] };
 
 const MAX_CHARS = 1000;
+/** Parts whose text already starts "a)", "(b)" or "c." keep their own label instead of getting a second one. */
+const hasOwnLabel = (text: string | null | undefined) => /^\s*\(?[a-z]\s*[).:]/i.test(text ?? "");
 const STORE_KEY = "medqrown-demo-attempt";
 
 function loadSaved(): { attempt: Attempt; answers: Record<number, Answer>; index: number } | null {
@@ -322,7 +324,7 @@ function Exam({ attempt, answers, setAnswers, index, setIndex, submitting, onSub
           {q.type === "saq" && q.parts.map((p, i) => (
             <div key={p.id} className="space-y-2">
               <p className="whitespace-pre-wrap font-medium">
-                <span className="mr-1.5 font-bold text-primary">({String.fromCharCode(97 + i)})</span>{p.content}
+                {!hasOwnLabel(p.content) && <span className="mr-1.5 font-bold text-primary">({String.fromCharCode(97 + i)})</span>}{p.content}
                 <span className="ml-2 text-xs font-normal text-muted-foreground">{p.marks} mark{p.marks === 1 ? "" : "s"}</span>
               </p>
               <AnswerBox value={a.parts?.[p.id] ?? ""} rows={3}
@@ -389,7 +391,16 @@ function ResultsView({ results, perks, subject, nextCohortStart, onRetry }: {
   const shownMax = results.shortAnswersLocked ? mcqMax : results.maxScore;
   const shownPercent = shownMax ? Math.round((results.score / shownMax) * 100) : 0;
   const brag = results.beatPercent !== null && results.beatPercent >= 50 ? ` I beat ${results.beatPercent}% of people who tried it.` : "";
-  const share = `https://wa.me/?text=${encodeURIComponent(`I just scored ${percent}% on MedQrown's free ${subject} challenge.${brag} Think you can beat me? ${window.location.origin}/demo?src=share`)}`;
+  const shareUrl = `${window.location.origin}/demo?src=share`;
+  const shareText = `I just scored ${percent}% on MedQrown's free ${subject} challenge.${brag} Think you can beat me?`;
+  const share = `https://wa.me/?text=${encodeURIComponent(`${shareText} ${shareUrl}`)}`;
+  const shareNow = async () => {
+    if (navigator.share) {
+      try { await navigator.share({ title: "MedQrown free challenge", text: shareText, url: shareUrl }); return; }
+      catch (e: any) { if (e?.name === "AbortError") return; }
+    }
+    window.open(share, "_blank", "noopener");
+  };
 
   return (
     <motion.section initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
@@ -408,7 +419,7 @@ function ResultsView({ results, perks, subject, nextCohortStart, onRetry }: {
           </div>
         </div>
         <p className="text-lg font-bold">{results.shortAnswersLocked ? "Here's your multiple-choice score." : verdictLine(percent)}</p>
-        {results.beatPercent !== null && (
+        {results.beatPercent !== null && results.beatPercent >= 1 && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.9 }}
             className="mx-auto mt-6 max-w-sm border-t pt-5">
             {results.beatPercent >= 1 ? (
@@ -416,12 +427,19 @@ function ResultsView({ results, perks, subject, nextCohortStart, onRetry }: {
                 <p className="text-4xl font-black text-primary">{results.beatPercent}%</p>
                 <p className="mt-1 text-sm text-muted-foreground">of people who took this challenge scored lower than you</p>
               </>
-            ) : <p className="text-sm text-muted-foreground">Everyone starts somewhere. Members improve fast.</p>}
+            ) : null}
           </motion.div>
         )}
         {results.shortAnswersLocked && (
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">Short answers are marked by our examiners' AI, and today's free marking is used up. Sign up to get every answer marked and explained.</p>
         )}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="[&>a]:block"><RegistrationCta size="lg" className="h-12 w-full rounded-lg" /></div>
+        <Button size="lg" variant="outline" onClick={shareNow} className="h-12 w-full gap-2 rounded-lg border-primary/40 font-semibold">
+          <Share2 className="h-4 w-4" /> Challenge a classmate
+        </Button>
       </div>
 
       <div className="space-y-4">
@@ -445,11 +463,9 @@ function ResultsView({ results, perks, subject, nextCohortStart, onRetry }: {
           className="mt-6 text-white/80" />
         <div className="mt-4 flex flex-col gap-3 sm:flex-row">
           <RegistrationCta size="lg" className="h-12 w-full rounded-lg bg-white text-[#0e3b37] hover:bg-teal-50 sm:w-auto" />
-          <a href={share} target="_blank" rel="noopener noreferrer" className="sm:w-auto">
-            <Button size="lg" variant="outline" className="h-12 w-full gap-2 rounded-lg border-white/40 bg-transparent text-white hover:bg-white/10 hover:text-white">
-              <MessageCircle className="h-4 w-4" /> Challenge a classmate
-            </Button>
-          </a>
+          <Button size="lg" variant="outline" onClick={shareNow} className="h-12 w-full gap-2 rounded-lg border-white/40 bg-transparent text-white hover:bg-white/10 hover:text-white sm:w-auto">
+            <Share2 className="h-4 w-4" /> Challenge a classmate
+          </Button>
         </div>
       </div>
 
@@ -458,6 +474,15 @@ function ResultsView({ results, perks, subject, nextCohortStart, onRetry }: {
         <div className="flex gap-2">
           <Button variant="ghost" onClick={onRetry} className="gap-1.5"><RotateCcw className="h-4 w-4" /> Try a new set</Button>
           <Link href="/"><Button variant="ghost">Back to home</Button></Link>
+        </div>
+      </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
+        <div className="mx-auto flex max-w-3xl items-center gap-2 px-4 py-3">
+          <div className="min-w-0 flex-1 [&>a]:block"><RegistrationCta size="lg" className="h-12 w-full rounded-lg" /></div>
+          <Button size="lg" variant="outline" onClick={shareNow} className="h-12 shrink-0 gap-2 rounded-lg border-primary/40 px-4 font-semibold" aria-label="Share the challenge">
+            <Share2 className="h-4 w-4" /><span className="hidden sm:inline">Share</span>
+          </Button>
         </div>
       </div>
     </motion.section>
@@ -506,11 +531,16 @@ function ReviewCard({ q, n, locked }: { q: ResultQuestion; n: number; locked: bo
         const label = p.content;
         return (
           <div key={i} className="space-y-2 border-t pt-3 first:border-0 first:pt-0">
-            {label && <p className="text-sm font-medium"><span className="font-bold text-primary">{part}</span>{label}</p>}
+            {label && <p className="text-sm font-medium">{!hasOwnLabel(label) && <span className="font-bold text-primary">{part}</span>}{label}</p>}
             <div className="rounded-xl bg-muted/50 p-3 text-sm"><p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Your answer</p>
               <p className="whitespace-pre-wrap">{p.answer || <span className="italic text-muted-foreground">Not answered</span>}</p>
             </div>
-            {lockedHere ? (
+            {!p.answer ? (
+              <div className="rounded-xl bg-red-500/10 p-3 text-sm">
+                <p className="mb-1 text-[11px] font-bold uppercase tracking-wider">Not answered · 0/{p.marks}</p>
+                {p.expectedAnswer && <p><span className="font-semibold">Expected answer: </span><span className="whitespace-pre-wrap">{p.expectedAnswer}</span></p>}
+              </div>
+            ) : lockedHere ? (
               <div className="relative overflow-hidden rounded-xl border border-primary/20 p-3">
                 <p className="select-none text-sm blur-[5px]" aria-hidden="true">Correct! The examiner's feedback and the key points you'd need for full marks appear here for members.</p>
                 <div className="absolute inset-0 flex items-center justify-center gap-2 bg-background/60 text-sm font-semibold"><Lock className="h-4 w-4 text-primary" /> Sign up to see this mark</div>

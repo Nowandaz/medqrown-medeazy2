@@ -333,12 +333,18 @@ export function registerDemoRoutes(app: Express, requireAdmin: RequestHandler): 
       const own = items.filter((i) => i.questionId === q.id);
       const parts = own.map((i) => {
         const v = verdict.get(i);
+        // Blank answers need no AI: they score zero and show the expected answer even when marking is locked.
+        if (!i.answer) {
+          return { id: i.partId, content: i.partContent, answer: "", marks: i.marks, awarded: 0, correct: false,
+            feedback: null, expectedAnswer: i.expected };
+        }
         const awarded = shortAnswersLocked ? null : v?.isCorrect ? i.marks : 0;
         if (awarded) score += awarded;
         return {
           id: i.partId, content: i.partContent, answer: i.answer, marks: i.marks, awarded,
           correct: shortAnswersLocked ? null : !!v?.isCorrect,
-          feedback: shortAnswersLocked ? null : !i.answer ? "Not answered." : v?.feedback || "",
+          feedback: shortAnswersLocked ? null : v?.feedback || "",
+          expectedAnswer: null,
         };
       });
       const awarded = shortAnswersLocked ? null : parts.reduce((sum, p) => sum + (p.awarded ?? 0), 0);

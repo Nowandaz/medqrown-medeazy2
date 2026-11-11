@@ -93,6 +93,13 @@ check("second go in 30 minutes is allowed", second.status === 200);
 const third = await v.call("POST", "/api/demo/start", {});
 check("third go in 30 minutes is refused politely", third.status === 429 && /breather|try again/i.test(third.data?.message || ""), third.data?.message);
 
+const blankVisitor = new Visitor();
+const blankStart = await blankVisitor.call("POST", "/api/demo/start", {});
+const blank = await blankVisitor.call("POST", "/api/demo/submit", { attemptId: blankStart.data.attemptId, answers: {} });
+const blankParts = blank.data.questions.find((q) => q.id === parts.id)?.parts ?? [];
+check("blank short answers score 0 and show the expected answer", blankParts.length === 2
+  && blankParts.every((p) => p.awarded === 0 && p.expectedAnswer) && blankParts[0].expectedAnswer === "C5-T1", JSON.stringify(blankParts));
+
 const stats = (await admin.call("GET", "/api/admin/demo")).data;
 check("admin sees starts by source", stats.stats.sources.some((s) => s.src === "e2e"));
 
