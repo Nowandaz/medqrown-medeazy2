@@ -5,6 +5,7 @@ import { MedQrownBrand } from "@/components/MedQrownBrand";
 import { getStudentAvatarUrl } from "@/lib/avatar";
 import { StudentNotifications } from "@/components/student/student-notifications";
 import { PushSubscriptionPrompt } from "@/components/student/push-subscription-prompt";
+import { RenewalBanner } from "@/components/student/renewal-banner";
 import { 
   LayoutDashboard, 
   BookOpen,
@@ -171,6 +172,7 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
       {/* Main Content (extra bottom space on phones for the tab bar) */}
       <main className="flex-1 overflow-y-auto pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">
         <div className="mx-auto max-w-5xl p-4 md:p-8">
+          <RenewalBanner />
           <PushSubscriptionPrompt />
           {children}
           <WelcomeTour user={user} />

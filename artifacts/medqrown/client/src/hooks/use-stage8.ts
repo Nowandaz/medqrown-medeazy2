@@ -7,6 +7,7 @@ export interface Stage8Membership {
   endDate: string;
   graceEndDate: string;
   daysRemaining?: number;
+  paused?: boolean;
   pendingPayment?: {
     id: number;
     code: string;
