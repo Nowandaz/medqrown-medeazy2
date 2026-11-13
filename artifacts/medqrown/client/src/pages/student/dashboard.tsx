@@ -90,25 +90,6 @@ export default function StudentDashboard() {
 
       {paused && pause && <PauseNotice pause={pause} />}
 
-      {membership?.status === "grace" && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-          <p className="text-sm text-amber-800 dark:text-amber-300 flex-1">
-            Your membership has ended. Renew by {formatCalendarDate(membership.graceEndDate)} to keep access.
-          </p>
-          <div className="sm:w-48"><RenewMembershipDialog /></div>
-        </div>
-      )}
-      {membership?.status === "expired" && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
-          <p className="text-sm text-red-800 dark:text-red-300 flex-1">
-            Your membership has expired, so exams are locked. Your past results are still here. Renew to jump back in.
-          </p>
-          <div className="sm:w-48"><RenewMembershipDialog /></div>
-        </div>
-      )}
-
       <div className="grid gap-4 md:grid-cols-2">
         {/* Up next: class session */}
         <Card className="border-primary/20" data-tour="next-session">
